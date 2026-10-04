@@ -4,21 +4,36 @@
 
 The implementation starts from `origin/main` commit
 `179af0890124a4dbccf1d16b15b05cf1b43479f2`, after spec 0020 landed. The binding
-contract is `docs/specs/0022-persistence-ports.md` (spec-frozen,
-operator-approved). Nothing in this work authorizes a mono-web migration,
-production database use, publishing or deployment.
+contract is the frozen spec `docs/specs/0022-persistence-ports.md`.
+Its original approval status comes from the contract at the base revision.
+This work does not authorize a mono-web migration, production database use,
+publishing, or deployment.
 
 | Ambiguity or conflict | Resolution |
 | --- | --- |
-| The initial brief requested spawned PostgreSQL, while spec 0022 §5 (`docs/specs/0022-persistence-ports.md:132`, after amendments) explicitly chooses PGlite. | The operator corrected the brief: the spec wins. Use fresh PGlite instances only; do not spawn PostgreSQL. PGlite runs the PostgreSQL engine, not a mock. |
-| Spec 0022 §6.9 (`docs/specs/0022-persistence-ports.md:146`, after amendments) includes ff-merge, while the assignment forbids this worker from merging. | The operator clarified that ff-merge is the separate landing step, ordered after review and run by a landing worker. This branch is committed but not merged or pushed. |
+| The initial brief requested spawned PostgreSQL, while spec 0022 §5 (`docs/specs/0022-persistence-ports.md:132`, after amendments) explicitly chooses PGlite. | The director corrected the brief: the spec wins. Use fresh PGlite instances only; do not spawn PostgreSQL. PGlite runs the PostgreSQL engine, not a mock. |
+| Spec 0022 §6.9 (`docs/specs/0022-persistence-ports.md:146`, after amendments) includes ff-merge, while the assignment forbids this worker from merging. | The director clarified that ff-merge is the separate landing step, ordered after review and run by a landing worker. This branch is committed but not merged or pushed. |
 | The generated-output sketch says “two files per project” but names files by port (`docs/specs/0022-persistence-ports.md:42–45`). | Emit a port/conformance pair for each declared port; methods are sorted by name, and filenames are determined by the port name. No adapter choice enters that derivation. |
 | The schema-expression helpers used by HTTP emission are internal (`packages/compiler/src/generate/emit.ts`), while spec 0022 §3 requires reuse and §7 forbids a core dependency on persistence. | Expose a curated generator-facing subset from the public compiler package and reuse the same helper implementations. The optional persistence package depends on core, never the reverse. |
-| The original §3 harness sketch (`docs/specs/0022-persistence-ports.md:61–63` before amendment) left `R` open although a generic `it.effect` must execute a closed program. | The operator approved an explicit dated §3 implementation amendment: the harness Layer exports the port and transaction services, `transact` retains those requirements, and leaf method `R` stays `never`. The separate `docs(specs):` amendment precedes all implementation commits. Generated scenario skips actually branch on `supportsConcurrentConnections`. |
-| The original §2 introduction promised decorator declaration-class equivalence, but `packages/frontend-ts/src/collect.ts:363–376` binds decorated static methods locally, and only builder `.declare()` sets external binding (`:647–654`). Decorated fields are rejected (`:378–390`), and TypeScript decorators cannot attach to abstract/`declare` members. | The operator approved the second item in the same dated amendment commit: builder `.declare()` is the supported port declaration spelling; local-body decorators diagnose EFFX3401. Decorator declaration-only ports are explicitly a non-goal, not future work. |
-| Original §4 G1 wording said a method fails with “a member”, but native Effect Cause may contain several typed Fail reasons; concurrent order is not deterministic. | The operator approved the third dated amendment item: every Fail reason must match declared schemas, while Die/Interrupt/undeclared reasons reject G1. G2 failure equality is a multiset with multiplicity preserved. Authored error scenarios and rollback sentinel remain single expected failures. |
+| The original §3 harness sketch (`docs/specs/0022-persistence-ports.md:61–63` before amendment) left `R` open although a generic `it.effect` must execute a closed program. | The director approved an explicit dated §3 implementation amendment: the harness Layer exports the port and transaction services, `transact` retains those requirements, and leaf method `R` stays `never`. The separate `docs(specs):` amendment precedes all implementation commits. Generated scenario skips actually branch on `supportsConcurrentConnections`. |
+| The original §2 introduction promised decorator declaration-class equivalence, but `packages/frontend-ts/src/collect.ts:363–376` binds decorated static methods locally, and only builder `.declare()` sets external binding (`:647–654`). Decorated fields are rejected (`:378–390`), and TypeScript decorators cannot attach to abstract/`declare` members. | The director approved the second item in the same dated amendment commit: builder `.declare()` is the supported port declaration spelling; local-body decorators diagnose EFFX3401. Decorator declaration-only ports are explicitly a non-goal, not future work. |
+| Original §4 G1 wording said a method fails with “a member”, but native Effect Cause may contain several typed Fail reasons; concurrent order is not deterministic. | The director approved the third dated amendment item: every Fail reason must match declared schemas, while Die/Interrupt/undeclared reasons reject G1. G2 failure equality is a multiset with multiplicity preserved. Authored error scenarios and rollback sentinel remain single expected failures. |
 | Schema encoders may map unequal Type values to the same encoded representation, so comparing encoded query results or domain expectations can certify false equality (`packages/persistence/src/conformance.ts`). | Use native `Schema.toEquivalence(Schema.toType(...))` for Type-side success/error values; do not compare incidental Error traces. The emitted-suite regressions exercise collapsing encoders and compound failure order/multiplicity. |
-| A new physical database per arbitrary sample exceeded the original deadline, while the contract assigns fresh storage per test. Reuse without a complete reset could hide sample leakage. | The operator approved per-test ownership only with an explicit reset proof: capture the empty-store snapshot before first seed, compare after every reset, then seed the next sample. Added required harness reset, real SQL reset and an incomplete-reset negative; arbitrary coverage and deadlines remain unchanged. |
+| A new physical database per arbitrary sample exceeded the original deadline, while the contract assigns fresh storage per test. Reuse without a complete reset could hide sample leakage. | The director approved per-test ownership only with an explicit reset proof: capture the empty-store snapshot before first seed, compare after every reset, then seed the next sample. Added required harness reset, real SQL reset and an incomplete-reset negative; arbitrary coverage and deadlines remain unchanged. |
+
+### Authority attribution correction — 2026-10-04
+
+The implementation rulings came from the director through `agent://Main`.
+The earlier attribution to the operator was incorrect. The director decided
+the database choice, landing ownership, harness typing, supported syntax,
+failure laws, and complete-reset requirement. The corresponding source messages
+start with “Slices approved”, “Ruling”, “Approve the native closed-channel
+interpretation”, and “Root cause accepted”. The director identified these
+messages as director decisions in the attribution-correction request.
+
+The base spec records an operator-approved freeze. This worker has no separate
+operator quotation for that historical claim. It is contract provenance, not
+evidence that the operator approved the implementation rulings.
 
 The existing annotation definition/implementation API and generator helpers are
 reused rather than introducing another annotation convention or SchemaRef

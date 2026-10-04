@@ -79,7 +79,7 @@ Methods are emitted sorted by name; the port types come from the same `SchemaRef
 
 ### Amendment (implementation) — 2026-10-04
 
-1. **§3 harness typing.** Operator-approved correction to the harness sketch
+1. **§3 harness typing.** Director-approved correction to the harness sketch
    above: `layer` is a closed `Layer<UsersPort | R, E>` root, `transact` returns
    `Effect<A, X | E, Rx | R>`, and `snapshot` is `Effect<Json, E, R>`.
    The original open `Layer<UsersPort, E, R>` cannot run in a generic `it.effect`;
@@ -107,6 +107,19 @@ Methods are emitted sorted by name; the port types come from the same `SchemaRef
    This must reject incomplete resets so one sample cannot leak into the next.
    The root must never be shared across distinct tests; sample resource scopes
    and arbitrary-run counts remain unchanged.
+
+### Attribution correction — 2026-10-04
+
+The implementation amendment in commit `ed412fe` incorrectly called the harness
+correction operator-approved. The director approved that correction through
+`agent://Main`. The director also decided amendment items 2–4 and the PGlite-only
+implementation and separate landing procedure. These are director decisions,
+not independently observed operator approvals. This note corrects attribution
+without rewriting that commit or changing the accepted contract.
+
+The original frozen status and operator premise precede this implementation.
+They remain historical claims from the base specification, not evidence of
+operator approval for these amendments.
 
 ## 4. The conformance suite
 
