@@ -1,4 +1,4 @@
-import { Option, Result, Schema } from "effect";
+import { Option, Order, Result, Schema } from "effect";
 import { error, warning, type Diagnostic } from "@effx/compiler";
 import { IRGraph, type ApplicationIR, type GraphIndex, type OperationNode } from "@effx/ir";
 
@@ -14,8 +14,11 @@ export interface PersistencePort {
   readonly methods: ReadonlyArray<PortMethod>;
 }
 
-/** Deterministic filenames retain punctuation without admitting path traversal. */
-export const portFile = (name: string): string => encodeURIComponent(name).toLowerCase();
+/** Total UTF-16 escaping gives deterministic filenames without admitting path traversal. */
+export const portFile = (name: string): string =>
+  name
+    .replace(/[^a-z0-9_-]/gi, (character) => `_${character.charCodeAt(0).toString(16)}_`)
+    .toLowerCase();
 
 export interface PortsResult {
   readonly ports: ReadonlyArray<PersistencePort>;
@@ -97,8 +100,8 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
 
   const sorted = Array.from(ports, ([name, methods]) => ({
     name,
-    methods: methods.toSorted((a, b) => a.name.localeCompare(b.name)),
-  })).toSorted((a, b) => a.name.localeCompare(b.name));
+    methods: methods.toSorted((a, b) => Order.String(a.name, b.name)),
+  })).toSorted((a, b) => Order.String(a.name, b.name));
 
   for (const port of sorted) {
     const file = portFile(port.name);

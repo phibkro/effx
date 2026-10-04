@@ -21,7 +21,7 @@ import {
 } from "@effx/ir";
 import { persistenceExtension } from "@effx/persistence/compiler";
 import { persistenceGenerator } from "../src/generate.ts";
-import { portsOf } from "../src/ports.ts";
+import { portFile, portsOf } from "../src/ports.ts";
 
 const ref = (name: string): SchemaRef => ({
   module: "schemas",
@@ -324,6 +324,16 @@ describe("persistence compiler", () => {
         assert.strictEqual(reads, 0);
         assert.strictEqual((yield* program).length, 2);
         assert.isAbove(reads, 0);
+      }),
+  );
+  it.effect.prop(
+    "port filenames are total for all Schema strings and cannot traverse directories",
+    [Schema.String],
+    ([name]) =>
+      Effect.sync(() => {
+        assert.match(portFile(name), /^[a-z0-9_-]*$/);
+        assert.strictEqual(portFile("Users"), "users");
+        assert.strictEqual(portFile("\ud800"), "_d800_");
       }),
   );
 });
