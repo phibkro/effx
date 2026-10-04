@@ -47,8 +47,11 @@ jobs:
             if [[ "$root_commit" != "$HEAD_SHA" ]]; then
               bun --bun commitlint --from "$root_commit" --to "$HEAD_SHA" --verbose
             fi
-          else
+          elif git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
             bun --bun commitlint --from "$BEFORE_SHA" --to "$HEAD_SHA" --verbose
+          else
+            echo "Notice: BEFORE_SHA $BEFORE_SHA is unreachable; linting only pushed HEAD commit."
+            git show -s --format=%B "$HEAD_SHA" | bun --bun commitlint
           fi
       - name: Build users example
         run: bun run --cwd examples/users effx:build
