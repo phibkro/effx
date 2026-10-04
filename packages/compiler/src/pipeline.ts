@@ -16,6 +16,7 @@ import { SourceFrontend } from "./SourceFrontend.ts";
 import { operationIdOf } from "./extensions/core.ts";
 import { definitionDiagnostics, definitionsOf } from "./annotation.ts";
 import { unsupportedModules } from "./generate/target.ts";
+import { httpApiInventoryDiagnostics } from "./http-api-inventory.ts";
 
 /** @internal */
 export interface CompileResult {
@@ -161,6 +162,8 @@ export const generate = Effect.fn("generate")(function* (
   return generated.flat().toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 });
 
+type GenerationContextDraft = { -readonly [K in keyof GenerationContext]: GenerationContext[K] };
+
 /**
  * The pipeline after collection; usable without a `SourceFrontend` (tests, cached IR).
  *
@@ -177,10 +180,13 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
   const analysis = analyze(ir, index, extensions, context);
   const base = collected.project ?? defaultGenerationContext;
 
-  const generationContext: GenerationContext =
-    collected.resolveEffectModule === undefined
-      ? base
-      : { ...base, resolveEffectModule: collected.resolveEffectModule };
+  const generationContext: GenerationContextDraft = { ...base };
+
+  if (collected.resolveEffectModule !== undefined)
+    generationContext.resolveEffectModule = collected.resolveEffectModule;
+
+  if (collected.httpApiGroups !== undefined)
+    generationContext.httpApiGroups = collected.httpApiGroups;
 
   const sourceLocation = collected.declarations.find(
     (declaration) => declaration.location !== undefined,
@@ -199,6 +205,7 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
     ...irStage.diagnostics,
     ...analysis,
     ...importDiagnostics,
+    ...httpApiInventoryDiagnostics(ir, generationContext),
   ];
 
   const files = hasErrors(diagnostics)

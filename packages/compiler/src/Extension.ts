@@ -1,7 +1,7 @@
 import type { Effect, Option } from "effect";
 import type { DefinitionData } from "@effx/runtime";
 import type { ApplicationIR, Edge, GraphIndex, Node, OperationNode, StableId } from "@effx/ir";
-import type { Annotation, Collected, Declaration } from "./Collected.ts";
+import type { Annotation, Collected, Declaration, HttpApiGroupInventory } from "./Collected.ts";
 import type { EmitMode, TargetProfile } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
@@ -101,6 +101,8 @@ export interface GenerationContext {
   readonly outputDir?: string;
   /** Runtime-only target-project resolver; never part of serialized IR or project settings. */
   readonly resolveEffectModule?: (specifier: string) => boolean;
+  /** Checker-proven concrete root groups, outside the IR and semantic hash. */
+  readonly httpApiGroups?: ReadonlyArray<HttpApiGroupInventory>;
   /** The extensions' endpoint fragments in extension-list order; `generate` fills it from the extensions. */
   readonly fragments?: ReadonlyArray<EndpointFragment>;
 }

@@ -63,6 +63,15 @@ const source = (
 ): Collected => ({
   declarations,
   diagnostics: [],
+  httpApiGroups: [
+    ...new Set(
+      declarations.flatMap((declaration) =>
+        declaration.id.startsWith("group:")
+          ? [declaration.id.slice(declaration.id.lastIndexOf("/") + 1)]
+          : [],
+      ),
+    ),
+  ].map((group) => ({ root: root.ref, group, endpoints: ["list"] })),
   project: {
     target: "effect-4.0",
     emit,

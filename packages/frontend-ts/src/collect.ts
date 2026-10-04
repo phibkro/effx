@@ -708,11 +708,12 @@ export const collect = (
 ): Collected => {
   const appliedUses: Array<AppliedUse> = [];
   const spreads: NonNullable<Collected["spreads"]>[number][] = [];
+  const httpApiGroups: NonNullable<Collected["httpApiGroups"]>[number][] = [];
 
   const resolver: Resolver =
     definitions === undefined
-      ? { ...baseResolver, appliedUses, spreads }
-      : { ...baseResolver, definitions, appliedUses, spreads };
+      ? { ...baseResolver, appliedUses, spreads, httpApiGroups }
+      : { ...baseResolver, definitions, appliedUses, spreads, httpApiGroups };
 
   const sink: Sink = { declarations: [], diagnostics: [] };
   const rootDir = resolver.project.rootDir;
@@ -788,6 +789,8 @@ export const collect = (
   };
 
   if (spreads.length > 0) result.spreads = spreads;
+
+  if (httpApiGroups.length > 0) result.httpApiGroups = httpApiGroups;
 
   return result;
 };

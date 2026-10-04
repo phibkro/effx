@@ -218,6 +218,13 @@ const source = (
     operation(dense, "direct", "Get", "Query", true, association),
   ],
   diagnostics: [],
+  httpApiGroups: [
+    {
+      root: root.ref,
+      group: "directory",
+      endpoints: ["lookup", "list", "create", "edit", "direct"],
+    },
+  ],
 });
 
 const errors = (result: {

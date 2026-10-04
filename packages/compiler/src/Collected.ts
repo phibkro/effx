@@ -172,7 +172,16 @@ export const Collected = Schema.Struct({
  */
 export type Collected = typeof Collected.Type & {
   readonly resolveEffectModule?: (specifier: string) => boolean;
+  /** Checker-proven concrete root endpoint maps; never semantic IR. */
+  readonly httpApiGroups?: ReadonlyArray<HttpApiGroupInventory>;
 };
+
+/** Inventory keyed by the same canonical symbol as HttpGroup.rootSymbol. */
+export interface HttpApiGroupInventory {
+  readonly root: SymbolRef;
+  readonly group: string;
+  readonly endpoints: ReadonlyArray<string>;
+}
 
 export const ProjectConfig = Schema.Struct({
   tsconfigPath: Schema.String,

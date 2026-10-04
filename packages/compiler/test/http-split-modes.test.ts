@@ -17,6 +17,7 @@ import { problemContract } from "../src/extensions/problem-contract.ts";
 import type { ProblemContractData } from "../src/extensions/problem-contract.ts";
 import { Imports } from "../src/generate/emit.ts";
 import { httpGenerator } from "../src/generate/http.ts";
+import { endpointKey, httpGroups, httpItems } from "../src/generate/http-contracts.ts";
 
 type HttpContractDraft = { -readonly [K in keyof HttpContractData]: HttpContractData[K] };
 
@@ -147,6 +148,25 @@ const target = (emit: "contract" | "handlers" | "all") => ({
   target: "effect-4.0" as const,
   emit,
   allowImportingTsExtensions: false,
+});
+
+/** Hand-authored fixture IR explicitly declares complete endpoint ownership. Never a production fallback. */
+const fixtureTarget = Effect.fnUntraced(function* (
+  ir: ApplicationIR,
+  emit: "contract" | "handlers" | "all",
+) {
+  const items = yield* httpItems(ir, IRGraph.toGraph(ir));
+
+  return {
+    ...target(emit),
+    httpApiGroups: httpGroups(items, ir).flatMap((group) => {
+      const root = group.metadata?.rootSymbol;
+
+      return root === undefined
+        ? []
+        : [{ root, group: group.group, endpoints: group.items.map(endpointKey) }];
+    }),
+  };
 });
 
 const httpDiagnostics = (ir: ApplicationIR) =>
@@ -357,7 +377,13 @@ describe("split HTTP projections", () => {
         const ir = profileIr("ProfileReadOwnProfileProblem");
         assert.deepStrictEqual(httpDiagnostics(ir), []);
         assert.deepStrictEqual(problemsDiagnostics(ir), []);
-        const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("contract"));
+
+        const files = yield* httpGenerator(
+          ir,
+          IRGraph.toGraph(ir),
+          yield* fixtureTarget(ir, "contract"),
+        );
+
         assert.deepStrictEqual(
           files.map((file) => file.path),
           ["profile-contract.ts"],
@@ -386,7 +412,13 @@ describe("split HTTP projections", () => {
   it.effect("handlers mode binds the concrete root and keeps guards lazy", () =>
     Effect.gen(function* () {
       const ir = profileIr();
-      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("handlers"));
+
+      const files = yield* httpGenerator(
+        ir,
+        IRGraph.toGraph(ir),
+        yield* fixtureTarget(ir, "handlers"),
+      );
+
       assert.deepStrictEqual(
         files.map((file) => file.path),
         ["profile-handlers.ts"],
@@ -420,7 +452,13 @@ describe("split HTTP projections", () => {
     () =>
       Effect.gen(function* () {
         const ir = profileIr();
-        const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("all"));
+
+        const files = yield* httpGenerator(
+          ir,
+          IRGraph.toGraph(ir),
+          yield* fixtureTarget(ir, "all"),
+        );
+
         assert.deepStrictEqual(
           files.map((file) => file.path),
           ["profile-contract.ts", "profile-handlers.ts"],
@@ -481,7 +519,12 @@ describe("split HTTP projections", () => {
         ),
       );
 
-      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("handlers"));
+      const files = yield* httpGenerator(
+        ir,
+        IRGraph.toGraph(ir),
+        yield* fixtureTarget(ir, "handlers"),
+      );
+
       const contents = files[0]!.contents;
       assert.include(contents, "R0 = unknown> = {");
       assert.include(
@@ -510,7 +553,12 @@ describe("split HTTP projections", () => {
         source.edges,
       );
 
-      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("handlers"));
+      const files = yield* httpGenerator(
+        ir,
+        IRGraph.toGraph(ir),
+        yield* fixtureTarget(ir, "handlers"),
+      );
+
       const contents = files[0]!.contents;
       assert.include(
         contents,
@@ -557,7 +605,7 @@ describe("split HTTP projections", () => {
         [...first.edges, ...other.edges],
       );
 
-      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("all"));
+      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), yield* fixtureTarget(ir, "all"));
       assert.deepStrictEqual(
         files.map((file) => file.path),
         [
@@ -589,7 +637,12 @@ describe("split HTTP projections", () => {
         operations.flatMap((item) => item.edges),
       );
 
-      const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target("contract"));
+      const files = yield* httpGenerator(
+        ir,
+        IRGraph.toGraph(ir),
+        yield* fixtureTarget(ir, "contract"),
+      );
+
       assert.deepStrictEqual(
         files.map((file) => file.path),
         ["profile-contract.ts"],
@@ -671,7 +724,7 @@ describe("split HTTP projections", () => {
       const groupNames = ['"profile"', '"profile"', '"a-profile"', '"a-profile-2"'];
 
       for (const emit of ["contract", "handlers", "all"] as const) {
-        const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), target(emit));
+        const files = yield* httpGenerator(ir, IRGraph.toGraph(ir), yield* fixtureTarget(ir, emit));
         const suffixes = emit === "all" ? ["contract", "handlers"] : [emit];
         assert.deepStrictEqual(
           files.map((file) => file.path),
@@ -687,6 +740,32 @@ describe("split HTTP projections", () => {
           }
         }
       }
+    }),
+  );
+});
+
+describe("direct handler generation inventory precondition", () => {
+  it.effect("does not guess a concrete root is complete without a proven inventory", () =>
+    Effect.gen(function* () {
+      const ir = profileIr();
+      const index = IRGraph.toGraph(ir);
+      const missing = yield* httpGenerator(ir, index, target("handlers"));
+      assert.deepStrictEqual(missing, []);
+      const context = yield* fixtureTarget(ir, "handlers");
+
+      const ambiguous = yield* httpGenerator(ir, index, {
+        ...context,
+        httpApiGroups: [...context.httpApiGroups, ...context.httpApiGroups],
+      });
+
+      assert.deepStrictEqual(ambiguous, []);
+
+      const absent = yield* httpGenerator(ir, index, {
+        ...context,
+        httpApiGroups: context.httpApiGroups.map((entry) => ({ ...entry, endpoints: [] })),
+      });
+
+      assert.deepStrictEqual(absent, []);
     }),
   );
 });

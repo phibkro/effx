@@ -78,6 +78,8 @@ export {
 
 export { DiagnosticCode, StageResult } from "./Diagnostic.ts";
 
+export type { HttpApiGroupInventory } from "./Collected.ts";
+
 export { defaultGenerationContext } from "./Extension.ts";
 
 export type { InterpretContext, AnalysisContext, GenerationContext } from "./Extension.ts";
