@@ -55,7 +55,7 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
     const port = data.success.port;
     const name = owner.name.startsWith(`${port}.`) ? owner.name.slice(port.length + 1) : "";
 
-    if (port.length === 0 || name.length === 0) {
+    if (name.length === 0) {
       diagnostics.push(
         error("EFFX3403", `${owner.name}: port methods must be named ${port}.<method>`),
       );
