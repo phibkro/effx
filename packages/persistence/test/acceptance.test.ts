@@ -21,6 +21,7 @@ import {
   conformanceProgram,
   equalityDeclarations,
   equalityProgram,
+  incompleteResetProgram,
   interruptionProgram,
   liveJourneyProgram,
   misMappedProgram,
@@ -174,7 +175,12 @@ const typecheck = Effect.fnUntraced(function* (fixture: Workspace, config = fixt
   );
 });
 
-const suite = Effect.fnUntraced(function* (fixture: Workspace, name: string, program: string) {
+const suite = Effect.fnUntraced(function* (
+  fixture: Workspace,
+  name: string,
+  program: string,
+  testNamePattern?: string,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const test = path.join(fixture.project, `${name}.acceptance.test.ts`);
@@ -209,10 +215,18 @@ export default defineConfig({
 });\n`,
   );
 
-  const result = yield* subprocess(
-    ["bun", "--bun", `${repoRoot}node_modules/.bin/vitest`, "run", "--config", config],
-    fixture.project,
-  );
+  const command: [string, ...Array<string>] = [
+    "bun",
+    "--bun",
+    `${repoRoot}node_modules/.bin/vitest`,
+    "run",
+    "--config",
+    config,
+  ];
+
+  if (testNamePattern !== undefined) command.push("--testNamePattern", testNamePattern);
+
+  const result = yield* subprocess(command, fixture.project);
 
   assert.isTrue(yield* fs.exists(reportFile), result.text);
   const report = yield* fs.readFileString(reportFile).pipe(Effect.flatMap(decodeReport));
@@ -598,6 +612,44 @@ export class LocalUsers {
         }
       }).pipe(Effect.provide(Services)),
     180_000,
+  );
+
+  it.live(
+    "generated G1 rejects an incomplete reset before reseeding the next sample",
+    () =>
+      Effect.gen(function* () {
+        const fixture = yield* workspace();
+        yield* generate(fixture);
+
+        const result = yield* suite(
+          fixture,
+          "incomplete-reset",
+          incompleteResetProgram,
+          "G1 closed error channel: find$",
+        );
+
+        assert.notStrictEqual(result.code, 0, result.text);
+        assert.strictEqual(result.report.numFailedTests, 1, result.text);
+
+        const failures = result.report.testResults.flatMap((file) =>
+          file.assertionResults.filter((test) => test.status === "failed"),
+        );
+
+        assert.strictEqual(failures.length, 1, result.text);
+
+        const failure = failures[0];
+
+        if (failure === undefined) assert.fail("Expected the generated incomplete-reset failure");
+
+        assert.match(failure.fullName, /broken incomplete reset.*G1 closed error channel: find$/);
+        assert.isTrue(
+          failure.failureMessages.some((message) =>
+            message.includes("Conformance reset did not restore the empty store"),
+          ),
+          failure.failureMessages.join("\n"),
+        );
+      }).pipe(Effect.provide(Services)),
+    120_000,
   );
 
   it.live(
