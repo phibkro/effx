@@ -299,6 +299,57 @@ export { invalid };
 
 // Every test below defends a frozen §6 falsifier, using the generated suite itself for properties.
 describe("spec 0022 executable acceptance", () => {
+  it.effect(
+    "rejects a real decorated local-bodied port method through the TypeScript frontend",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fixture = yield* workspace();
+
+        yield* fs.writeFileString(
+          path.join(fixture.project, "src/decorated-local-port.ts"),
+          `import { Query } from "@effx/runtime";
+import { Persist } from "@effx/persistence/syntax";
+import { Effect } from "effect";
+import { GetUserInput, UserNotFound } from "@effx-examples/users/schemas";
+import { User } from "@effx-examples/users/user";
+
+export class LocalUsers {
+  @Query({ name: "Users.find", input: GetUserInput, success: User })
+  @Persist.Port({ port: "Users" })
+  static find(input: typeof GetUserInput.Type) {
+    return Effect.gen(function* () {
+      if (input.id === "missing") return yield* new UserNotFound({ id: input.id });
+      return new User({ id: input.id, email: "local@example.com", displayName: "Local" });
+    });
+  }
+}
+`,
+        );
+
+        const result = yield* compile(
+          {
+            tsconfigPath: fixture.tsconfigPath,
+            entry: ["src/decorated-local-port.ts"],
+            projectRoot: path.join(fixture.directory, "examples"),
+            outDir: path.join(fixture.project, ".effx/generated"),
+          },
+          extensions,
+        );
+
+        const rejection = result.diagnostics.find((diagnostic) => diagnostic.code === "EFFX3401");
+        assert.isDefined(
+          rejection,
+          result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
+        );
+        assert.strictEqual(rejection!.severity, "error");
+        assert.isTrue(Option.isSome(result.collected.value));
+        assert.isTrue(Option.isNone(result.files.value));
+      }).pipe(Effect.provide(Services)),
+    120_000,
+  );
+
   it.live(
     "both fresh PGlite adapters pass generated G1-G4 and shared typed unique scenarios",
     () =>
