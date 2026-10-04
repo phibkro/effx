@@ -14,7 +14,10 @@ import type { DetailedError } from "@cedar-policy/cedar-wasm/nodejs";
  * never from `type`.
  */
 
-export const CEDAR_WASM_INSTALL = "bun add @cedar-policy/cedar-wasm@4.13.0";
+/** The one pin; a test ties it to the package manifests, the lockfile and the installed package. */
+export const CEDAR_WASM_VERSION = "4.13.0";
+
+export const CEDAR_WASM_INSTALL = `bun add @cedar-policy/cedar-wasm@${CEDAR_WASM_VERSION}`;
 
 export interface CedarIssue {
   readonly policyId?: string;

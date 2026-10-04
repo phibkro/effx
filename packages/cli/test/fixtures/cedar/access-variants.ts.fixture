@@ -1,0 +1,92 @@
+import { Capability, Command, Concealment, Http, Query } from "@effx/runtime";
+import { Effect } from "effect";
+import {
+  type Authorize,
+  CurrentAccount,
+  NoScope,
+  ReadSettingsInput,
+  SessionSecurity,
+  SettingsPatch,
+  SettingsResponse,
+  SharedWorkspace,
+  WriteHeaders,
+  settingsAccessAnnotations,
+} from "./fixtures/settings.ts";
+
+/*
+ * Spec 0017 CLI fixture: every capability expression and a parameterized requirement, in the
+ * decorator style of 02_access.ts. Copied to `src/access-variants.ts` by the test.
+ */
+export class VariantAccessOperations {
+  @Query({ name: "settings.readShared", input: ReadSettingsInput, success: SettingsResponse })
+  @Http.Get("/api/shared/settings")
+  @Http.Contract({ group: "shared", success: SettingsResponse, middleware: [SessionSecurity] })
+  @Http.Access({
+    annotator: settingsAccessAnnotations,
+    exposure: "External",
+    acceptedCredentials: ["BetterAuthCookie"],
+    principalKinds: ["Person", "ServicePrincipal"],
+    capabilities: Capability.any("settings.read", "settings.admin"),
+    requirements: [{ id: "workspace.member", parameters: { role: "viewer" } }],
+    canonicalScopeResolver: SharedWorkspace,
+    concealment: Concealment.notFound("membership", "capability"),
+    decisionTime: "SnapshotRead",
+  })
+  static readShared(_input: typeof ReadSettingsInput.Type, authorize: Authorize) {
+    return Effect.gen(function* () {
+      yield* authorize();
+
+      return { theme: "light" as const };
+    });
+  }
+
+  @Query({ name: "settings.health", input: ReadSettingsInput, success: SettingsResponse })
+  @Http.Get("/api/shared/health")
+  @Http.Contract({ group: "shared", success: SettingsResponse })
+  @Http.Access({
+    annotator: settingsAccessAnnotations,
+    exposure: "External",
+    acceptedCredentials: ["None"],
+    principalKinds: ["Anonymous"],
+    capabilities: Capability.none,
+    requirements: [],
+    canonicalScopeResolver: NoScope,
+    concealment: Concealment.reveal,
+    decisionTime: "SnapshotRead",
+  })
+  static health(_input: typeof ReadSettingsInput.Type, authorize: Authorize) {
+    return Effect.gen(function* () {
+      yield* authorize();
+
+      return { theme: "light" as const };
+    });
+  }
+
+  @Command({ name: "settings.reset", input: SettingsPatch, success: SettingsResponse })
+  @Http.Post("/api/shared/settings/reset")
+  @Http.Contract({
+    group: "shared",
+    headers: WriteHeaders,
+    payload: SettingsPatch,
+    success: SettingsResponse,
+    middleware: [SessionSecurity],
+  })
+  @Http.Access({
+    annotator: settingsAccessAnnotations,
+    exposure: "External",
+    acceptedCredentials: ["BetterAuthCookie"],
+    principalKinds: ["Person"],
+    capabilities: Capability.all("settings.write", "settings.admin"),
+    requirements: [],
+    canonicalScopeResolver: CurrentAccount,
+    concealment: Concealment.reveal,
+    decisionTime: "Transaction",
+  })
+  static reset(input: typeof SettingsPatch.Type, authorize: Authorize) {
+    return Effect.gen(function* () {
+      yield* authorize();
+
+      return { theme: input.theme };
+    });
+  }
+}

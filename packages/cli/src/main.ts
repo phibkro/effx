@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /** @effect-diagnostics unstableApiUsage:off -- effect/cli is the only CLI framework; registered in AGENTS.md */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { EmitMode, TargetProfile } from "@effx/compiler";
+import { DEFAULT_CEDAR_NAMESPACE, EmitMode, TargetProfile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { Effect, Layer, Option } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
@@ -15,6 +15,8 @@ import {
   inspectCommand,
   resolveProject,
 } from "./commands.ts";
+import { cedarCommand } from "./cedar.ts";
+import { CedarWasm } from "./cedar-validate.ts";
 import { surfaceCheck } from "./surface.ts";
 
 const versions: Versions = {
@@ -35,16 +37,20 @@ const root = Command.make("effx").pipe(
   Command.withDescription("AOT application compiler for Effect"),
 );
 
-const selectedProject = Effect.fnUntraced(function* () {
+/**
+ * `effx cedar` takes `--out-dir` as its own output directory and offers no access gate (spec 0017
+ * §4), so it resolves the project without those two shared flags.
+ */
+const selectedProject = Effect.fnUntraced(function* (ownsOutDirAndAccessGate = false) {
   const flags = yield* root;
 
   return yield* resolveProject(
     Option.getOrElse(flags.project, () => "tsconfig.json"),
-    Option.getOrUndefined(flags.strictAccess),
+    ownsOutDirAndAccessGate ? undefined : Option.getOrUndefined(flags.strictAccess),
     Option.getOrUndefined(flags.target),
     Option.getOrUndefined(flags.emit),
     Option.getOrUndefined(flags.config),
-    Option.getOrUndefined(flags.outDir),
+    ownsOutDirAndAccessGate ? undefined : Option.getOrUndefined(flags.outDir),
     Option.isSome(flags.project),
   );
 });
@@ -80,14 +86,40 @@ const surfaceCli = Command.make("surface").pipe(
   Command.withDescription("Surface manifest tools (spec 0021)"),
 );
 
+const cedarCli = Command.make(
+  "cedar",
+  {
+    namespace: Flag.String("namespace").pipe(Flag.withDefault(DEFAULT_CEDAR_NAMESPACE)),
+    policies: Flag.String("policies").pipe(Flag.atLeast(0)),
+    denyWarnings: Flag.Boolean("deny-warnings").pipe(Flag.withDefault(false)),
+  },
+  ({ namespace, policies, denyWarnings }) =>
+    Effect.gen(function* () {
+      const flags = yield* root;
+      const resolved = yield* selectedProject(true);
+
+      return yield* cedarCommand(resolved, {
+        namespace,
+        policies,
+        denyWarnings,
+        outDir: Option.getOrUndefined(flags.outDir),
+      });
+    }),
+).pipe(
+  Command.withDescription(
+    "Project capabilities and access contracts to a Cedar schema and policies, validated by Cedar (spec 0017)",
+  ),
+);
+
 const Services = Layer.mergeAll(
   TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
   BunServices.layer,
+  CedarWasm,
 );
 
 BunRuntime.runMain(
   root.pipe(
-    Command.withSubcommands([checkCli, buildCli, inspectCli, graphCli, surfaceCli]),
+    Command.withSubcommands([checkCli, buildCli, inspectCli, graphCli, surfaceCli, cedarCli]),
     Command.run({ version: versions.effx }),
     Effect.provide(Services),
   ),
