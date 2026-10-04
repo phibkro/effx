@@ -150,6 +150,18 @@ describe("persistence compiler", () => {
         assert.include(suite!.contents, "G2 query purity: find");
         assert.include(suite!.contents, "G3 rollback successful command: setEmail");
         assert.include(suite!.contents, "G4 shared transaction rollback: setDisplayName+setEmail");
+        assert.include(
+          suite!.contents,
+          [
+            "assertClosed(first, m1Success, m1Error);",
+            "          if (Exit.isSuccess(first)) {",
+            '            const second = yield* Effect.exit(port["setEmail"](b));',
+            "            assertClosed(second, m2Success, m2Error);",
+            "          }",
+            "          return yield* Effect.fail(rollback);",
+          ].join("\n"),
+          "G4 must short-circuit the second command on a declared first failure, including an aborted SQL transaction",
+        );
         assert.include(suite!.contents, "G4 shared transaction commit: setDisplayName+setEmail");
         assert.include(suite!.contents, "yield* scenario.observe");
         assert.include(
