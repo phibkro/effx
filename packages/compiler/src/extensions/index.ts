@@ -23,6 +23,9 @@ export {
   rpc,
 };
 
+/** The schema of the `AccessContract` extension data; readers of the IR decode with it. */
+export { AccessContractData } from "./access-contract.ts";
+
 export { operationIdOf } from "./core.ts";
 
 /** Built-ins interpret both transport exposures and their graph-owned contract metadata. */
