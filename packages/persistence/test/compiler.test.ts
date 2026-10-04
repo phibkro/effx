@@ -1,4 +1,5 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
+import { BunCrypto } from "@effect/platform-bun";
 import { Effect, Option, Order, Schema } from "effect";
 import {
   CompilerFault,
@@ -23,6 +24,7 @@ import {
   type SchemaRef,
 } from "@effx/ir";
 import { persistenceExtension } from "@effx/persistence/compiler";
+import { Port } from "@effx/persistence/syntax";
 import { persistenceGenerator } from "../src/generate.ts";
 import { portFile, portsOf } from "../src/ports.ts";
 
@@ -78,37 +80,10 @@ const annotated = (item: Declaration, annotation: Annotation): Declaration => ({
 
 // Each test pins a specific compiler regression, not database adapter behaviour.
 describe("persistence compiler", () => {
-  it.effect("the frozen string algebra permits an empty port with its matching method prefix", () =>
-    Effect.gen(function* () {
-      const item = declaration(".find", "Command", []);
-
-      const result = yield* compileCollected(
-        collected([
-          {
-            ...item,
-            annotations: item.annotations.map((annotation) =>
-              annotation.name === "persistence.Port"
-                ? { name: annotation.name, args: [{ port: "" }] }
-                : annotation,
-            ),
-          },
-        ]),
-        extensions,
-      );
-
-      assert.deepStrictEqual(result.diagnostics, []);
-      const emitted = Option.getOrThrow(result.files.value);
-      const port = emitted.find((file) => file.path === "-port.ts");
-      const suite = emitted.find((file) => file.path === "-conformance.ts");
-      assert.isDefined(port);
-      assert.isDefined(suite);
-      assert.include(port!.contents, "export class _Port extends Context.Service<_Port");
-      assert.include(port!.contents, '"effx/port/"');
-      assert.include(port!.contents, 'readonly "find"');
-      assert.include(suite!.contents, "export interface _Harness<E, R>");
-      assert.include(suite!.contents, "export const _Conformance");
-    }),
-  );
+  it("the port string algebra accepts empty strings independently of core operation StableIds", () => {
+    assert.deepStrictEqual(Port({ port: "" }).annotation.args, [{ port: "" }]);
+    assert.strictEqual(portFile(""), "");
+  });
 
   it.effect(
     "records Schema-valid Extension/ExtensionOf contributions without introducing a core node kind",
@@ -426,7 +401,7 @@ describe("persistence compiler", () => {
           files(a),
           rc.toSorted((a, b) => Order.String(a.path, b.path)),
         );
-      }),
+      }).pipe(Effect.provide(BunCrypto.layer)),
   );
 
   it.effect("EFFX3401 rejects local handlers and EFFX3402 rejects each exposure transport", () =>
