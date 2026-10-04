@@ -55,6 +55,13 @@ domain scenarios for seed data, expected successes, which inputs raise declared
 errors, and the commit observer. The harness owns isolation and the common
 transaction owner; the compiler cannot derive domain expectations (spec 0022 §4).
 
+G1 checks all failure reasons against the declared schemas; several typed
+failures are valid, but defects, interruptions and undeclared failures reject
+conformance. G2 compares Type-side values and failure multisets, preserving
+duplicate counts without depending on concurrent completion order. Domain
+error scenarios and the rollback sentinel retain one expected failure
+(spec 0022 §4 implementation amendment).
+
 `examples/persistence` provides Effect SQL and patched drizzle-effect adapters on
 PGlite, the real PostgreSQL engine compiled to WASM. They share the ambient Effect
 SQL transaction. PGlite is single-connection: scenarios marked

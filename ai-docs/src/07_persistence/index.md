@@ -25,6 +25,12 @@ of commands (G4). Domain scenarios supply seed data, expected results, declared
 error examples and a commit observer; the IR cannot infer those. The harness
 owns fresh-store isolation and the common transaction owner (spec 0022 §4).
 
+G1 validates every typed failure reason: several declared failures are valid,
+but defects, interruptions and undeclared failures reject conformance. G2 uses
+Type-side schema equality and compares failures as a multiset, preserving
+duplicate counts but ignoring concurrent order. Domain error scenarios and the
+rollback sentinel still expect one failure (spec 0022 §4 amendment).
+
 The reference example is `examples/persistence`: Effect SQL and patched
 `drizzle-orm@1.0.0-rc.4` adapters share the ambient Effect SQL transaction over
 PGlite. PGlite runs the PostgreSQL engine in-process; it is not a mock. Its
