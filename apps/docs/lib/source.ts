@@ -3,11 +3,14 @@ import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { basePath, docsContentRoute, docsImageRoute, docsRoute } from './shared';
 import { defineDocs } from 'fumadocs-mdx/macro';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
+import { applyMdxPreset } from 'fumadocs-mdx/config';
+import { rehypeCodeOptions } from './highlighter';
 
 const docs = defineDocs({
   dir: 'content/docs',
   docs: {
     schema: pageSchema,
+    mdxOptions: applyMdxPreset({ rehypeCodeOptions }),
     postprocess: {
       includeProcessedMarkdown: true,
     },
