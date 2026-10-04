@@ -1,0 +1,6 @@
+{
+  "extends": "../contract/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  }
+}

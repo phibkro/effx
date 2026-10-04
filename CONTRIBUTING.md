@@ -26,6 +26,8 @@ The gate includes the docs build and Changesets status check, not just the fast 
 Before that subset, build the users example and install the rc.116 fixture dependencies.
 The full gate owns those prerequisites, so a fresh checkout needs no test-generated fixture output.
 The fixture's `typecheck` script generates its Profile contract and handlers before TypeScript checks their consumers.
+The Profile contract uses a separate ignored generation project, then `cmp` checks it against the tracked golden without rewriting it.
+A mismatch names both paths and fails the typecheck; the generated project owns its own manifest, separate from the golden project.
 
 Workflow checkout, dependency bootstrap, and Node setup prepare the gate environment; they are not validation steps.
 Commit-message lint remains range-specific because CI needs the PR or push range; landing checks use the selected local range.
