@@ -12,6 +12,7 @@ import {
 } from "@effx/compiler";
 import { TsSourceFrontend, Wiring } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
+import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
 
 /*
  * Spec 0021 falsifiers 1, 2 and 5 over the isolated Effect rc.116 Profile twin: the external
@@ -19,6 +20,8 @@ import { semanticHash } from "@effx/ir";
  */
 
 const fixtures = new URL("./fixtures/rc116/", import.meta.url).pathname;
+
+requireRc116FixtureDependencies(fixtures);
 
 const contractConfig = `${fixtures}project/contract/tsconfig.effx.json`;
 

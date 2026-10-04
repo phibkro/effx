@@ -7,8 +7,11 @@ import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
 import effectPackage from "effect/package.json";
 import cliPackage from "../../cli/package.json";
+import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
 
 const fixtureRoot = new URL("./fixtures/rc116/", import.meta.url).pathname;
+
+requireRc116FixtureDependencies(fixtureRoot);
 
 const contractConfig = new URL(
   "./fixtures/rc116/project/contract/tsconfig.effx.json",

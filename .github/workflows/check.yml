@@ -52,13 +52,13 @@ jobs:
           fi
       - name: Build users example
         run: bun run --cwd examples/users effx:build
+      - name: Install rc.116 fixture dependencies
+        run: bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116
       - name: Run checks
         run: bun run check
       - name: Run Effect diagnostics
         run: bun run effect:diagnostics
       - name: Typecheck rc.116 fixture
-        run: |
-          bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116
-          bun run --cwd packages/frontend-ts/test/fixtures/rc116 typecheck
+        run: bun run --cwd packages/frontend-ts/test/fixtures/rc116 typecheck
       - name: Pack release artifacts
         run: bun run pack

@@ -19,6 +19,8 @@ Run these from the repository root:
 
 `bun run check` combines TypeScript diagnostics, lint, formatting checks, and tests. `bun run effect:diagnostics` runs the Effect-specific diagnostics separately.
 
+Before `bun run check`, install the rc.116 fixture dependencies first with `bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116`. CI installs these before running checks.
+
 ## Specs and decisions
 
 For a non-trivial compiler slice, write or update a frozen `docs/specs/NNNN-*.md` contract before implementation. Define observable behavior and the checks that can falsify it; keep the implementation choice open until the contract is settled. Record an architectural trade-off that affects an invariant in a numbered `docs/decisions/NNNN-*.md` ADR. Update [`STATE.md`](STATE.md) when the mission state, evidence, or open questions change. Do not silently change an accepted contract: revise the spec explicitly when evidence requires it.
