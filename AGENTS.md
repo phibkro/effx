@@ -44,12 +44,16 @@ Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd
 | lint               | `bun run lint`                                                                                                                                                                |
 | format             | `bun run fmt` (check: `bun run fmt:check`)                                                                                                                                    |
 | tests              | `bun run test` (Vitest suites plus the Oxlint RuleTester suite)                                                                                                               |
-| all                | `bun run check` (includes `ai-docs:check`)                                                                                                                                    |
+| fast checks        | `bun run check` (includes `ai-docs:check`)                                                                                                                                    |
+| CI / landing gate  | `bun run gate` (the one ordered gate list used by Check and local landings)                                                                                                   |
 | docs site          | `bun run docs:dev`; `bun run docs:build` (sync + API + static export to `apps/docs/out`; deployed to GitHub Pages by `.github/workflows/docs.yml`, see `apps/docs/README.md`) |
 | API reference      | `bun run docs:api` (`@effect/docgen`; fails on a broken `@example`)                                                                                                           |
 | AI docs            | `bun run ai-docs` regenerates `LLMS.md`; `bun run ai-docs:check` fails on drift                                                                                               |
 
 Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on the merged tree. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
+
+Run `bun run gate` on the committed tree before landing. Check calls that same script.
+The rc.116 fixture typecheck generates its own Profile contract and handler projections first.
 
 ## Package map
 

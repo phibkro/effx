@@ -14,14 +14,22 @@ Run these from the repository root:
 | Format                 | `bun run fmt`                |
 | Check formatting       | `bun run fmt:check`          |
 | Tests                  | `bun run test`               |
-| Full check             | `bun run check`              |
+| Fast developer checks  | `bun run check`              |
+| CI / landing gate      | `bun run gate`               |
 | Build release tarballs | `bun run pack`               |
 
-`bun run check` combines TypeScript diagnostics, lint, formatting checks, and tests. `bun run effect:diagnostics` runs the Effect-specific diagnostics separately.
+After `bun install --frozen-lockfile`, run `bun run gate` on the committed tree before landing.
+The Check workflow calls that same script. The ordered gate list lives only in root `package.json`.
+The gate includes the docs build and Changesets status check, not just the fast developer checks.
 
-Before `bun run check`, build the users example with `bun run --cwd examples/users effx:build`.
-Then install the rc.116 fixture dependencies with `bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116`.
-CI completes both prerequisites before the checks.
+`bun run check` remains the fast subset for development.
+Before that subset, build the users example and install the rc.116 fixture dependencies.
+The full gate owns those prerequisites, so a fresh checkout needs no test-generated fixture output.
+The fixture's `typecheck` script generates its Profile contract and handlers before TypeScript checks their consumers.
+
+Workflow checkout, dependency bootstrap, and Node setup prepare the gate environment; they are not validation steps.
+Commit-message lint remains range-specific because CI needs the PR or push range; landing checks use the selected local range.
+Pages configuration/upload/deployment and npm authentication/version/publishing remain workflow-only operations because they require external authority or credentials.
 
 ### Test project isolation
 

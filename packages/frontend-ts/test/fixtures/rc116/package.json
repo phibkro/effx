@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.target.json"
+    "generate": "bun ../../../../cli/src/main.ts build --project project/contract/tsconfig.effx.json --emit=contract && bun ../../../../cli/src/main.ts build --project project/handlers/tsconfig.effx.json --emit=handlers",
+    "typecheck": "bun run generate && tsc --noEmit -p tsconfig.target.json"
   },
   "dependencies": {
     "effect": "4.0.0-rc.116"
