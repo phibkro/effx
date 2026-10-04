@@ -110,3 +110,43 @@ is the focused child-cancellation/progress and acceptance tests. Retire the
 directive when the process API loses its unstable annotation; cohort upgrades
 reopen the decision. No deadline increase or arbitrary-run reduction is
 authorized as a substitute for diagnosing the slow child.
+
+## Focused repairs and lifecycle diagnosis
+
+The focused repair command
+`bun --bun node_modules/.bin/vitest run packages/persistence/test/acceptance.test.ts --project persistence-integration --silent=false -t "subprocess custody|mixed adapter calls|generated ports typecheck"`
+ran from a fresh committed clone with EXIT cleanup, exited 0, and completed in
+8.916 seconds including setup. It exercised real subprocess success/nonzero
+exit/typed spawn failure, streamed readiness and interruption cleanup, mixed
+SQL/Drizzle rollback and commit, and both stable/rc.116 generated port targets.
+The supported Chai assertion and explicit whole-cohort target mappings repaired
+the two corresponding first-attempt failures.
+
+A separately authorized scalar real-PGlite probe recorded acquisition at
+1411.062 ms, query completion at 1413.329 ms, and closed PGlite scope at
+1416.016 ms (initial milestone 0.638 ms). TestClock remained zero: measured
+startup was about 1.410 seconds, SELECT 1 about 2.27 ms, release about 2.69 ms.
+No cleanup hang was observed in this scalar. The disposable probe exited 1
+because its outer temp finalizer was incorrectly passed as an Effect instead of
+a function; the inner PGlite scope had already closed, and the throwaway was
+removed without a confirmation rerun.
+
+Source showed one physical PGlite initialization per arbitrary sample, despite
+the contract assigning a fresh store per **test**. [INFERENCE] Repeated startup
+can explain the aggregate deadline overrun; this scalar does not measure warm
+or total suite cost. The repair uses one native anonymous it.layer block per
+individual property/scenario, with exactly one test registration. Physical
+storage is never shared across distinct tests; sample seed/reset and scoped
+Command resources remain per sample. All ten arbitrary runs and the existing
+180-second process deadline remain unchanged.
+
+The authorized one-property follow-up ran the real emitted UsersSql/PGlite
+`G1 closed error channel: find` with ten unchanged arbitrary runs: child Vitest
+exit 0, one property passed (24 unselected tests skipped), 1512 ms for the test
+and 1.92 seconds for Vitest. The complete emitted temporary application and
+generic layer callbacks typechecked with exit 0 first. Its disposable runner
+exited 1 only after an optional physical-lifetime log-count assertion saw zero
+markers because native TestConsole captured Effect.log. This does not establish
+runtime acquisition/reset/release counts; the source-level native single-test
+scope and the real property/typecheck results are the evidence. No second
+property was run to confirm that diagnostic instrumentation error.
