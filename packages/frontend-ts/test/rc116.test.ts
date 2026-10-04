@@ -46,6 +46,80 @@ const directoryEntry = "../../src/directory-dense.effx.ts";
 
 const verboseDirectoryEntry = "../../src/directory-verbose.effx.ts";
 
+const copyFixture = Effect.fnUntraced(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "effx-rc116-seeds-" });
+  const copied = path.join(temporary, "packages/frontend-ts/test/fixtures/rc116");
+  yield* fs.makeDirectory(copied, { recursive: true });
+
+  for (const entry of yield* fs.readDirectory(fixtureRoot)) {
+    if (entry !== "node_modules") {
+      yield* fs.copy(path.join(fixtureRoot, entry), path.join(copied, entry));
+    }
+  }
+
+  yield* fs.symlink(path.join(fixtureRoot, "node_modules"), path.join(copied, "node_modules"));
+  yield* fs.symlink(
+    new URL("../../runtime/", import.meta.url).pathname,
+    path.join(temporary, "packages/runtime"),
+  );
+  yield* fs.symlink(
+    new URL("../../../node_modules/", import.meta.url).pathname,
+    path.join(temporary, "node_modules"),
+  );
+
+  return copied;
+});
+
+describe("isolated Effect rc.116 canonical seeds", () => {
+  it.effect(
+    "regenerates Profile Directory and Contact canonical seeds without drift",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const copied = yield* copyFixture();
+
+        for (const [config, entry, seed] of [
+          [
+            "project/contract/tsconfig.effx.json",
+            "../../src/profile.effx.ts",
+            "project/contract/.effx/generated/profile-contract.ts",
+          ],
+          [
+            "project/contract/tsconfig.effx.json",
+            directoryEntry,
+            "project/contract/.effx/generated/directory-contract.ts",
+          ],
+          [
+            "tsconfig.contact.effx.json",
+            "src/contact-message.effx.ts",
+            ".effx/generated/contact-contract.ts",
+          ],
+        ] as const) {
+          const seeded = yield* fs.readFileString(path.join(copied, seed));
+
+          const result = yield* compile(
+            {
+              tsconfigPath: path.join(copied, config),
+              entry: [entry],
+              emit: "contract",
+              strictAccess: true,
+            },
+            Extensions.builtin,
+          );
+
+          assert.deepStrictEqual(fatal(result), []);
+          const files = Option.getOrThrow(result.files.value);
+          assert.lengthOf(files, 1);
+          assert.strictEqual(seeded, files[0]!.contents, seed);
+        }
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+    120_000,
+  );
+});
+
 describe("isolated Effect rc.116 Directory group defaults", () => {
   it.effect(
     "preserves canonical IR, semantic hash, and generated contract/handler bytes",
@@ -275,14 +349,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
         );
 
         const seededContract = yield* fs.readFileString(
-          path.join(
-            fixtureRoot,
-            "project",
-            "contract",
-            ".effx",
-            "generated",
-            "profile-contract.ts",
-          ),
+          path.join(copied, "project", "contract", ".effx", "generated", "profile-contract.ts"),
         );
 
         const directoryHandlersPath = path.join(
@@ -519,7 +586,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
 
         const result = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "run", "typecheck"], {
-            cwd: fixtureRoot,
+            cwd: copied,
             stdout: "pipe",
             stderr: "pipe",
           });
@@ -542,7 +609,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
 
         const openApiCheck = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "test", "src/profile-openapi.spec.ts"], {
-            cwd: fixtureRoot,
+            cwd: copied,
             stdout: "pipe",
             stderr: "pipe",
           });
@@ -554,7 +621,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
         });
 
         assert.strictEqual(openApiCheck.exitCode, 0, openApiCheck.output);
-      }).pipe(Effect.provide(Services)),
+      }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
 

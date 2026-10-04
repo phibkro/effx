@@ -137,7 +137,7 @@ describe("Contact Command/SnapshotRead claim (rc.116 fixture)", () => {
         assert.include(text, 'identifier: "contact.submitContactMessage"');
         assert.include(
           text,
-          "success: HttpApiSchema.WithHeaders(ContactSubmitted.pipe(HttpApiSchema.status(201)), ContactSubmittedResponseHeaders),",
+          "success: HttpApiSchema.WithHeaders(ContactSubmitted, ContactSubmittedResponseHeaders).pipe(HttpApiSchema.status(201)),",
         );
         assert.notInclude(text, "HttpApiSchema.status(200)");
         assert.notInclude(text, "NoContent");
@@ -248,16 +248,23 @@ describe("Contact Command/SnapshotRead claim (rc.116 fixture)", () => {
 
         assert.deepStrictEqual(errorCodes(result.diagnostics), []);
 
-        const generated = path.join(fixtureRoot, ".effx", "generated");
-        const contract = path.join(generated, "contact-contract.ts");
+        const temporaryFixture = yield* fs.makeTempDirectoryScoped({
+          prefix: "effx-contact-runtime-",
+        });
 
-        yield* Effect.addFinalizer(() => fs.remove(contract).pipe(Effect.ignore));
+        yield* fs.copy(path.join(fixtureRoot, "src"), path.join(temporaryFixture, "src"));
+        yield* fs.symlink(
+          path.join(fixtureRoot, "node_modules"),
+          path.join(temporaryFixture, "node_modules"),
+        );
+        const generated = path.join(temporaryFixture, ".effx", "generated");
+        const contract = path.join(generated, "contact-contract.ts");
         yield* fs.makeDirectory(generated, { recursive: true });
         yield* fs.writeFileString(contract, Option.getOrThrow(result.files.value)[0]!.contents);
 
         const spec = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "test", "src/contact-access.spec.ts"], {
-            cwd: fixtureRoot,
+            cwd: temporaryFixture,
             stdout: "pipe",
             stderr: "pipe",
           });
