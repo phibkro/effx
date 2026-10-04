@@ -8,11 +8,11 @@ A project declares **persistence port methods** as ordinary effx operations with
 
 Why a port + suite and not ORM adapters: ORM familiarity is an adoption factor (operator premise; no measured data), but mono-web's corpus is 33 hand-written-SQL calls of 39, `FOR UPDATE` in 35 files and advisory locks in 31 (research §6.4). What _does_ generalize across adapters is the typed contract, the typed error mapping and atomicity — and that is exactly what a generated suite can certify.
 
-Non-goals: a Prisma or TypeORM adapter (none shipped; an optional probe is recorded as evidence only, §6); migrations (the ORM's tool owns them — drizzle-kit, `prisma migrate`, TypeORM; supersedes the report's `effx db diff/generate`); a repository/CRUD layer; transactions opened by generated HTTP bindings (spec 0006: the handler owns the transaction and the guard call).
+Non-goals: a Prisma or TypeORM adapter (none shipped; an optional probe is recorded as evidence only, §6); migrations (the ORM's tool owns them — drizzle-kit, `prisma migrate`, TypeORM; supersedes the report's `effx db diff/generate`); a repository/CRUD layer; transactions opened by generated HTTP bindings (spec 0006: the handler owns the transaction and the guard call); decorator declaration-only ports (TypeScript decorators cannot attach to abstract or `declare` members, so no valid body-less, externally bound decorated method form exists).
 
 ## 2. Declaration (no new IR node)
 
-Source (builder; decorators on declaration classes are equivalent per 0020):
+Source (builder `.declare()` is the supported declaration-only port spelling; decorators are annotation-equivalent per 0020, but a decorated method with a local body is a handler and diagnoses EFFX3401):
 
 ```ts
 import { Operation } from "@effx/runtime";
@@ -58,9 +58,11 @@ export class UsersPort extends Context.Service<
 // <port>-conformance.ts  — the suite (imports only effect, @effect/vitest, the port, the declared schemas)
 export interface UsersHarness<E, R> {
   readonly name: string;
-  readonly layer: Layer.Layer<UsersPort, E, R>; // fresh store per test (the harness owns isolation)
-  readonly transact: <A, X, Rx>(eff: Effect.Effect<A, X, Rx>) => Effect.Effect<A, X | unknown, Rx>; // the shared transaction owner
-  readonly snapshot: Effect.Effect<Schema.Json, unknown, R>; // canonical store content (rollback/purity)
+  readonly layer: Layer.Layer<UsersPort | R, E>; // closed root: fresh store and transaction services per test
+  readonly transact: <A, X, Rx>(eff: Effect.Effect<A, X, Rx>) => Effect.Effect<A, X | E, Rx | R>; // the shared transaction owner
+  readonly snapshot: Effect.Effect<Schema.Json, E, R>; // canonical store content (rollback/purity)
+  readonly reset: Effect.Effect<void, E, R>; // restores empty-store content between arbitrary samples
+  readonly supportsConcurrentConnections: boolean; // generated scenarios branch on this capability
 }
 export interface UsersScenarios {
   /* typed from the port: named domain scenarios */
@@ -75,16 +77,47 @@ export const usersConformance = <E, R>(
 
 Methods are emitted sorted by name; the port types come from the same `SchemaRef`s and `errorsExpr`/`schemaExpr` helpers the HTTP generators use. The **R channel of every method is `never`**: a port is a leaf; adapters hold their own requirements in the Layer.
 
+### Amendment (implementation) — 2026-10-04
+
+1. **§3 harness typing.** Operator-approved correction to the harness sketch
+   above: `layer` is a closed `Layer<UsersPort | R, E>` root, `transact` returns
+   `Effect<A, X | E, Rx | R>`, and `snapshot` is `Effect<Json, E, R>`.
+   The original open `Layer<UsersPort, E, R>` cannot run in a generic `it.effect`;
+   a closed harness root owns isolation and transaction services while every
+   port method retains `R = never`. `supportsConcurrentConnections` is allowed
+   only when a generated scenario/property actually branches on it.
+2. **§2 supported spelling.** Builder `.declare()` is the supported
+   declaration-only port spelling. Decorator application is annotation-equivalent,
+   but a decorated method with a local body remains a handler and diagnoses
+   EFFX3401. Decorator declaration-only ports are a non-goal, not future work:
+   decorators cannot attach to abstract or `declare` members, so TypeScript has
+   no valid body-less, externally bound decorated method form.
+3. **§4 native failure laws.** G1 checks every `Fail` reason against the declared
+   error schemas. Several declared failures in one `Cause` are legitimate
+   Effect; any `Die`, `Interrupt`, or undeclared failure rejects conformance.
+   G2 compares typed failures as a multiset, preserving duplicate multiplicity
+   but ignoring concurrent failure order, using Type-side schema equality.
+   Authored error scenarios and the intentional rollback sentinel remain
+   single expected failures.
+4. **§4 per-test storage and complete reset.** One fresh physical PGlite/store
+   is owned by each individual test; arbitrary samples within that test reuse
+   it only after an explicit harness reset. Capture the empty-store snapshot
+   before seeding the first sample, and assert after every reset that harness
+   snapshot equals that empty baseline before applying domain seed data.
+   This must reject incomplete resets so one sample cannot leak into the next.
+   The root must never be shared across distinct tests; sample resource scopes
+   and arbitrary-run counts remain unchanged.
+
 ## 4. The conformance suite
 
 What the IR can derive, and therefore what is _generated_ (all with `@effect/vitest` `it.effect` / `it.effect.prop`, inputs from the method's own Schema; verified present in `@effect/vitest@4.0.0`):
 
-| Property                             | Derived from    | Statement                                                                                                                                                                                |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G1 closed error channel**          | `errors` set    | for arbitrary inputs, each method succeeds with a value that decodes under its `success` Schema or fails with a member of its declared errors; never a defect, never an undeclared error |
-| **G2 query purity claim** (ADR 0006) | `kind: Query`   | `snapshot` before = after any Query; two identical Queries return equal results                                                                                                          |
-| **G3 rollback atomicity**            | `kind: Command` | for each Command and arbitrary input, `transact(command >> fail)` leaves `snapshot` equal to its pre-state                                                                               |
-| **G4 shared-transaction**            | ≥ 2 Commands    | for each pair of Commands, `transact(a >> b >> fail)` rolls both back; `transact(a >> b)` commits both (checked by a scenario-supplied observer)                                         |
+| Property                             | Derived from    | Statement                                                                                                                                                                                                                                                              |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G1 closed error channel**          | `errors` set    | for arbitrary inputs, each method succeeds with a value that decodes under its success Type schema, or every Fail reason decodes under a declared error Type schema; several declared failures are valid; any Die, Interrupt or undeclared failure rejects conformance |
+| **G2 query purity claim** (ADR 0006) | `kind: Query`   | snapshot before = after any Query; two identical Queries return equal Type-side results; typed failures compare as a multiset with duplicate multiplicity preserved and concurrent order ignored                                                                       |
+| **G3 rollback atomicity**            | `kind: Command` | for each Command and arbitrary input, `transact(command >> fail)` leaves `snapshot` equal to its pre-state                                                                                                                                                             |
+| **G4 shared-transaction**            | ≥ 2 Commands    | for each pair of Commands, `transact(a >> b >> fail)` rolls both back; `transact(a >> b)` commits both (checked by a scenario-supplied observer)                                                                                                                       |
 
 What is **not** derivable and stays user-written, once, shared by all adapters: **domain scenarios** (`UsersScenarios`): seed data, expected results, and _which input raises which declared error_ (e.g. a duplicate email → `EmailTaken`). The generated types make a scenario for a method that does not exist, or an expected error outside the declared set, a **type error** — that is the single-source property. Concurrency/lock-contention properties are marked `requiresConcurrentConnections` and skipped for single-connection drivers (§5).
 
