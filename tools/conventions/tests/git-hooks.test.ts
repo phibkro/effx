@@ -4,15 +4,42 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { join, resolve } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { createGitTestSpawner } from "./git-test-utils.ts";
 
 const root = new URL("../../..", import.meta.url).pathname;
+
+const gitTestHome = mkdtempSync(join(tmpdir(), "effx-git-hooks-home-"));
+
+const spawnSync = createGitTestSpawner(gitTestHome);
+
+const gitCommonDirectory = spawnSync({
+  cmd: ["git", "rev-parse", "--git-common-dir"],
+  cwd: root,
+  stdout: "pipe",
+  stderr: "pipe",
+});
+
+expect(gitCommonDirectory.exitCode).toBe(0);
+
+const realRepoGitConfig = resolve(root, gitCommonDirectory.stdout.toString().trim(), "config");
+
+const realRepoGitConfigBefore = readFileSync(realRepoGitConfig);
+
+afterAll(() => {
+  try {
+    expect(readFileSync(realRepoGitConfig)).toEqual(realRepoGitConfigBefore);
+  } finally {
+    rmSync(gitTestHome, { recursive: true, force: true });
+  }
+});
 
 describe("native Git hooks", () => {
   it("no-ops outside Git, installs into linked worktrees, and refuses foreign hooksPath", () => {
@@ -39,7 +66,7 @@ describe("native Git hooks", () => {
       );
       writeFileSync(join(repository, ".oxfmtrc.json"), '{"ignorePatterns":["docs/research/**"]}\n');
 
-      const outsideGit = Bun.spawnSync({
+      const outsideGit = spawnSync({
         cmd: ["bun", "run", installer],
         cwd: repository,
         stdout: "pipe",
@@ -49,7 +76,7 @@ describe("native Git hooks", () => {
       expect(outsideGit.exitCode).toBe(0);
       expect(outsideGit.stdout.toString()).toContain("no Git metadata");
 
-      const initialized = Bun.spawnSync({
+      const initialized = spawnSync({
         cmd: ["git", "init", "--quiet"],
         cwd: repository,
         stdout: "pipe",
@@ -62,7 +89,7 @@ describe("native Git hooks", () => {
         ["user.name", "Effx Hook Test"],
         ["user.email", "hooks@example.invalid"],
       ]) {
-        const configured = Bun.spawnSync({
+        const configured = spawnSync({
           cmd: ["git", "config", "--local", key, value],
           cwd: repository,
           stdout: "pipe",
@@ -76,7 +103,7 @@ describe("native Git hooks", () => {
       chmodSync(join(hookDirectory, "pre-commit"), 0o755);
       writeFileSync(join(repository, "baseline.txt"), "hook fixture\n");
 
-      const seeded = Bun.spawnSync({
+      const seeded = spawnSync({
         cmd: ["git", "-c", "core.hooksPath=/dev/null", "add", "."],
         cwd: repository,
         stdout: "pipe",
@@ -85,7 +112,7 @@ describe("native Git hooks", () => {
 
       expect(seeded.exitCode).toBe(0);
 
-      const initialCommit = Bun.spawnSync({
+      const initialCommit = spawnSync({
         cmd: [
           "git",
           "-c",
@@ -101,7 +128,7 @@ describe("native Git hooks", () => {
 
       expect(initialCommit.exitCode).toBe(0);
 
-      const installed = Bun.spawnSync({
+      const installed = spawnSync({
         cmd: ["bun", "run", installer],
         cwd: repository,
         stdout: "pipe",
@@ -110,7 +137,7 @@ describe("native Git hooks", () => {
 
       expect(installed.exitCode).toBe(0);
       expect(
-        Bun.spawnSync({
+        spawnSync({
           cmd: ["git", "config", "--local", "--get-all", "core.hooksPath"],
           cwd: repository,
           stdout: "pipe",
@@ -120,7 +147,7 @@ describe("native Git hooks", () => {
           .trim(),
       ).toBe(".githooks");
 
-      const addedWorktree = Bun.spawnSync({
+      const addedWorktree = spawnSync({
         cmd: ["git", "worktree", "add", "--quiet", "--detach", linkedWorktree, "HEAD"],
         cwd: repository,
         stdout: "pipe",
@@ -141,7 +168,7 @@ describe("native Git hooks", () => {
       chmodSync(commitlint, 0o755);
       writeFileSync(join(linkedWorktree, "linked.txt"), "linked worktree\n");
 
-      const staged = Bun.spawnSync({
+      const staged = spawnSync({
         cmd: ["git", "add", "linked.txt"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -150,7 +177,7 @@ describe("native Git hooks", () => {
 
       expect(staged.exitCode).toBe(0);
 
-      const committed = Bun.spawnSync({
+      const committed = spawnSync({
         cmd: ["git", "commit", "-m", "chore: exercise linked worktree hook"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -164,7 +191,7 @@ describe("native Git hooks", () => {
       const ignoredFixture = join(fixtureDirectory, "profile-openapi.spec.ts");
       writeFileSync(ignoredFixture, "export   const profile='fixture'\n");
 
-      const stagedUnformattedFixture = Bun.spawnSync({
+      const stagedUnformattedFixture = spawnSync({
         cmd: ["git", "add", "packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -173,7 +200,7 @@ describe("native Git hooks", () => {
 
       expect(stagedUnformattedFixture.exitCode).toBe(0);
 
-      const rejectedFormatting = Bun.spawnSync({
+      const rejectedFormatting = spawnSync({
         cmd: ["git", "commit", "-m", "test: reject unformatted ignored fixture"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -187,7 +214,7 @@ describe("native Git hooks", () => {
 
       writeFileSync(ignoredFixture, 'export const profile = "fixture";\n');
 
-      const stagedIgnoredFixture = Bun.spawnSync({
+      const stagedIgnoredFixture = spawnSync({
         cmd: ["git", "add", "packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -196,7 +223,7 @@ describe("native Git hooks", () => {
 
       expect(stagedIgnoredFixture.exitCode).toBe(0);
 
-      const committedIgnoredFixture = Bun.spawnSync({
+      const committedIgnoredFixture = spawnSync({
         cmd: ["git", "commit", "-m", "test: allow formatted ignored fixture"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -209,7 +236,7 @@ describe("native Git hooks", () => {
       const ignoredResearch = join(ignoredResearchDirectory, "auth-yielded-permix-evaluation.md");
       writeFileSync(ignoredResearch, "# Auth yield evaluation\n\nA staged research note.\n");
 
-      const stagedIgnoredResearch = Bun.spawnSync({
+      const stagedIgnoredResearch = spawnSync({
         cmd: ["git", "add", "docs/research/auth-yielded-permix-evaluation.md"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -218,7 +245,7 @@ describe("native Git hooks", () => {
 
       expect(stagedIgnoredResearch.exitCode).toBe(0);
 
-      const committedIgnoredResearch = Bun.spawnSync({
+      const committedIgnoredResearch = spawnSync({
         cmd: ["git", "commit", "-m", "docs: add ignored research note"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -229,7 +256,7 @@ describe("native Git hooks", () => {
       const unformattedMarkdown = join(linkedWorktree, "unformatted.md");
       writeFileSync(unformattedMarkdown, "# Title\nBody\n");
 
-      const stagedMarkdown = Bun.spawnSync({
+      const stagedMarkdown = spawnSync({
         cmd: ["git", "add", "unformatted.md"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -238,7 +265,7 @@ describe("native Git hooks", () => {
 
       expect(stagedMarkdown.exitCode).toBe(0);
 
-      const rejectedMarkdownCommit = Bun.spawnSync({
+      const rejectedMarkdownCommit = spawnSync({
         cmd: ["git", "commit", "-m", "docs: reject unformatted staged Markdown"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -250,7 +277,7 @@ describe("native Git hooks", () => {
         rejectedMarkdownCommit.stdout.toString() + rejectedMarkdownCommit.stderr.toString(),
       ).toContain("pre-commit: oxfmt --check failed");
 
-      const unstageMarkdown = Bun.spawnSync({
+      const unstageMarkdown = spawnSync({
         cmd: ["git", "reset", "--", "unformatted.md"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -263,7 +290,7 @@ describe("native Git hooks", () => {
 
       writeFileSync(lintFailure, "debugger;\n");
 
-      const stagedLintFailure = Bun.spawnSync({
+      const stagedLintFailure = spawnSync({
         cmd: ["git", "add", "lint-failure.ts"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -272,7 +299,7 @@ describe("native Git hooks", () => {
 
       expect(stagedLintFailure.exitCode).toBe(0);
 
-      const rejectedLint = Bun.spawnSync({
+      const rejectedLint = spawnSync({
         cmd: ["git", "commit", "-m", "test: reject lint violation"],
         cwd: linkedWorktree,
         stdout: "pipe",
@@ -284,7 +311,7 @@ describe("native Git hooks", () => {
         "pre-commit: oxlint failed",
       );
 
-      const foreignPath = Bun.spawnSync({
+      const foreignPath = spawnSync({
         cmd: ["git", "config", "--local", "--replace-all", "core.hooksPath", "foreign-hooks"],
         cwd: repository,
         stdout: "pipe",
@@ -293,7 +320,7 @@ describe("native Git hooks", () => {
 
       expect(foreignPath.exitCode).toBe(0);
 
-      const refused = Bun.spawnSync({
+      const refused = spawnSync({
         cmd: ["bun", "run", installer],
         cwd: repository,
         stdout: "pipe",
@@ -303,7 +330,7 @@ describe("native Git hooks", () => {
       expect(refused.exitCode).not.toBe(0);
       expect(refused.stderr.toString()).toContain("Refusing to overwrite core.hooksPath");
       expect(
-        Bun.spawnSync({
+        spawnSync({
           cmd: ["git", "config", "--local", "--get-all", "core.hooksPath"],
           cwd: repository,
           stdout: "pipe",
@@ -321,7 +348,7 @@ describe("native Git hooks", () => {
     const commitlint = join(root, "node_modules/.bin/commitlint");
     expect(existsSync(commitlint)).toBe(true);
 
-    const valid = Bun.spawnSync({
+    const valid = spawnSync({
       cmd: [
         "bun",
         "--bun",
@@ -334,7 +361,7 @@ describe("native Git hooks", () => {
       stderr: "pipe",
     });
 
-    const invalid = Bun.spawnSync({
+    const invalid = spawnSync({
       cmd: [
         "bun",
         "--bun",
@@ -347,7 +374,7 @@ describe("native Git hooks", () => {
       stderr: "pipe",
     });
 
-    const mergeType = Bun.spawnSync({
+    const mergeType = spawnSync({
       cmd: [
         "bun",
         "--bun",
