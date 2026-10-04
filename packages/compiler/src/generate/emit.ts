@@ -55,12 +55,23 @@ export class Imports {
   private aliases:
     | Array<{ readonly module: string; readonly exported: string; readonly local: string }>
     | undefined;
+  private reserved: Set<string> | undefined;
   constructor(private readonly context: GenerationContext = defaultGenerationContext) {}
 
-  /** Registers `name` from `module` and returns `name` so call sites can inline it. */
+  /** Registers an import and returns its collision-free local; unoccupied names keep their original bytes. */
   add(module: string, name: string): string {
     const specifier = moduleSpecifier(this.context, module);
     const names = this.modules.get(specifier);
+
+    if (names?.has(name)) return name;
+
+    const alias = this.aliases?.find(
+      (binding) => binding.module === specifier && binding.exported === name,
+    );
+
+    if (alias !== undefined) return alias.local;
+
+    if (this.occupied(name)) return this.addAliased(module, name, name);
 
     if (names === undefined) {
       this.modules.set(specifier, new Set([name]));
@@ -69,6 +80,24 @@ export class Imports {
     }
 
     return name;
+  }
+
+  /** Reserve authored declarations and lexical locals before adding schema imports. */
+  reserve(...names: ReadonlyArray<string>): void {
+    const reserved = (this.reserved ??= new Set());
+
+    for (const name of names) reserved.add(name);
+  }
+
+  private occupied(local: string): boolean {
+    if (this.reserved?.has(local) || this.aliases?.some((alias) => alias.local === local))
+      return true;
+
+    for (const names of this.modules.values()) {
+      if (names.has(local)) return true;
+    }
+
+    return false;
   }
 
   /** Reserve a collision-free local for an imported root without changing its exported name. */
@@ -84,17 +113,7 @@ export class Imports {
     let local = preferredLocal;
 
     for (let suffix = 2; ; suffix++) {
-      let occupied = this.aliases?.some((alias) => alias.local === local) ?? false;
-
-      if (!occupied) {
-        for (const names of this.modules.values()) {
-          if (!names.has(local)) continue;
-          occupied = true;
-          break;
-        }
-      }
-
-      if (!occupied) break;
+      if (!this.occupied(local)) break;
       local = `${preferredLocal}_${suffix}`;
     }
 
@@ -140,17 +159,19 @@ export const identifier = (name: string): string => {
 /** Operation name as it appears in `operation:<name>`. */
 export const operationName = (operation: OperationNode): string => StableId.nameOf(operation.id);
 
-/**
- * Expression referencing a SchemaRef, registering its import. Symbol IDs use projectRoot-relative
- * identity paths; modules use the canonical import base until the import collector rebases them.
- * Compare only the final symbol segment to preserve static members such as User.Public.
- */
-export const schemaExpr = (imports: Imports, ref: SchemaRef): string => {
-  imports.add(ref.module, ref.export);
+/** The stable declared symbol name, including static members, independent of import aliases. */
+export const schemaName = (ref: SchemaRef): string => {
   const name = StableId.nameOf(ref.symbolId);
   const symbol = name.slice(name.lastIndexOf("/") + 1);
 
   return symbol.startsWith(`${ref.export}.`) ? symbol : ref.export;
+};
+
+/** Preserve the original symbol and static-member suffix while resolving a collision-free local import. */
+export const schemaExpr = (imports: Imports, ref: SchemaRef): string => {
+  const local = imports.add(ref.module, ref.export);
+
+  return local + schemaName(ref).slice(ref.export.length);
 };
 
 /** `Schema.Never` for none, the schema itself for one, `Schema.Union([...])` for several. */

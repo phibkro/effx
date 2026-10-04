@@ -36,6 +36,7 @@ const filesOf = (
   const name = `${generatedIdentifier(port.name)}Port`;
   const filename = portFile(port.name);
   const imports = new GeneratedImports(context);
+  imports.reserve(name, "input");
   imports.add("effect", "Context");
   imports.add("effect", "Effect");
 

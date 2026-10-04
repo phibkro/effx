@@ -1,4 +1,10 @@
-import { errorsExpr, generatedIdentifier, schemaExpr, type GeneratedImports } from "@effx/compiler";
+import {
+  errorsExpr,
+  generatedIdentifier,
+  schemaExpr,
+  schemaName,
+  type GeneratedImports,
+} from "@effx/compiler";
 import type { PersistencePort, PortMethod } from "./ports.ts";
 
 const quote = JSON.stringify;
@@ -22,20 +28,77 @@ export const conformanceBody = (
   const fn = `${base[0]!.toLowerCase()}${base.slice(1)}Conformance`;
   const commands = port.methods.filter((method) => method.operation.kind === "Command");
   const pairs = pairsOf(commands);
+  imports.reserve(
+    `${base}Harness`,
+    `${base}Scenarios`,
+    fn,
+    "NonEmpty",
+    "DomainCase",
+    "TransactionCase",
+    "failureValue",
+    "assertClosed",
+    "rollback",
+    "assertRollback",
+    "harness",
+    "scenarios",
+    "snapshot",
+    "isolated",
+    "program",
+    "port",
+    "input",
+    "result",
+    "before",
+    "first",
+    "second",
+    "firstValue",
+    "secondValue",
+    "rolledBack",
+    "scenario",
+    "test",
+    "actual",
+    "encode",
+    "pair",
+    "a",
+    "b",
+    "exit",
+    "reason",
+    "success",
+    "error",
+    "value",
+    ...port.methods.flatMap((_, index) => [
+      `m${index}Input`,
+      `m${index}Success`,
+      `m${index}Errors`,
+      `m${index}Error`,
+      `m${index}EncodeSuccess`,
+      `m${index}EncodeError`,
+    ]),
+  );
 
-  const methodSchemas = port.methods.map(({ name, operation }, index) => ({
-    name,
-    operation,
-    local: `m${index}`,
-    input: schemaExpr(imports, operation.input),
-    success: schemaExpr(imports, operation.success),
-    errors: errorsExpr(imports, operation.errors.values),
-    members: operation.errors.values.map((ref) => {
-      const expression = schemaExpr(imports, ref);
+  const methodSchemas = port.methods.map(({ name, operation }, index) => {
+    const counts = new Map<string, number>();
 
-      return { key: expression, expression };
-    }),
-  }));
+    const members = operation.errors.values.map((ref) => {
+      const key = schemaName(ref);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+
+      return { key, symbolId: ref.symbolId, expression: schemaExpr(imports, ref) };
+    });
+
+    for (const member of members) {
+      if ((counts.get(member.key) ?? 0) > 1) member.key = member.symbolId;
+    }
+
+    return {
+      name,
+      operation,
+      local: `m${index}`,
+      input: schemaExpr(imports, operation.input),
+      success: schemaExpr(imports, operation.success),
+      errors: errorsExpr(imports, operation.errors.values),
+      members,
+    };
+  });
 
   const methodTypes = methodSchemas.flatMap((method) => [
     `    readonly ${quote(method.name)}: {`,

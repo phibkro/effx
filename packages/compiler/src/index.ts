@@ -100,6 +100,7 @@ export {
   HEADER as GENERATED_HEADER,
   identifier as generatedIdentifier,
   schemaExpr,
+  schemaName,
   errorsExpr,
   render as renderGenerated,
 } from "./generate/emit.ts";

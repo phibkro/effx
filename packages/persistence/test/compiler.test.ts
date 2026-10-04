@@ -5,6 +5,9 @@ import {
   Extensions,
   compileCollected,
   defaultGenerationContext,
+  GeneratedImports,
+  schemaExpr,
+  schemaName,
   type Annotation,
   type Collected,
   type Declaration,
@@ -156,6 +159,144 @@ describe("persistence compiler", () => {
         assert.notInclude(suite!.contents, "Effect.ignore");
         assert.notInclude(suite!.contents, "Effect.catchCause");
       }),
+  );
+
+  it("shared schema imports preserve ordinary bytes and alias module and authored-local collisions", () => {
+    const imports = new GeneratedImports();
+    const first = { ...ref("User.Public"), module: "first" };
+    const second = { ...ref("User.Public"), module: "second" };
+    assert.strictEqual(schemaExpr(imports, first), "User.Public");
+    assert.deepStrictEqual(imports.render(), ['import { User } from "first";']);
+    assert.strictEqual(schemaExpr(imports, first), "User.Public");
+    assert.strictEqual(schemaExpr(imports, second), "User_2.Public");
+    assert.strictEqual(schemaName(second), "User.Public");
+    assert.strictEqual(imports.add("second", "User"), "User_2");
+    assert.deepStrictEqual(imports.render(), [
+      'import { User } from "first";',
+      'import { User as User_2 } from "second";',
+    ]);
+    imports.reserve("UsersPort", "UsersPort_2");
+    assert.strictEqual(schemaExpr(imports, ref("UsersPort")), "UsersPort_3");
+    assert.strictEqual(imports.addAliased("third", "User", "ThirdUser"), "ThirdUser");
+    assert.strictEqual(imports.add("third", "User"), "ThirdUser");
+  });
+
+  it.effect(
+    "same error exports from different modules use stable identities, not import aliases, as scenario keys",
+    () =>
+      Effect.gen(function* () {
+        const item = declaration("Users.find", "Query");
+
+        const input = {
+          ...ref("User"),
+          module: "input",
+          symbolId: StableId.make("schema", "input/User"),
+        };
+
+        const success = {
+          ...ref("User.Public"),
+          module: "output",
+          symbolId: StableId.make("schema", "output/User.Public"),
+        };
+
+        const left = {
+          ...ref("Error"),
+          module: "left",
+          symbolId: StableId.make("schema", "left/Error"),
+        };
+
+        const right = {
+          ...ref("Error"),
+          module: "right",
+          symbolId: StableId.make("schema", "right/Error"),
+        };
+
+        const result = yield* compileCollected(
+          collected([
+            {
+              ...item,
+              annotations: [
+                {
+                  name: "Query",
+                  args: [
+                    {
+                      name: "Users.find",
+                      input: { _tag: "Schema", ref: input },
+                      success: { _tag: "Schema", ref: success },
+                    },
+                  ],
+                },
+                {
+                  name: "Errors",
+                  args: [
+                    { _tag: "Schema", ref: left },
+                    { _tag: "Schema", ref: right },
+                  ],
+                },
+                { name: "persistence.Port", args: [{ port: "Users" }] },
+              ],
+            },
+          ]),
+          extensions,
+        );
+
+        assert.deepStrictEqual(
+          result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+          [],
+        );
+        const [suite, port] = files(result);
+        assert.isDefined(suite);
+        assert.isDefined(port);
+        assert.include(port!.contents, 'import { User as User_2 } from "output";');
+        assert.include(port!.contents, "typeof User_2.Public.Type");
+        assert.include(suite!.contents, 'readonly "schema:left/Error": NonEmpty<DomainCase');
+        assert.include(suite!.contents, 'readonly "schema:right/Error": NonEmpty<DomainCase');
+        assert.include(suite!.contents, 'scenarios.methods["find"].errors["schema:left/Error"]');
+        assert.include(suite!.contents, 'scenarios.methods["find"].errors["schema:right/Error"]');
+        assert.notInclude(suite!.contents, 'readonly "Error":');
+        assert.notInclude(suite!.contents, 'readonly "Error_2":');
+      }),
+  );
+
+  it.effect("port class and conformance helper names are reserved before schema imports", () =>
+    Effect.gen(function* () {
+      for (const name of ["UsersPort", "assertClosed", "m0Input", "port"]) {
+        const item = declaration("Users.find", "Query", []);
+
+        const result = yield* compileCollected(
+          collected([
+            {
+              ...item,
+              annotations: [
+                {
+                  name: "Query",
+                  args: [
+                    { name: "Users.find", input: schema(name), success: schema("User.Public") },
+                  ],
+                },
+                { name: "persistence.Port", args: [{ port: "Users" }] },
+              ],
+            },
+          ]),
+          extensions,
+        );
+
+        const [suite, port] = files(result);
+        assert.isDefined(suite);
+        assert.isDefined(port);
+        assert.include(suite!.contents, `${name} as ${name}_2`);
+        assert.include(suite!.contents, `Schema.toType(${name}_2)`);
+
+        if (name === "UsersPort") {
+          assert.include(port!.contents, "UsersPort as UsersPort_2");
+          assert.include(port!.contents, "input: typeof UsersPort_2.Type");
+          assert.include(
+            port!.contents,
+            "export class UsersPort extends Context.Service<UsersPort",
+          );
+        }
+      }
+    }),
   );
 
   it.effect("static errors under one exported root retain distinct required scenario keys", () =>
