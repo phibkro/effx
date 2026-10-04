@@ -1,0 +1,6 @@
+{
+  "extends": "../handlers/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  }
+}

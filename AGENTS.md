@@ -54,7 +54,8 @@ Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd
 Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on the merged tree. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
 
 Run `bun run gate` on the committed tree before landing. Check calls that same script.
-The rc.116 fixture typecheck generates its own Profile contract and handler projections first.
+The rc.116 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
+Each project owns its output and manifest. `cmp` checks the fresh contract against the tracked golden and does not rewrite it.
 
 ## Package map
 

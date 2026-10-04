@@ -259,8 +259,20 @@ describe("isolated Effect rc.116 Profile twin", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const fixtureRoot = yield* copyRc116Fixture();
-        const contractConfig = path.join(fixtureRoot, "project", "contract", "tsconfig.effx.json");
-        const handlerConfig = path.join(fixtureRoot, "project", "handlers", "tsconfig.effx.json");
+
+        const contractConfig = path.join(
+          fixtureRoot,
+          "project",
+          "typecheck-contract",
+          "tsconfig.effx.json",
+        );
+
+        const handlerConfig = path.join(
+          fixtureRoot,
+          "project",
+          "typecheck-handlers",
+          "tsconfig.effx.json",
+        );
 
         const seededContract = yield* fs.readFileString(
           path.join(
@@ -272,6 +284,17 @@ describe("isolated Effect rc.116 Profile twin", () => {
             "profile-contract.ts",
           ),
         );
+
+        const directoryHandlersPath = path.join(
+          fixtureRoot,
+          "project",
+          "handlers",
+          ".effx",
+          "generated",
+          "directory-handlers.ts",
+        );
+
+        const seededDirectoryHandlers = yield* fs.readFileString(directoryHandlersPath);
 
         const contract = yield* compileProfile(contractConfig, "contract");
         const handlers = yield* compileProfile(handlerConfig, "handlers");
@@ -475,6 +498,25 @@ describe("isolated Effect rc.116 Profile twin", () => {
           handlerText,
         );
 
+        const seedHandlersProject = yield* resolveProject(
+          path.join(fixtureRoot, "project", "handlers", "tsconfig.effx.json"),
+          true,
+          undefined,
+          "handlers",
+        );
+
+        yield* build(
+          {
+            ...seedHandlersProject,
+            config: { ...seedHandlersProject.config, entry: [directoryEntry] },
+          },
+          versions,
+        );
+        assert.strictEqual(
+          yield* fs.readFileString(directoryHandlersPath),
+          seededDirectoryHandlers,
+        );
+
         const result = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "run", "typecheck"], {
             cwd: fixtureRoot,
@@ -489,6 +531,14 @@ describe("isolated Effect rc.116 Profile twin", () => {
         });
 
         assert.strictEqual(result.exitCode, 0, result.output);
+        assert.isTrue(
+          yield* fs.exists(directoryHandlersPath),
+          "typecheck must preserve the tracked Directory handlers after prior manifest ownership",
+        );
+        assert.strictEqual(
+          yield* fs.readFileString(directoryHandlersPath),
+          seededDirectoryHandlers,
+        );
 
         const openApiCheck = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "test", "src/profile-openapi.spec.ts"], {

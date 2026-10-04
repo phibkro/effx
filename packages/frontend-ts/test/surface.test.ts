@@ -25,7 +25,7 @@ requireRc116FixtureDependencies(fixtures);
 
 const contractConfig = `${fixtures}project/contract/tsconfig.effx.json`;
 
-const handlersConfig = `${fixtures}project/handlers/tsconfig.effx.json`;
+const handlersConfig = `${fixtures}project/typecheck-handlers/tsconfig.effx.json`;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 

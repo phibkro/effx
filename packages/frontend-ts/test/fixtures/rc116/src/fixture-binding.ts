@@ -6,7 +6,7 @@ import {
   ProfileApiHandlers,
   type ProfileGuards,
   type ProfileRawHandlers,
-} from "../project/handlers/.effx/generated/profile-handlers.js";
+} from "../project/typecheck-handlers/.effx/generated/profile-handlers.js";
 import { AccessDenied, type ProfilePrincipal } from "./profile-support.js";
 
 /** Fixture-local backend dependencies intentionally absent from the shared Profile contract. */

@@ -10,6 +10,6 @@
     "project/contract/.effx/generated/directory-contract.ts",
     "project/handlers/.effx/generated/directory-handlers.ts",
     "project/contract/.effx/generated/profile-contract.ts",
-    "project/handlers/.effx/generated/profile-handlers.ts"
+    "project/typecheck-handlers/.effx/generated/profile-handlers.ts"
   ]
 }

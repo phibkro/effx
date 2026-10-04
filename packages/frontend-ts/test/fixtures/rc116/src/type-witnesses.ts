@@ -5,7 +5,7 @@ import { ProfileApi } from "../project/contract/.effx/generated/profile-contract
 import type {
   ProfileGuards,
   ProfileRawHandlers,
-} from "../project/handlers/.effx/generated/profile-handlers.js";
+} from "../project/typecheck-handlers/.effx/generated/profile-handlers.js";
 import {
   FixtureReadBackend,
   FixtureWriteBackend,
