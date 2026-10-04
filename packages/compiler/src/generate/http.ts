@@ -67,18 +67,19 @@ const contractSuccess = (imports: Imports, item: HttpItem): string => {
   if (contract === undefined) return schemaExpr(imports, item.operation.success);
   let success = schemaExpr(imports, contract.success);
 
-  if (contract.status === 200) {
+  if (contract.responseHeaders !== undefined) {
+    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
+    success = `${apiSchema}.WithHeaders(${success}, ${schemaExpr(imports, contract.responseHeaders)})`;
+
+    if (contract.status !== undefined)
+      success = `${success}.pipe(${apiSchema}.status(${contract.status}))`;
+  } else if (contract.status === 200) {
     const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
     const ast = imports.add("effect", "SchemaAST");
     success = `((${ast}.resolve(${success}.ast)?.httpApiStatus ?? 200) === 200 ? ${success} : ${apiSchema}.status(200)(${success}))`;
   } else if (contract.status !== undefined) {
     const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
     success = `${success}.pipe(${apiSchema}.status(${contract.status}))`;
-  }
-
-  if (contract.responseHeaders !== undefined) {
-    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-    success = `${apiSchema}.WithHeaders(${success}, ${schemaExpr(imports, contract.responseHeaders)})`;
   }
 
   if (contract.conditional && contract.responseHeaders !== undefined) {

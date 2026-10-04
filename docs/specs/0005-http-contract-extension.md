@@ -80,6 +80,11 @@ The `Http.Contract` value has:
 | `middleware`                            | optional marker symbol array                                                 | `.middleware(Marker)` in declaration order; no marker is instantiated by effx.                                                                                                         |
 | `metadata`                              | optional `{ operationId?, summary?, description?, tags?, commandIdentity? }` | OpenAPI fields project into `OpenApi.annotations`. Gate 2A's `commandIdentity` is an exported symbol for a typed client helper; it is **not** sent to OpenAPI.                         |
 
+Explicit response status is applied to the `WithHeaders` wrapper when response headers
+are present, not to its body Schema. The body remains shared with other statuses in
+OpenAPI components; status and headers are response metadata. Bare responses retain
+their existing status annotation behavior (`packages/compiler/src/generate/http.ts`).
+
 ### Gate 2A amendment — command identity
 
 `Http.Contract.metadata.commandIdentity` lowers an exported application function
