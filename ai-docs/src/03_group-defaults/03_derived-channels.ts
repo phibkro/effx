@@ -31,7 +31,6 @@ export const searchSettings = Operation.query({
     capabilities: Capability.one("settings.search"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -50,7 +49,6 @@ export const readVersion = Operation.query({
     capabilities: Capability.one("settings.read-version"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -68,7 +66,6 @@ export const readById = Operation.query({
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -87,6 +84,5 @@ export const renameSettings = Operation.command({
     capabilities: Capability.one("settings.rename"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "Transaction",
   })
   .declare();

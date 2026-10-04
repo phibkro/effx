@@ -6,6 +6,7 @@ import type { Expand } from "./Extension.ts";
 import { SymbolArg } from "./args.ts";
 import { decodeSchemaOf } from "./annotation.ts";
 import { OperationArgs } from "./extensions/core.ts";
+import { defaultDecisionTime } from "./decision-time.ts";
 import { deriveRequestChannels, isAnnotationOptions, mapsInput } from "./request-channels.ts";
 
 const GroupOptions = decodeSchemaOf(Builtins.HttpGroup);
@@ -247,18 +248,20 @@ export const expandGroupDefaults: Expand = (collected) => {
     return { ...declaration, annotations: annotations.map(merge) };
   };
 
-  // Request channels are derived after the group's defaults, for associated and bare operations alike.
+  // After the group's defaults, for associated and bare operations alike: the request channels are derived
+  // from `input` (spec 0024 §2), then `decisionTime` from the operation kind (§4).
   const declarations = collected.declarations.map((declaration): Declaration => {
     const reported = diagnostics.length;
     const associated = associate(declaration);
 
-    // An association that already failed is reported once; deriving from it would only add noise.
+    // An association that already failed is reported once; rewriting it would only add noise.
     if (diagnostics.length !== reported) return associated;
     const derived = deriveRequestChannels(associated);
+    const defaulted = defaultDecisionTime(derived.declaration);
 
-    diagnostics.push(...derived.diagnostics);
+    diagnostics.push(...derived.diagnostics, ...defaulted.diagnostics);
 
-    return derived.declaration;
+    return defaulted.declaration;
   });
 
   return { declarations, diagnostics };

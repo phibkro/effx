@@ -45,7 +45,6 @@ export class SettingsOperations {
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "SnapshotRead",
   })
   // A protected local operation takes a lazy `authorize` thunk as its second
   // argument. Call it at the point your own snapshot or transaction needs it.
@@ -65,7 +64,6 @@ export class SettingsOperations {
     capabilities: Capability.one("settings.update"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "Transaction",
   })
   static update(input: typeof SettingsPatch.Type, authorize: () => Effect.Effect<void>) {
     return Effect.gen(function* () {

@@ -80,10 +80,13 @@ interface LegacyHttpGroupOptions {
   };
 }
 
-/** Source-only declaration; the application owns evaluation and transaction timing. */
+/**
+ * Source-only declaration; the application owns evaluation and transaction timing. `decisionTime` is the
+ * one field that is optional to write (spec 0024 §4): the pre-pass fills it from the operation kind.
+ */
 interface LegacyHttpAccessOptions extends Omit<
   HttpAccessAnnotationSpec,
-  "exposure" | "acceptedCredentials" | "principalKinds" | "concealment"
+  "exposure" | "acceptedCredentials" | "principalKinds" | "concealment" | "decisionTime"
 > {
   /** Exported function lowered as a SymbolRef, never called by the decorator. */
   readonly annotator?: (spec: HttpAccessAnnotationSpec) => Context.Context<never>;
@@ -91,6 +94,7 @@ interface LegacyHttpAccessOptions extends Omit<
   readonly acceptedCredentials?: HttpAccessAnnotationSpec["acceptedCredentials"];
   readonly principalKinds?: HttpAccessAnnotationSpec["principalKinds"];
   readonly concealment?: HttpAccessAnnotationSpec["concealment"];
+  readonly decisionTime?: HttpAccessAnnotationSpec["decisionTime"];
 }
 
 interface LegacyHttpProblemsOptions<Code extends string = string> {

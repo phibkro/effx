@@ -34,18 +34,26 @@ application code.
 
 `@Http.Access(opts)` / `.http.access(opts)`; type `HttpAccessOptions`.
 
-| Field                        | Shape                                                                                           |
-| ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| `annotator`                  | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed) |
-| `exposure`                   | `"External"` or `"Internal"`                                                                    |
-| `acceptedCredentials`        | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                      |
-| `principalKinds`             | nonempty names (`Anonymous`, `Person`, ...)                                                     |
-| `capabilities`               | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                  |
-| `requirements`               | `{ id, parameters? }[]` with JSON-only parameters                                               |
-| `canonicalScopeResolver`     | exported symbol; the annotator maps it to the app's resolver id                                 |
-| `concealment`                | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                      |
-| `decisionTime`               | `"SnapshotRead"` or `"Transaction"`                                                             |
-| `snapshotDecisionForCommand` | optional `true`; compiler-only claim for a capability-only Command (ADR 0013)                   |
+| Field                        | Shape                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `annotator`                  | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed)   |
+| `exposure`                   | `"External"` or `"Internal"`                                                                      |
+| `acceptedCredentials`        | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                        |
+| `principalKinds`             | nonempty names (`Anonymous`, `Person`, ...)                                                       |
+| `capabilities`               | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                    |
+| `requirements`               | `{ id, parameters? }[]` with JSON-only parameters                                                 |
+| `canonicalScopeResolver`     | exported symbol; the annotator maps it to the app's resolver id                                   |
+| `concealment`                | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                        |
+| `decisionTime`               | optional: `"SnapshotRead"` for a `Query`, `"Transaction"` for a `Command`; an explicit value wins |
+| `snapshotDecisionForCommand` | optional `true`; compiler-only claim for a capability-only Command (ADR 0013)                     |
+
+**Decision time defaults from the operation kind** (spec 0024 §4). Leave it out and
+the pre-pass writes `SnapshotRead` for a `Query` and `Transaction` for a `Command`
+before interpretation, so the IR, hash and generated files equal the spelled-out
+declaration. Builder, decorator and group-level access behave alike; a group's
+`defaults.access` has no `decisionTime` (it is per operation by nature). Write the
+value only to override the default, e.g. a read that decides inside a transaction.
+`EFFX2501` and `EFFX2502` check the resolved value, so a default never trips them.
 
 `Capability.make(name, { resource, focus? })` is a different thing: it builds a
 **model** capability for `@Authorize` / `.authorize(...)`. The access
@@ -79,6 +87,7 @@ needs a real end-to-end run.
 | `EFFX2504` | an HTTP operation has no `Http.Access`                                                                | warning; error with `--strict-access` |
 | `EFFX2500` | duplicate `Http.Access`                                                                               | error                                 |
 | `EFFX2506` | `snapshotDecisionForCommand: true` is declared outside the one allowed shape (see below)              | error                                 |
+| `EFFX2414` | `decisionTime` omitted on a declaration with no single `Query` or `Command` to default it from        | error                                 |
 
 A **security marker** is an `HttpApiMiddleware.Service` class that carries
 Effect's `security` option. Any other middleware does not satisfy `EFFX2503`.

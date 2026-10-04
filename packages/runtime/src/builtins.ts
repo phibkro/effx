@@ -223,7 +223,8 @@ export const HttpAccess = defineBuiltin({
         message: "access symbol must be an exported value",
       }),
       concealment: A.sourceOptional(concealment),
-      decisionTime: A.literal("SnapshotRead", "Transaction"),
+      // Optional to write: the 0013 pre-pass defaults it from the operation kind (spec 0024 §4).
+      decisionTime: A.sourceOptional(A.literal("SnapshotRead", "Transaction")),
       /**
        * Compiler-checked claim that a Command decides authority in a read snapshot. Only `true` has
        * meaning, and only for `decisionTime: "SnapshotRead"` with empty `requirements`,

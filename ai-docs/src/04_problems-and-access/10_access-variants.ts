@@ -36,7 +36,9 @@ export const readSharedSettings = Operation.query({
     requirements: [{ id: "workspace.member", parameters: { role: "viewer" } }],
     canonicalScopeResolver: SharedWorkspace,
     concealment: Concealment.notFound("membership", "capability"),
-    decisionTime: "SnapshotRead",
+    // An explicit value overrides the kind's default: this read decides inside a transaction
+    // (the compiler warns with EFFX2502, since a Query usually decides in a snapshot).
+    decisionTime: "Transaction",
   })
   .handler((_input: typeof ReadSettingsInput.Type, authorize: Authorize) =>
     Effect.gen(function* () {
@@ -65,7 +67,6 @@ export const readHealth = Operation.query({
     requirements: [],
     canonicalScopeResolver: NoScope,
     concealment: Concealment.reveal,
-    decisionTime: "SnapshotRead",
   })
   .handler(() => Effect.succeed({ theme: "light" as const }));
 
@@ -86,7 +87,6 @@ export const resetSettings = Operation.command({
     requirements: [],
     canonicalScopeResolver: SharedWorkspace,
     concealment: Concealment.reveal,
-    decisionTime: "Transaction",
   })
   .handler((_input: typeof ReadSettingsInput.Type, authorize: Authorize) =>
     Effect.gen(function* () {

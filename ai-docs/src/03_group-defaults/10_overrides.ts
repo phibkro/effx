@@ -43,6 +43,5 @@ export const publicDefaults = Operation.query({
     concealment: Concealment.reveal,
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();

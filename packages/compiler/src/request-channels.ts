@@ -32,6 +32,13 @@ export const mapsInput = (candidate: AnnotationArg | undefined, input: Input): b
   candidate.ref.export === input.ref.export &&
   candidate.ref.symbolId === input.ref.symbolId;
 
+/** The single options object an annotation was written with, when it was. */
+export const optionsOf = (annotation: Annotation): Options | undefined => {
+  const [options] = annotation.args;
+
+  return annotation.args.length === 1 && isAnnotationOptions(options) ? options : undefined;
+};
+
 const verbOf = (name: string): Verb | undefined => {
   switch (name) {
     case "Http.Get":
@@ -78,14 +85,13 @@ const requestOf = (declaration: Declaration): Site | undefined => {
   if (contract === undefined || operation === undefined || method === undefined) return undefined;
 
   const verb = verbOf(method.name);
-  const [options] = contract.args;
+  const options = optionsOf(contract);
   const [path] = method.args;
   const declared = Schema.decodeOption(OperationArgs)(operation.args);
 
   if (
     verb === undefined ||
-    contract.args.length !== 1 ||
-    !isAnnotationOptions(options) ||
+    options === undefined ||
     method.args.length !== 1 ||
     !Predicate.isString(path) ||
     Option.isNone(declared)
@@ -173,7 +179,8 @@ const decide = ({ options, kind, input, verb, path }: Site): Decision => {
   };
 };
 
-export interface Derivation {
+/** What one step of the 0013 pre-pass leaves of a declaration, and the diagnostics it found. */
+export interface Rewrite {
   readonly declaration: Declaration;
   readonly diagnostics: ReadonlyArray<Diagnostic>;
 }
@@ -185,8 +192,8 @@ export interface Derivation {
  * wins: a derived channel never replaces one, and an ambiguous input is a diagnostic only while nothing that
  * resolves it is explicit.
  */
-export const deriveRequestChannels = (declaration: Declaration): Derivation => {
-  const unchanged: Derivation = { declaration, diagnostics: [] };
+export const deriveRequestChannels = (declaration: Declaration): Rewrite => {
+  const unchanged: Rewrite = { declaration, diagnostics: [] };
   const request = requestOf(declaration);
 
   if (request === undefined) return unchanged;
@@ -198,7 +205,7 @@ export const deriveRequestChannels = (declaration: Declaration): Derivation => {
 
   const decision = decide(request);
 
-  const invalid = (code: string, message: string): Derivation => ({
+  const invalid = (code: string, message: string): Rewrite => ({
     declaration,
     diagnostics: [error(code, `${declaration.id}: ${message}`, declaration.location)],
   });

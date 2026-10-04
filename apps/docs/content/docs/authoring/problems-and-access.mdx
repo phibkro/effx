@@ -72,7 +72,7 @@ requirements, scope resolver, concealment and decision time.
   requirements: [{ id: "profile.owner" }],
   canonicalScopeResolver: ProfileCurrentPerson,
   concealment: Concealment.reveal,
-  decisionTime: "SnapshotRead",
+  // decisionTime omitted: a Query decides in a snapshot, a Command in its transaction.
 })
 
 // builder
@@ -83,8 +83,8 @@ It is allowed once per operation (`EFFX2500` otherwise).
 
 ### `HttpAccessOptions`
 
-`HttpAccessOptions` is `HttpAccessAnnotationSpec` with `exposure`, `acceptedCredentials`, `principalKinds` and
-`concealment` made optional, plus an optional `annotator`.
+`HttpAccessOptions` is `HttpAccessAnnotationSpec` with `exposure`, `acceptedCredentials`, `principalKinds`,
+`concealment` and `decisionTime` made optional, plus an optional `annotator`.
 
 | Field                    | Type                                                  | Optional | Meaning                                                                                  |
 | ------------------------ | ----------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
@@ -96,12 +96,14 @@ It is allowed once per operation (`EFFX2500` otherwise).
 | `requirements`           | `ReadonlyArray<{ id: string; parameters?: Readonly<Record<string, AccessJson>> }>` | no | Application-defined typed requirements with JSON-only parameters. |
 | `canonicalScopeResolver` | `object`                                              | no       | Application-exported value, lowered to a `SymbolRef`. effx implements no scope lookup.   |
 | `concealment`            | `AccessConcealment`                                   | yes      | What a denied caller sees.                                                               |
-| `decisionTime`           | `"SnapshotRead"` or `"Transaction"`                   | no       | Where the application decides authority.                                                 |
+| `decisionTime`           | `"SnapshotRead"` or `"Transaction"`                   | yes      | Where the application decides authority. Defaults from the kind: `Query` is `SnapshotRead`, `Command` is `Transaction`; an explicit value wins. |
 | `snapshotDecisionForCommand` | `boolean`                                         | yes      | Compiler-only claim (ADR 0013). Only `true` has meaning; the annotator never receives it. |
 
 `HttpAccessAnnotationSpec` is the value passed unchanged to your annotator in generated code. All its fields
 are required: `exposure`, `acceptedCredentials`, `principalKinds`, `capabilities`, `requirements`,
-`canonicalScopeResolver`, `concealment`, `decisionTime`, with the types above.
+`canonicalScopeResolver`, `concealment`, `decisionTime`, with the types above. An omitted `decisionTime` is
+filled before interpretation (spec 0024 §4), so the annotator and the IR always see the resolved value. The
+group's `defaults.access` has no `decisionTime`: it is per operation by nature.
 
 Source: `packages/runtime/src/Annotation.ts` (`HttpAccessOptions`, `HttpAccessAnnotationSpec`, `AccessJson`,
 `NonEmptyStrings`); IR shape in `packages/compiler/src/extensions/access-contract.ts` (`AccessOptions`).
@@ -159,6 +161,7 @@ non-static argument is a source diagnostic. Source: `packages/runtime/src/author
 | `EFFX2503` | error                                          | `acceptedCredentials` has any entry other than `None` but `Http.Contract.middleware` has no security marker |
 | `EFFX2504` | warning; error with `strictAccess: true`       | an operation with HTTP exposure has no `Http.Access`                                                   |
 | `EFFX2506` | error                                          | `snapshotDecisionForCommand: true` outside a Command with `SnapshotRead`, empty `requirements`, sole `ObjectCapability` and sole `CapabilityHolder` (`EFFX2501` also remains for an unsafe Command) |
+| `EFFX2414` | error                                          | `decisionTime` omitted on a declaration with no single `Query` or `Command` to default it from          |
 
 Source: `packages/compiler/src/extensions/access-contract.ts` (`analyzeAccess`).
 

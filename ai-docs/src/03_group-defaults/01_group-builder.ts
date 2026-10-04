@@ -63,7 +63,6 @@ export const readSettings = Operation.query({
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -82,8 +81,7 @@ export const updateSettings = Operation.command({
     capabilities: Capability.one("settings.update"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    // A mutation decides inside its own transaction (EFFX2501 forbids
-    // `SnapshotRead` on a Command).
-    decisionTime: "Transaction",
+    // `decisionTime` is omitted: a Command decides inside its own transaction and a Query in a
+    // read snapshot. Write it only to override the default (spec 0024 §4).
   })
   .declare();

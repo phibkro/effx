@@ -607,7 +607,6 @@ export const readSettings = Operation.query({
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -626,9 +625,8 @@ export const updateSettings = Operation.command({
     capabilities: Capability.one("settings.update"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    // A mutation decides inside its own transaction (EFFX2501 forbids
-    // `SnapshotRead` on a Command).
-    decisionTime: "Transaction",
+    // `decisionTime` is omitted: a Command decides inside its own transaction and a Query in a
+    // read snapshot. Write it only to override the default (spec 0024 §4).
   })
   .declare();
 ```
@@ -680,7 +678,6 @@ export class SettingsOperations {
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "SnapshotRead",
   })
   // A protected local operation takes a lazy `authorize` thunk as its second
   // argument. Call it at the point your own snapshot or transaction needs it.
@@ -700,7 +697,6 @@ export class SettingsOperations {
     capabilities: Capability.one("settings.update"),
     requirements: [],
     canonicalScopeResolver: CurrentAccount,
-    decisionTime: "Transaction",
   })
   static update(input: typeof SettingsPatch.Type, authorize: () => Effect.Effect<void>) {
     return Effect.gen(function* () {
@@ -745,7 +741,6 @@ export const searchSettings = Operation.query({
     capabilities: Capability.one("settings.search"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -764,7 +759,6 @@ export const readVersion = Operation.query({
     capabilities: Capability.one("settings.read-version"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -782,7 +776,6 @@ export const readById = Operation.query({
     capabilities: Capability.one("settings.read"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "SnapshotRead",
   })
   .declare();
 
@@ -801,7 +794,6 @@ export const renameSettings = Operation.command({
     capabilities: Capability.one("settings.rename"),
     requirements: [],
     canonicalScopeResolver: AnonymousScope,
-    decisionTime: "Transaction",
   })
   .declare();
 ```
@@ -848,18 +840,26 @@ application code.
 
 `@Http.Access(opts)` / `.http.access(opts)`; type `HttpAccessOptions`.
 
-| Field                        | Shape                                                                                           |
-| ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| `annotator`                  | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed) |
-| `exposure`                   | `"External"` or `"Internal"`                                                                    |
-| `acceptedCredentials`        | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                      |
-| `principalKinds`             | nonempty names (`Anonymous`, `Person`, ...)                                                     |
-| `capabilities`               | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                  |
-| `requirements`               | `{ id, parameters? }[]` with JSON-only parameters                                               |
-| `canonicalScopeResolver`     | exported symbol; the annotator maps it to the app's resolver id                                 |
-| `concealment`                | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                      |
-| `decisionTime`               | `"SnapshotRead"` or `"Transaction"`                                                             |
-| `snapshotDecisionForCommand` | optional `true`; compiler-only claim for a capability-only Command (ADR 0013)                   |
+| Field                        | Shape                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `annotator`                  | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed)   |
+| `exposure`                   | `"External"` or `"Internal"`                                                                      |
+| `acceptedCredentials`        | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                        |
+| `principalKinds`             | nonempty names (`Anonymous`, `Person`, ...)                                                       |
+| `capabilities`               | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                    |
+| `requirements`               | `{ id, parameters? }[]` with JSON-only parameters                                                 |
+| `canonicalScopeResolver`     | exported symbol; the annotator maps it to the app's resolver id                                   |
+| `concealment`                | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                        |
+| `decisionTime`               | optional: `"SnapshotRead"` for a `Query`, `"Transaction"` for a `Command`; an explicit value wins |
+| `snapshotDecisionForCommand` | optional `true`; compiler-only claim for a capability-only Command (ADR 0013)                     |
+
+**Decision time defaults from the operation kind** (spec 0024 §4). Leave it out and
+the pre-pass writes `SnapshotRead` for a `Query` and `Transaction` for a `Command`
+before interpretation, so the IR, hash and generated files equal the spelled-out
+declaration. Builder, decorator and group-level access behave alike; a group's
+`defaults.access` has no `decisionTime` (it is per operation by nature). Write the
+value only to override the default, e.g. a read that decides inside a transaction.
+`EFFX2501` and `EFFX2502` check the resolved value, so a default never trips them.
 
 `Capability.make(name, { resource, focus? })` is a different thing: it builds a
 **model** capability for `@Authorize` / `.authorize(...)`. The access
@@ -893,6 +893,7 @@ needs a real end-to-end run.
 | `EFFX2504` | an HTTP operation has no `Http.Access`                                                                | warning; error with `--strict-access` |
 | `EFFX2500` | duplicate `Http.Access`                                                                               | error                                 |
 | `EFFX2506` | `snapshotDecisionForCommand: true` is declared outside the one allowed shape (see below)              | error                                 |
+| `EFFX2414` | `decisionTime` omitted on a declaration with no single `Query` or `Command` to default it from        | error                                 |
 
 A **security marker** is an `HttpApiMiddleware.Service` class that carries
 Effect's `security` option. Any other middleware does not satisfy `EFFX2503`.
@@ -999,8 +1000,8 @@ export class SettingsAccessOperations {
     // An exported symbol the app maps to its own resolver id.
     canonicalScopeResolver: CurrentAccount,
     concealment: Concealment.reveal,
-    // A read decides in a read snapshot.
-    decisionTime: "SnapshotRead",
+    // No `decisionTime`: a Query decides in a read snapshot, a Command inside its
+    // committing transaction. The compiler fills the kind's default.
   })
   static read(_input: typeof ReadSettingsInput.Type, authorize: Authorize) {
     return Effect.gen(function* () {
@@ -1031,9 +1032,8 @@ export class SettingsAccessOperations {
     requirements: [{ id: "settings.owner" }],
     canonicalScopeResolver: CurrentAccount,
     concealment: Concealment.reveal,
-    // A write decides inside the committing transaction. `SnapshotRead` on a
-    // Command is EFFX2501.
-    decisionTime: "Transaction",
+    // A write decides inside the committing transaction (the Command default).
+    // Writing `decisionTime: "SnapshotRead"` on a Command is EFFX2501.
   })
   static update(input: typeof SettingsPatch.Type, authorize: Authorize) {
     return Effect.gen(function* () {

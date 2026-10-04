@@ -38,8 +38,8 @@ export class SettingsAccessOperations {
     // An exported symbol the app maps to its own resolver id.
     canonicalScopeResolver: CurrentAccount,
     concealment: Concealment.reveal,
-    // A read decides in a read snapshot.
-    decisionTime: "SnapshotRead",
+    // No `decisionTime`: a Query decides in a read snapshot, a Command inside its
+    // committing transaction. The compiler fills the kind's default.
   })
   static read(_input: typeof ReadSettingsInput.Type, authorize: Authorize) {
     return Effect.gen(function* () {
@@ -70,9 +70,8 @@ export class SettingsAccessOperations {
     requirements: [{ id: "settings.owner" }],
     canonicalScopeResolver: CurrentAccount,
     concealment: Concealment.reveal,
-    // A write decides inside the committing transaction. `SnapshotRead` on a
-    // Command is EFFX2501.
-    decisionTime: "Transaction",
+    // A write decides inside the committing transaction (the Command default).
+    // Writing `decisionTime: "SnapshotRead"` on a Command is EFFX2501.
   })
   static update(input: typeof SettingsPatch.Type, authorize: Authorize) {
     return Effect.gen(function* () {
