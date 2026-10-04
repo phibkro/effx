@@ -1,6 +1,6 @@
 # Spec 0017 — `effx cedar`: Cedar schema and policy projection, validated by real Cedar
 
-Status: **approved 2026-10-04; implementing** (decisions in §7). Builds on
+Status: **approved 2026-10-04; implemented, DoD met locally and not yet landed** (decisions in §7, implementation notes in §8). Builds on
 [spec 0006](0006-access-contract-extension.md), [spec 0015](0015-config-and-extensions.md) and
 [spec 0021](0021-surface-manifest.md); realizes the "Cedar schema is generated from the IR; policy
 validation becomes `EFFX41xx` diagnostics" half of
@@ -244,3 +244,16 @@ Resolved from the proposal's open questions; each is binding for the implementat
 5. **Requirements.** `"<id>": Bool` context attributes plus `forbid … unless`.
 6. **Resource type.** The resolver export name.
 7. **ADR and STATE.** The implementation adds an ADR 0007 addendum ("schema/policy projection + validation shipped in 0017; runtime authorization and leases still deferred") and a `STATE.md` row, each as a separate commit.
+
+## 8. Implementation notes (details the contract left open)
+
+Each is observable in the tests named in §6; none changes a decision in §7.
+
+1. **Stacked `@Authorize`.** An operation with two or more `AuthorizedBy` capabilities and no `AccessContract` is read as "all required": it projects like `capabilities: All` (no group parent, `EFFX4104`). Exactly one capability is `One`.
+2. **Grants only where a grant can match.** A grant template is emitted only for a capability that is the group parent of at least one operation action. A capability that appears only in an `All` expression, or that no operation uses, still gets its group action but no template: Cedar warns that such a policy is impossible, and the emitted pair validates with no errors and no warnings.
+3. **Emitted text is a fault, not a diagnostic.** Any validator error or warning on effx-emitted text is a `CompilerFault`, as §5 says.
+4. **Order and escaping.** Output is sorted by code unit; names are written as Cedar string literals with `\\`, `\"`, `\n`, `\r`, `\t` and `\u{…}` escapes. Cedar reports validation issues from hash maps, so the adapter sorts them by policy id and message.
+5. **Policy ids.** Ids come from the `@id` annotation, else `policy<n>` or `template<n>`; a repeated id is kept and the later one is suffixed `#<position>`. A requirement id that makes two emitted policy ids collide is `EFFX4101`.
+6. **Flags.** `effx cedar` resolves the project without `--strict-access` and without the shared `--out-dir`; `--out-dir` is its own output directory. `--target` and `--emit` are accepted but do not affect the output (verified byte-identical across `--emit`).
+7. **Probe mechanism.** F3d's runtime proof runs the real CLI under `bun --tsconfig-override` with the validator's import redirected to a failing stand-in. Bun 1.3.13's runtime `plugin` `onResolve` does not intercept that bare package, so it was rejected.
+8. **Source fixtures.** The real-source cases compile `ai-docs/src/04_problems-and-access/02_access.ts` (the Profile-like `SnapshotRead` query and `Transaction` command) and a test-owned decorator fixture (`Any`, `None`, `All`, parameterized requirement), both through the real frontend.
