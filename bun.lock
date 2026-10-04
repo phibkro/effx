@@ -78,6 +78,22 @@
         "vitest": "5.0.3",
       },
     },
+    "examples/persistence": {
+      "name": "@effx-examples/persistence",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.0",
+        "@effect/sql-pglite": "4.0.0",
+        "@effx-examples/users": "workspace:*",
+        "@effx/persistence": "workspace:*",
+        "@effx/runtime": "workspace:*",
+        "drizzle-orm": "1.0.0-rc.4",
+        "effect": "4.0.0",
+      },
+      "devDependencies": {
+        "@effect/vitest": "4.0.0",
+        "@effx/cli": "workspace:*",
+      },
+    },
     "examples/users": {
       "name": "@effx-examples/users",
       "version": "0.0.0",
@@ -137,6 +153,21 @@
       "version": "0.1.0",
       "devDependencies": {
         "@effect/platform-bun": "4.0.0",
+        "effect": "4.0.0",
+      },
+      "peerDependencies": {
+        "effect": ">=4.0.0-rc.116 <5",
+      },
+    },
+    "packages/persistence": {
+      "name": "@effx/persistence",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effx/compiler": "0.1.0",
+        "@effx/ir": "0.1.0",
+        "@effx/runtime": "0.1.0",
+      },
+      "devDependencies": {
         "effect": "4.0.0",
       },
       "peerDependencies": {
@@ -275,6 +306,8 @@
 
     "@effx-examples/extension-openapi-tags": ["@effx-examples/extension-openapi-tags@workspace:examples/extension-openapi-tags"],
 
+    "@effx-examples/persistence": ["@effx-examples/persistence@workspace:examples/persistence"],
+
     "@effx-examples/users": ["@effx-examples/users@workspace:examples/users"],
 
     "@effx/cli": ["@effx/cli@workspace:packages/cli"],
@@ -286,6 +319,8 @@
     "@effx/frontend-ts": ["@effx/frontend-ts@workspace:packages/frontend-ts"],
 
     "@effx/ir": ["@effx/ir@workspace:packages/ir"],
+
+    "@effx/persistence": ["@effx/persistence@workspace:packages/persistence"],
 
     "@effx/runtime": ["@effx/runtime@workspace:packages/runtime"],
 
