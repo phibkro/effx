@@ -1,46 +1,27 @@
 /** @effect-diagnostics unstableApiUsage:off -- the fixture exercises generated native HttpApi and HttpClient over BunHttpServer. */
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunHttpServer, BunServices } from "@effect/platform-bun";
 import { assert, it } from "@effect/vitest";
-import { expect } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { HttpClient, HttpClientError, HttpServerRequest } from "effect/http";
 import type { HttpClientResponse } from "effect/http";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import {
-  CredentialMissing,
-  ProfileCredentialSecurity,
-  ProfileUpdated,
-  ProfileUpdateFailed,
-} from "./fixtures/users/src/client-foldkit-support.ts";
 import type {
   ProfileResponse,
   ProfileResponseHeaders,
 } from "./fixtures/users/src/client-foldkit-support.ts";
 
-const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
-
 const outDir = new URL("./fixtures/users/.effx/client-foldkit-generated/", import.meta.url)
   .pathname;
-
-const clientUrl = new URL(
-  "./fixtures/users/.effx/client-foldkit-generated/client.ts",
-  import.meta.url,
-).href;
-
-const httpUrl = new URL("./fixtures/users/.effx/client-foldkit-generated/http.ts", import.meta.url)
-  .href;
-
-const foldkitUrl = new URL(
-  "./fixtures/users/.effx/client-foldkit-generated/foldkit.ts",
-  import.meta.url,
-).href;
 
 type GeneratedHttp = typeof import("./fixtures/users/.effx/client-foldkit-generated/http.ts");
 
 type GeneratedClient = typeof import("./fixtures/users/.effx/client-foldkit-generated/client.ts");
 
 type GeneratedFoldkit = typeof import("./fixtures/users/.effx/client-foldkit-generated/foldkit.ts");
+
+type GeneratedSupport = typeof import("./fixtures/users/src/client-foldkit-support.ts");
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -55,6 +36,27 @@ it.live(
   "serves the generated Profile client, 401 problem and lazy Foldkit Command over Bun HTTP",
   () =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
+      const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
+      const generatedDir = path.join(fixtureRoot, ".effx", "client-foldkit-generated");
+      yield* fs.makeDirectory(generatedDir, { recursive: true });
+      const clientUrl = (yield* path.toFileUrl(path.join(generatedDir, "client.ts"))).href;
+      const httpUrl = (yield* path.toFileUrl(path.join(generatedDir, "http.ts"))).href;
+      const foldkitUrl = (yield* path.toFileUrl(path.join(generatedDir, "foldkit.ts"))).href;
+
+      const supportUrl = (yield* path.toFileUrl(
+        path.join(fixtureRoot, "src", "client-foldkit-support.ts"),
+      )).href;
+
+      const support: GeneratedSupport = yield* Effect.promise(
+        () => import(/* @vite-ignore */ supportUrl),
+      );
+
+      const { CredentialMissing, ProfileCredentialSecurity, ProfileUpdated, ProfileUpdateFailed } =
+        support;
+
       const generated = yield* compile(
         { tsconfigPath, entry: ["src/operations.client-foldkit.ts"] },
         Extensions.builtin,
@@ -71,13 +73,11 @@ it.live(
       );
 
       for (const file of files) {
-        yield* Effect.promise(() =>
-          expect(file.contents).toMatchFileSnapshot(`${outDir}${file.path}`),
-        );
+        assert.strictEqual(file.contents, yield* fs.readFileString(outDir + file.path));
+        yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
       }
 
-      // Keep runtime imports deferred until compilation; their types come from the checked-in
-      // generated fixture, which the assertions above bind to this exact compiler output.
+      // Runtime imports use this invocation's emitted files; checked-in files are read-only goldens.
       const httpModule: GeneratedHttp = yield* Effect.promise(
         () => import(/* @vite-ignore */ httpUrl),
       );
@@ -332,6 +332,6 @@ it.live(
         assert.isFalse(listenerRegistered, "the transport abort listener must be released");
         assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(fiber)));
       }).pipe(Effect.provide(PendingClient));
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   20_000,
 );

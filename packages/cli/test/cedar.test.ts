@@ -1,3 +1,4 @@
+import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
@@ -55,7 +56,7 @@ const withBlockedValidator = <A, E, R>(use: (override: string) => Effect.Effect<
     );
 
     const file = yield* fs.makeTempFileScoped({
-      directory: repoRoot,
+      directory: yield* testDirectory("cedar-probe-"),
       prefix: ".cedar-probe-",
       suffix: ".json",
     });
@@ -88,7 +89,7 @@ const withUsersProject = <A, E, R>(use: (project: string, dir: string) => Effect
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const dir = yield* fs.makeTempDirectoryScoped({ directory: usersRoot, prefix: ".cedar-test-" });
+    const dir = yield* testDirectory("cedar-users-test-");
 
     yield* fs.copy(path.join(usersRoot, "src"), path.join(dir, "src"));
     yield* fs.writeFileString(
@@ -99,7 +100,7 @@ const withUsersProject = <A, E, R>(use: (project: string, dir: string) => Effect
 
     yield* fs.writeFileString(
       project,
-      '{ "extends": "../tsconfig.json", "include": ["src/operations.ts"] }\n',
+      `{ "extends": ${yield* encodeJsonString(path.join(usersRoot, "tsconfig.json"))}, "include": ["src/operations.ts"] }\n`,
     );
 
     return yield* use(project, dir);
@@ -114,10 +115,7 @@ const withAccessProject = <A, E, R>(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const dir = yield* fs.makeTempDirectoryScoped({
-      directory: `${repoRoot}ai-docs`,
-      prefix: ".cedar-test-",
-    });
+    const dir = yield* testDirectory("cedar-access-test-");
 
     const project = path.join(dir, "tsconfig.json");
 
@@ -128,9 +126,10 @@ const withAccessProject = <A, E, R>(
       yield* fs.copy(`${fixturesDir}access-variants.ts.fixture`, path.join(dir, "src", source));
     }
 
+    // This project opts its copied input into the otherwise ignored .effx tree.
     yield* fs.writeFileString(
       project,
-      `{ "extends": "../../tsconfig.json", "include": ["src/${source}"] }\n`,
+      `{ "extends": ${yield* encodeJsonString(path.join(repoRoot, "tsconfig.json"))}, "include": ["src/${source}"], "exclude": [] }\n`,
     );
 
     return yield* use(project, dir);

@@ -1,12 +1,9 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 import { SourceFrontend } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-
-const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
-
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -79,6 +76,8 @@ describe("group association lowering", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
+      const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
       const groupPath = path.join(fixtureRoot, "src", "_group-source.ts");
       const operationPath = path.join(fixtureRoot, "src", "_group-operations.ts");
       yield* fs.writeFileString(groupPath, groups);

@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, FileSystem, Layer, Path, Schema } from "effect";
@@ -5,8 +6,6 @@ import { AnnotationArg, ProjectConfig, SourceFrontend } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 
 const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
-
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -78,12 +77,14 @@ describe("access annotation lowering", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
+        const projectConfig = path.join(fixtureRoot, "tsconfig.json");
         const fixture = path.join(fixtureRoot, "src", "_access-lowering.ts");
         yield* fs.writeFileString(fixture, source);
         yield* Effect.addFinalizer(() => fs.remove(fixture).pipe(Effect.ignore));
 
         const collected = yield* SourceFrontend.use((frontend) =>
-          frontend.analyze({ tsconfigPath, entry: ["src/_access-lowering.ts"] }),
+          frontend.analyze({ tsconfigPath: projectConfig, entry: ["src/_access-lowering.ts"] }),
         );
 
         const decorated = collected.declarations.find(

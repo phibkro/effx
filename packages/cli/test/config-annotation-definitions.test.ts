@@ -1,3 +1,4 @@
+import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
@@ -42,7 +43,7 @@ const written = ".annotate(RateLimit.effect.key, { perMinute: 60, burst: 5 })";
 
 const occurrences = (text: string, part: string): number => text.split(part).length - 1;
 
-/** A throwaway project beside the users fixture whose config registers `extension("app", [implement(RateLimit)])`. */
+/** A scoped scratch project whose config registers `extension("app", [implement(RateLimit)])`. */
 const withProject = <A, E, R>(
   entry: string,
   use: (dir: string, tsconfig: string) => Effect.Effect<A, E, R>,
@@ -51,17 +52,14 @@ const withProject = <A, E, R>(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const dir = yield* fs.makeTempDirectoryScoped({
-      directory: fixtureRoot,
-      prefix: ".definitions-test-",
-    });
+    const dir = yield* testDirectory("definitions-test-");
 
     yield* fs.copy(path.join(fixtureRoot, "src"), path.join(dir, "src"));
     const tsconfig = path.join(dir, "tsconfig.json");
 
     yield* fs.writeFileString(
       tsconfig,
-      `{ "extends": "../tsconfig.json", "include": ["src/${entry}"] }\n`,
+      `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/${entry}"] }\n`,
     );
 
     yield* fs.writeFileString(

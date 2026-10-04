@@ -1,3 +1,4 @@
+import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
@@ -26,10 +27,7 @@ const withProject = <A, E, R>(use: (project: string, dir: string) => Effect.Effe
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const dir = yield* fs.makeTempDirectoryScoped({
-      directory: usersRoot,
-      prefix: ".surface-test-",
-    });
+    const dir = yield* testDirectory("surface-test-", path.join(usersRoot, ".effx"));
 
     yield* fs.copy(path.join(usersRoot, "src"), path.join(dir, "src"));
     yield* fs.copy(fixtures, dir);
@@ -40,7 +38,7 @@ const withProject = <A, E, R>(use: (project: string, dir: string) => Effect.Effe
     const project = path.join(dir, "tsconfig.json");
     yield* fs.writeFileString(
       project,
-      '{ "extends": "../tsconfig.json", "include": ["src/operations.ts"] }\n',
+      `{ "extends": ${yield* encodeJsonString(path.join(usersRoot, "tsconfig.json"))}, "include": ["src/operations.ts"] }\n`,
     );
 
     return yield* use(project, dir);

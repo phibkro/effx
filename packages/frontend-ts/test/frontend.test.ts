@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -16,8 +17,6 @@ import { TsSourceFrontend } from "@effx/frontend-ts";
 
 const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
 
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
-
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
 /** The TS frontend over Bun's platform services: the only composition root in this package. */
@@ -25,11 +24,11 @@ const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
 const Services = Layer.mergeAll(Frontend, BunServices.layer);
 
-const analyzeEntry = (entry: ReadonlyArray<string>) =>
-  SourceFrontend.use((frontend) => frontend.analyze({ tsconfigPath, entry: [...entry] }));
+const analyzeEntry = (entry: ReadonlyArray<string>, project = tsconfigPath) =>
+  SourceFrontend.use((frontend) => frontend.analyze({ tsconfigPath: project, entry: [...entry] }));
 
-const compileEntry = (entry: ReadonlyArray<string>, strictAccess = false) =>
-  compile({ tsconfigPath, entry: [...entry], strictAccess }, Extensions.builtin);
+const compileEntry = (entry: ReadonlyArray<string>, strictAccess = false, project = tsconfigPath) =>
+  compile({ tsconfigPath: project, entry: [...entry], strictAccess }, Extensions.builtin);
 
 /** Expected values are written as JSON and decoded, so branded ids are constructed, never asserted. */
 const expectArgs = Schema.decodeUnknownEffect(Schema.Array(AnnotationArg));
@@ -263,6 +262,7 @@ describe("TsSourceFrontend", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
       const file = path.join(fixtureRoot, "src", "_instance.ts");
       yield* fs.writeFileString(
         file,
@@ -279,7 +279,12 @@ describe("TsSourceFrontend", () => {
         ].join("\n"),
       );
       yield* Effect.addFinalizer(() => fs.remove(file).pipe(Effect.ignore));
-      const collected = yield* analyzeEntry(["src/_instance.ts"]);
+
+      const collected = yield* analyzeEntry(
+        ["src/_instance.ts"],
+        path.join(fixtureRoot, "tsconfig.json"),
+      );
+
       const rejected = collected.diagnostics.filter((d) => d.code === "EFFX1104");
       assert.strictEqual(rejected.length, 1);
       assert.strictEqual(rejected[0]!.location?.file, file);
@@ -516,15 +521,20 @@ describe("TsSourceFrontend", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
 
-        const result = yield* compileEntry([
-          "src/operations.ts",
-          "src/operations.contract.ts",
-          "src/operations.contract-rich.ts",
-          "src/operations.contract-status.ts",
-          "src/operations.client-foldkit.ts",
-          "src/operations.content-actions.ts",
-        ]);
+        const result = yield* compileEntry(
+          [
+            "src/operations.ts",
+            "src/operations.contract.ts",
+            "src/operations.contract-rich.ts",
+            "src/operations.contract-status.ts",
+            "src/operations.client-foldkit.ts",
+            "src/operations.content-actions.ts",
+          ],
+          false,
+          path.join(fixtureRoot, "tsconfig.json"),
+        );
 
         assert.deepStrictEqual(errors(result.diagnostics), []);
         const files = Option.getOrThrow(result.files.value);

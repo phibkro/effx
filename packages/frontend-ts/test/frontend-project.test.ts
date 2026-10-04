@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { type ProjectConfig, Extensions, SourceFrontend, compile } from "@effx/compiler";
@@ -5,8 +6,6 @@ import { canonical, semanticHash } from "@effx/ir";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { loadProject, readTsconfigEffx, targetProfileFromVersion } from "../src/project.ts";
-
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
 
 const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
 
@@ -42,6 +41,7 @@ describe("frontend target project", () => {
 
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
         const directory = yield* fs.makeTempDirectoryScoped({ directory: fixtureRoot });
         const inheritedOnly = path.join(directory, "tsconfig.inherited.json");
         yield* fs.writeFileString(
@@ -92,6 +92,7 @@ describe("frontend target project", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
       const workspace = yield* fs.makeTempDirectoryScoped({ directory: fixtureRoot });
       const contractDir = path.join(workspace, "contract");
       const handlerDir = path.join(workspace, "handlers");
@@ -260,6 +261,7 @@ describe("frontend target project", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
       const dir = yield* fs.makeTempDirectoryScoped({ directory: fixtureRoot });
       const file = path.join(dir, "tsconfig.effx.json");
       yield* fs.writeFileString(

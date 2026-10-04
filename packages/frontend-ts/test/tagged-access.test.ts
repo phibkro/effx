@@ -1,13 +1,10 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, SourceFrontend, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
-
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
-
-const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -70,6 +67,8 @@ describe("tagged access source values", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
+        const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
         const fixture = path.join(fixtureRoot, "src", "_tagged-access.ts");
         yield* Effect.addFinalizer(() => fs.remove(fixture).pipe(Effect.ignore));
 
@@ -116,6 +115,8 @@ describe("tagged access source values", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
+        const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
         const fixture = path.join(fixtureRoot, "src", "_tagged-invalid.ts");
         yield* fs.writeFileString(
           fixture,

@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -18,16 +19,12 @@ import { canonical, semanticHash } from "@effx/ir";
  * declarations compile to the same IR, hash and generated files.
  */
 
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
-
-const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
-
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
 const Services = Layer.mergeAll(Frontend, BunServices.layer);
 
-/** Writes a throwaway source into the users fixture; the scope removes it. */
-const temp = Effect.fnUntraced(function* (name: string, contents: string) {
+/** Writes only into this case's scoped users copy. */
+const temp = Effect.fnUntraced(function* (fixtureRoot: string, name: string, contents: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const file = path.join(fixtureRoot, "src", name);
@@ -122,8 +119,10 @@ const summary = (arg: AnnotationArg | undefined) =>
 describe("Http.headers and input field keys on the frontend", () => {
   it.effect("records fields on input, and a marker by type shape", () =>
     Effect.gen(function* () {
-      yield* temp("_derive-support.ts", support);
-      yield* temp("_derive-lowering.ts", lowering);
+      const fixtureRoot = yield* copyUsersFixture();
+      const tsconfigPath = fixtureRoot + "/tsconfig.json";
+      yield* temp(fixtureRoot, "_derive-support.ts", support);
+      yield* temp(fixtureRoot, "_derive-lowering.ts", lowering);
 
       const collected = yield* SourceFrontend.use((frontend) =>
         frontend.analyze({ tsconfigPath, entry: ["src/_derive-lowering.ts"] }),
@@ -190,13 +189,16 @@ describe("Http.headers and input field keys on the frontend", () => {
 
   it.effect("a header-marked schema without static keys is rejected like a headers schema", () =>
     Effect.gen(function* () {
-      yield* temp("_derive-support.ts", support);
+      const fixtureRoot = yield* copyUsersFixture();
+      const tsconfigPath = fixtureRoot + "/tsconfig.json";
+      yield* temp(fixtureRoot, "_derive-support.ts", support);
       yield* temp(
+        fixtureRoot,
         "_derive-opaque.ts",
         `import { Operation } from "@effx/runtime";
-import { Opaque, Success } from "./_derive-support.ts";
-export const byOpaque = Operation.query({ name: "derive.opaque", input: Opaque, success: Success }).declare();
-`,
+      import { Opaque, Success } from "./_derive-support.ts";
+      export const byOpaque = Operation.query({ name: "derive.opaque", input: Opaque, success: Success }).declare();
+      `,
       );
 
       const collected = yield* SourceFrontend.use((frontend) =>
@@ -346,7 +348,7 @@ export class Decorated {
 ${declared.map((item) => method(spelling, item)).join("")}}
 `;
 
-const build = (entry: string) =>
+const build = (tsconfigPath: string, entry: string) =>
   compile({ tsconfigPath, entry: [entry], emit: "contract" }, Extensions.builtin);
 
 /** Both compile without errors to the same canonical IR, semantic hash and generated files. */
@@ -380,16 +382,18 @@ describe("derived channels from real declarations", () => {
     "builder: dense and verbose spellings compile to the same IR, hash and generated files",
     () =>
       Effect.gen(function* () {
-        yield* temp("_derive-support.ts", support);
-        yield* temp("_derive-grouped.ts", source("grouped"));
-        yield* temp("_derive-bare.ts", source("bare"));
-        yield* temp("_derive-verbose.ts", source("verbose"));
+        const fixtureRoot = yield* copyUsersFixture();
+        const tsconfigPath = fixtureRoot + "/tsconfig.json";
+        yield* temp(fixtureRoot, "_derive-support.ts", support);
+        yield* temp(fixtureRoot, "_derive-grouped.ts", source("grouped"));
+        yield* temp(fixtureRoot, "_derive-bare.ts", source("bare"));
+        yield* temp(fixtureRoot, "_derive-verbose.ts", source("verbose"));
 
-        const verbose = yield* build("src/_derive-verbose.ts");
+        const verbose = yield* build(tsconfigPath, "src/_derive-verbose.ts");
 
         // In a group, and outside one (the mono-web Profile and Directory style).
         for (const entry of ["src/_derive-grouped.ts", "src/_derive-bare.ts"])
-          yield* same(yield* build(entry), verbose);
+          yield* same(yield* build(tsconfigPath, entry), verbose);
       }).pipe(Effect.scoped, Effect.provide(Services)),
     60_000,
   );
@@ -400,8 +404,10 @@ describe("derived channels from real declarations", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyUsersFixture();
+        const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
 
-        yield* temp("_derive-support.ts", support);
+        yield* temp(fixtureRoot, "_derive-support.ts", support);
 
         // One file for both spellings: the IR names the handler's module, so it must not differ.
         const file = path.join(fixtureRoot, "src", "_derive-decorated.ts");
@@ -411,7 +417,7 @@ describe("derived channels from real declarations", () => {
         const decorated = Effect.fnUntraced(function* (spelling: Spelling) {
           yield* fs.writeFileString(file, decoratedSource(spelling));
 
-          return yield* build("src/_derive-decorated.ts");
+          return yield* build(tsconfigPath, "src/_derive-decorated.ts");
         });
 
         const dense = yield* decorated("grouped");

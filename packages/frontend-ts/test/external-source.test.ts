@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
@@ -11,10 +12,6 @@ import {
 } from "@effx/compiler";
 import { StableId, canonical } from "@effx/ir";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-
-const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
-
-const fixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -82,6 +79,8 @@ const coreOnly = [Extensions.core];
 const loadFixture = Effect.fnUntraced(function* (sourceText: string = source) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const fixtureRoot = yield* copyUsersFixture();
+  const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
   const entry = path.join(fixtureRoot, "src", "_external-source.ts");
   const imported = path.join(fixtureRoot, "src", "_external-source-helper.ts");
   yield* fs.writeFileString(imported, helper);
@@ -291,7 +290,8 @@ describe("declaration-only source lowering", () => {
         assert.strictEqual(group.rootSymbol?.export, "RootApi");
       }
 
-      assert.notInclude(canonical(ir), fixtureRoot);
+      const readonlyFixtureRoot = new URL("./fixtures/users/", import.meta.url).pathname;
+      assert.notInclude(canonical(ir), readonlyFixtureRoot);
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 

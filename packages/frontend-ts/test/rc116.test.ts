@@ -1,3 +1,4 @@
+import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -134,9 +135,7 @@ describe("isolated Effect rc.116 Directory group defaults", () => {
 
           // This checked-in seed came from the pre-naming compiler; never hand-author it.
           const generated = path.join(path.dirname(config), ".effx", "generated");
-          yield* fs.makeDirectory(generated, { recursive: true });
           assert.strictEqual(yield* fs.readFileString(path.join(generated, filename)), text);
-          yield* fs.writeFileString(path.join(generated, filename), text);
         }
 
         const decorated = yield* compile(
@@ -259,6 +258,9 @@ describe("isolated Effect rc.116 Profile twin", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const fixtureRoot = yield* copyRc116Fixture();
+        const contractConfig = path.join(fixtureRoot, "project", "contract", "tsconfig.effx.json");
+        const handlerConfig = path.join(fixtureRoot, "project", "handlers", "tsconfig.effx.json");
 
         const seededContract = yield* fs.readFileString(
           path.join(

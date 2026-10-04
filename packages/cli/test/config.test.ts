@@ -1,3 +1,4 @@
+import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
@@ -21,10 +22,7 @@ const fixture = <A, E, R>(use: (dir: string, project: string) => Effect.Effect<A
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const dir = yield* fs.makeTempDirectoryScoped({
-      directory: fixtureRoot,
-      prefix: ".config-test-",
-    });
+    const dir = yield* testDirectory("config-test-");
 
     yield* fs.copy(path.join(fixtureRoot, "src"), path.join(dir, "src"));
     yield* fs.writeFileString(
@@ -34,7 +32,7 @@ const fixture = <A, E, R>(use: (dir: string, project: string) => Effect.Effect<A
     const project = path.join(dir, "tsconfig.json");
     yield* fs.writeFileString(
       project,
-      '{ "extends": "../tsconfig.json", "include": ["src/operations.ts"], "effx": { "projectRoot": ".", "outDir": "ts-out", "emit": "handlers", "target": "effect-4.0-rc", "strictAccess": true } }',
+      `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/operations.ts"], "effx": { "projectRoot": ".", "outDir": "ts-out", "emit": "handlers", "target": "effect-4.0-rc", "strictAccess": true } }`,
     );
 
     return yield* use(dir, project);
@@ -88,7 +86,7 @@ describe("spec 0015 config resolution", () => {
           const second = path.join(dir, "selected.json");
           yield* fs.writeFileString(
             second,
-            '{ "extends": "../tsconfig.json", "include": ["src/operations.ts"], "effx": { "emit": "all", "strictAccess": false } }',
+            `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/operations.ts"], "effx": { "emit": "all", "strictAccess": false } }`,
           );
           const fallback = yield* resolveProject(project);
           assert.deepStrictEqual(fallback.config, {
@@ -102,7 +100,7 @@ describe("spec 0015 config resolution", () => {
           const rooted = path.join(dir, "rooted.json");
           yield* fs.writeFileString(
             rooted,
-            '{"extends":"../tsconfig.json","include":["src/operations.ts"],"effx":{"projectRoot":".."}}',
+            `{"extends":${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))},"include":["src/operations.ts"],"effx":{"projectRoot":".."}}`,
           );
           assert.strictEqual(
             (yield* resolveProject(rooted)).config.projectRoot,
@@ -178,7 +176,7 @@ describe("spec 0015 config resolution", () => {
           yield* fs.makeDirectory(nested);
           yield* fs.writeFileString(
             path.join(nested, "selected.json"),
-            '{"extends":"../../tsconfig.json","include":["../src/operations.ts"],"effx":{"projectRoot":"..","emit":"contract"}}',
+            `{"extends":${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))},"include":["../src/operations.ts"],"effx":{"projectRoot":"..","emit":"contract"}}`,
           );
           yield* fs.writeFileString(
             path.join(nested, "effx.config.ts"),

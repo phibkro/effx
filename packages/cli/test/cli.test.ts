@@ -1,3 +1,4 @@
+import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
@@ -32,7 +33,7 @@ const withProject = <A, E, R>(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const dir = yield* fs.makeTempDirectoryScoped({ directory: fixtureRoot, prefix: ".cli-test-" });
+    const dir = yield* testDirectory("cli-test-");
     yield* fs.copy(path.join(fixtureRoot, "src"), path.join(dir, "src"));
     yield* fs.writeFileString(
       path.join(dir, "package.json"),
@@ -41,7 +42,7 @@ const withProject = <A, E, R>(
     const project = path.join(dir, "tsconfig.json");
     yield* fs.writeFileString(
       project,
-      `{ "extends": "../tsconfig.json", "include": ["src/${entry}"] }\n`,
+      `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/${entry}"] }\n`,
     );
 
     return yield* use(project, dir);

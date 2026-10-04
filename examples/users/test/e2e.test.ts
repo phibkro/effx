@@ -1,3 +1,4 @@
+import { copyUsersExample } from "../../../tools/testing/projects.ts";
 import { BunHttpServer, BunServices } from "@effect/platform-bun";
 import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
@@ -17,19 +18,32 @@ it.live("builds and serves both generated projections on one Bun server", () =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
     const fs = yield* FileSystem.FileSystem;
-    const projectDir = yield* path.fromFileUrl(new URL("..", import.meta.url));
+    const originalProjectDir = yield* path.fromFileUrl(new URL("..", import.meta.url));
+    const projectDir = yield* copyUsersExample();
+    const main = new URL("../../../packages/cli/src/main.ts", import.meta.url).pathname;
 
-    const build = Bun.spawnSync(["bun", "../../packages/cli/src/main.ts", "build"], {
-      cwd: projectDir,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const build = Bun.spawnSync(
+      ["bun", main, "build", "--project", path.join(projectDir, "tsconfig.json")],
+      {
+        cwd: projectDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
 
     const buildOutput =
       new TextDecoder().decode(build.stdout) + new TextDecoder().decode(build.stderr);
 
     assert.strictEqual(build.exitCode, 0, buildOutput);
     assert.isTrue(yield* fs.exists(path.join(projectDir, ".effx/generated/client.ts")));
+
+    for (const file of ["client.ts", "http.ts", "rpc.ts", "cli.ts"]) {
+      assert.strictEqual(
+        yield* fs.readFileString(path.join(projectDir, ".effx", "generated", file)),
+        yield* fs.readFileString(path.join(originalProjectDir, ".effx", "generated", file)),
+        file + ": the freshly generated projection must match the module exercised below",
+      );
+    }
 
     yield* Effect.gen(function* () {
       const aliceId = UserId.make("1");
@@ -64,5 +78,5 @@ it.live("builds and serves both generated projections on one Bun server", () =>
       assert.strictEqual(failure.email, "bob@example.com");
       assert.strictEqual((yield* users.find(aliceId)).email, newEmail);
     }).pipe(Effect.provide(TestServer));
-  }).pipe(Effect.provide(BunServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
 );

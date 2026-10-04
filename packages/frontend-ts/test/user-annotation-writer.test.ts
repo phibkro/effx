@@ -1,3 +1,4 @@
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -68,6 +69,7 @@ const typecheckGenerated = Effect.fnUntraced(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const fixtureRoot = yield* copyUsersFixture();
   const outDir = path.join(fixtureRoot, ".effx", name);
 
   yield* fs.makeDirectory(outDir, { recursive: true });

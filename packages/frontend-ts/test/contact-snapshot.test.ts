@@ -1,3 +1,4 @@
+import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -5,8 +6,6 @@ import { inspect } from "@effx/cli";
 import { type CompileResult, type Diagnostic, Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { type ApplicationIR, semanticHash } from "@effx/ir";
-
-const fixtureRoot = new URL("./fixtures/rc116/", import.meta.url).pathname;
 
 const contactConfig = new URL("./fixtures/rc116/tsconfig.contact.effx.json", import.meta.url)
   .pathname;
@@ -35,9 +34,9 @@ const decodeContract = Schema.decodeUnknownEffect(
   }),
 );
 
-const compileContact = (entry: string) =>
+const compileContact = (entry: string, project = contactConfig) =>
   compile(
-    { tsconfigPath: contactConfig, entry: [`src/${entry}`], emit: "contract", strictAccess: true },
+    { tsconfigPath: project, entry: ["src/" + entry], emit: "contract", strictAccess: true },
     Extensions.builtin,
   );
 
@@ -240,7 +239,12 @@ describe("Contact Command/SnapshotRead claim (rc.116 fixture)", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const result = yield* compileContact("contact-message.effx.ts");
+        const fixtureRoot = yield* copyRc116Fixture();
+
+        const result = yield* compileContact(
+          "contact-message.effx.ts",
+          path.join(fixtureRoot, "tsconfig.contact.effx.json"),
+        );
 
         assert.deepStrictEqual(errorCodes(result.diagnostics), []);
 

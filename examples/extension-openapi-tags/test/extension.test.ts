@@ -1,3 +1,4 @@
+import { testDirectory } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -8,8 +9,6 @@ import { IRGraph, Node, StableId, canonical, decodeString, make, semanticHash } 
 import { deprecatedExtension, deprecatedWarningCode } from "../deprecated-extension.ts";
 
 const example = new URL("../", import.meta.url).pathname;
-
-const examples = new URL("../../", import.meta.url).pathname;
 
 const cli = new URL("../../../packages/cli/src/main.ts", import.meta.url).pathname;
 
@@ -50,10 +49,7 @@ const withIsolatedExample = <A, E, R>(use: (directory: string) => Effect.Effect<
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const directory = yield* fs.makeTempDirectoryScoped({
-      directory: examples,
-      prefix: ".extension-test-",
-    });
+    const directory = yield* testDirectory("extension-test-");
 
     for (const filename of [
       "package.json",
