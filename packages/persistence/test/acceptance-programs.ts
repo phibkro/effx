@@ -92,7 +92,7 @@ it.effect("mixed raw SQL and Drizzle join one ambient commit and rollback", () =
     assert.strictEqual(committed.email, "mixed@example.com");
     assert.strictEqual(committed.displayName, "Mixed");
     assert.deepStrictEqual(yield* drizzle.find({ id }), committed);
-    assert.notDeepStrictEqual(yield* snapshotUsers, before);
+    assert.notDeepEqual(yield* snapshotUsers, before);
   }).pipe(Effect.provide(Layer.fresh(database))),
 );
 `;
