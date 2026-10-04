@@ -205,8 +205,11 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
     ...irStage.diagnostics,
     ...analysis,
     ...importDiagnostics,
-    ...httpApiInventoryDiagnostics(ir, generationContext),
   ];
+
+  // Inventory is a generation precondition; avoid cascades when emission is already blocked.
+  if (!hasErrors(diagnostics))
+    diagnostics.push(...httpApiInventoryDiagnostics(ir, generationContext));
 
   const files = hasErrors(diagnostics)
     ? StageResult.skip<ReadonlyArray<GeneratedFile>>()

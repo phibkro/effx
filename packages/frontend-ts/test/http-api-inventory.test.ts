@@ -21,7 +21,7 @@ const Native = HttpApi.make("inventory").add(HttpApiGroup.make("profile").add(
 ));
 `;
 
-const operations = (key: string) => `
+const operations = (key: string, validOperationId: boolean) => `
 import { Schema } from "effect";
 import { Http, Operation } from "@effx/runtime";
 import { ApiAlias } from "./barrel.ts";
@@ -30,7 +30,7 @@ export const Output = Schema.String;
 export const Profile = Http.group({ root: ApiAlias, group: "profile" });
 export const Read = Operation.query({ name: "Read", input: Input, success: Output })
   .in(Profile).http.get("/")
-  .http.contract({ success: Output, metadata: { operationId: "profile.${key}" } })
+  .http.contract({ success: Output, metadata: { operationId: "${validOperationId ? "profile" : "invalid"}.${key}" } })
   .declare();
 `;
 
@@ -38,6 +38,7 @@ const collectSource = Effect.fnUntraced(function* (
   root = "export const Root = Native;",
   key = "read",
   emit: EmitMode = "handlers",
+  validOperationId = true,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -52,7 +53,10 @@ const collectSource = Effect.fnUntraced(function* (
     path.join(directory, "barrel.ts"),
     'export { Root as ApiAlias } from "./root.ts";',
   );
-  yield* fs.writeFileString(path.join(directory, "operations.ts"), operations(key));
+  yield* fs.writeFileString(
+    path.join(directory, "operations.ts"),
+    operations(key, validOperationId),
+  );
 
   return yield* SourceFrontend.use((frontend) =>
     frontend.analyze({
@@ -166,6 +170,30 @@ describe("concrete HttpApi endpoint inventory", () => {
         );
         assert.isTrue(Option.isNone(result.files.value));
       }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("reveals the inventory defect after the earlier fatal contract defect is fixed", () =>
+    Effect.gen(function* () {
+      const both = yield* collectSource(undefined, "missing", "handlers", false);
+      const blocked = yield* compileCollected(both, Extensions.builtin);
+      assert.deepStrictEqual(
+        blocked.diagnostics
+          .filter((diagnostic) => diagnostic.severity === "error")
+          .map((diagnostic) => diagnostic.code),
+        ["EFFX2403"],
+      );
+      assert.isTrue(Option.isNone(blocked.files.value));
+
+      const repaired = yield* collectSource(undefined, "missing", "handlers");
+      const revealed = yield* compileCollected(repaired, Extensions.builtin);
+      assert.deepStrictEqual(
+        revealed.diagnostics
+          .filter((diagnostic) => diagnostic.severity === "error")
+          .map((diagnostic) => diagnostic.code),
+        ["EFFX2415"],
+      );
+      assert.isTrue(Option.isNone(revealed.files.value));
+    }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 
   it.effect.each(unsafeRoots)("rejects unprovable %s before generation", ([, type]) =>
