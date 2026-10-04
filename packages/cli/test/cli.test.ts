@@ -10,6 +10,11 @@ const repoRoot = new URL("../../../", import.meta.url).pathname;
 
 const main = new URL("../src/main.ts", import.meta.url).pathname;
 
+const contactProject = new URL(
+  "../../frontend-ts/test/fixtures/rc116/tsconfig.contact.effx.json",
+  import.meta.url,
+).pathname;
+
 const generated = [
   "generated/cli.ts",
   "generated/client.ts",
@@ -261,8 +266,36 @@ describe("effx CLI child process (spec 0003)", () => {
         assert.include(result.stdout, "GET /users/:id");
         assert.include(result.stdout, "RPC User.Get");
         assert.include(result.stdout, "CLI users get");
+        assert.notInclude(result.stdout, "snapshotDecisionForCommand");
       }),
     ).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it.effect("inspect shows the Contact snapshot decision claim in Authority", () =>
+    Effect.gen(function* () {
+      const result = yield* runCli(
+        contactProject,
+        "inspect",
+        "contact.submitContactMessage",
+        "--emit=contract",
+      );
+
+      assert.strictEqual(result.code, 0, result.stderr || result.stdout);
+      assert.include(result.stdout, "Operation contact.submitContactMessage");
+      assert.match(result.stdout, /Kind\s+Command/);
+      assert.include(result.stdout, "Authority\n  snapshotDecisionForCommand: true\n\nExposed\n");
+      assert.include(result.stdout, "POST /api/contact-messages");
+    }),
+  );
+
+  it.effect("check accepts the Contact snapshot decision claim under strict access", () =>
+    Effect.gen(function* () {
+      const result = yield* runCli(contactProject, "check", "--strict-access", "--emit=contract");
+
+      assert.strictEqual(result.code, 0, result.stderr || result.stdout);
+      assert.include(result.stdout, "0 error(s)");
+      assert.notMatch(result.stdout, /EFFX25\d\d (error|warning)/);
+    }),
   );
 
   it.effect("graph prints the whole IR and limits scoped traversal to reachable nodes", () =>

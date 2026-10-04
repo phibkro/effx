@@ -1,4 +1,5 @@
-import { Array as Arr, Match, Option, Order, Predicate } from "effect";
+import { Array as Arr, Match, Option, Order, Predicate, Schema } from "effect";
+import { Extensions } from "@effx/compiler";
 import {
   type GraphIndex,
   IRGraph,
@@ -76,6 +77,28 @@ const authorityLines = (index: GraphIndex, operation: OperationNode): ReadonlyAr
     }),
   );
 
+/** Built once: the compiler's own schema is the only description of the access data. */
+const decodeAccessContract = Schema.decodeUnknownOption(Extensions.AccessContractData);
+
+/** The explicit Command/SnapshotRead claim of `Http.Access` is shown only when it is `true`. */
+const accessClaimLines = (index: GraphIndex, operation: OperationNode): ReadonlyArray<string> => {
+  const contracts = IRGraph.incoming(index, operation.id, "ExtensionOf")
+    .filter((edge) => edge.qualifier === "AccessContract")
+    .flatMap((edge) =>
+      Option.match(IRGraph.nodeOf(index, edge.from), {
+        onNone: () => [],
+        onSome: (node) =>
+          node._tag === "Extension" && node.extension === "access-contract"
+            ? Option.toArray(decodeAccessContract(node.data))
+            : [],
+      }),
+    );
+
+  return contracts.some((access) => access.snapshotDecisionForCommand === true)
+    ? ["snapshotDecisionForCommand: true"]
+    : [];
+};
+
 const exposedLines = (index: GraphIndex, operation: OperationNode): ReadonlyArray<string> =>
   IRGraph.outgoing(index, operation.id, "ExposedAs")
     .toSorted(Order.mapInput(Order.String, (edge) => edge.to))
@@ -101,7 +124,10 @@ export const renderOperation = (index: GraphIndex, operation: OperationNode): st
       `Requirements${operation.requirements.inferred ? " (inferred)" : ""}`,
       operation.requirements.values.map(StableId.nameOf).toSorted(Order.String),
     ),
-    ...section("Authority", authorityLines(index, operation)),
+    ...section("Authority", [
+      ...authorityLines(index, operation),
+      ...accessClaimLines(index, operation),
+    ]),
     ...section("Exposed", exposedLines(index, operation)),
   ].join("\n");
 
