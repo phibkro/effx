@@ -111,6 +111,8 @@ values; the checker tuple must agree in elements and order. Dynamic operands, mu
 cycles and contradictory assertions are `EFFX1102` at the spread, naming its operand. The
 expanded array preserves order and the existing duplicate-code diagnostic. Spread provenance
 is optional `Collected.spreads` / manifest `spreads` data, never part of canonical IR or its hash.
+Every underlying alias hop and array literal is checked before surrounding assertions,
+so casting a mutable array to a readonly tuple cannot make it a static const tuple.
 
 ### `E`/`R` inference (technique that works, verified against effect 4.0.0 with ts 6.0.3)
 

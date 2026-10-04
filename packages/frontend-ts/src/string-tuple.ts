@@ -58,7 +58,8 @@ export const resolveStringSpread = (
 
       if ("reason" in result) return result;
 
-      return crossCheck(input, result);
+      // Check the referenced value before any surrounding assertion can hide a mutable alias hop.
+      return crossCheck(node, result);
     }
 
     if (!ts.isArrayLiteralExpression(node))
@@ -81,7 +82,7 @@ export const resolveStringSpread = (
       }
     }
 
-    return { codes, spreads };
+    return crossCheck(node, { codes, spreads });
   };
 
   const crossCheck = (expression: ts.Expression, result: ResolvedTuple): TupleResult => {

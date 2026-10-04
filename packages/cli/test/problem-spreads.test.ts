@@ -173,6 +173,28 @@ describe("problem-code const tuple spreads", () => {
 
   const invalid = [
     { operand: "Mutable", setup: 'const Mutable = ["dynamic"];' },
+    {
+      operand: "Alias",
+      setup: 'const Mutable = ["actual"]; const Alias = Mutable as unknown as readonly ["actual"];',
+    },
+    {
+      operand: "Chained",
+      setup:
+        'const Mutable = ["actual"]; const Intermediate = Mutable as unknown as readonly ["actual"]; const Chained = Intermediate;',
+    },
+    {
+      operand: "LiteralCast",
+      setup: 'const LiteralCast = ["actual"] as unknown as readonly ["actual"];',
+    },
+    {
+      operand: '(Mutable as unknown as readonly ["actual"])',
+      setup: 'const Mutable = ["actual"];',
+    },
+    {
+      operand: "ConstLie",
+      setup:
+        'const Actual = ["actual"] as const; const ConstLie = Actual as unknown as readonly ["asserted"];',
+    },
     { operand: "LetTuple", setup: 'let LetTuple = ["dynamic"] as const;' },
     { operand: "Computed", setup: 'const Computed = ["a" + "b"] as const;' },
     { operand: "makeCodes()", setup: 'const makeCodes = () => ["dynamic"] as const;' },
