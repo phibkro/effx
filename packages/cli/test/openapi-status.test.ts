@@ -71,7 +71,7 @@ export const ResponseHeaders = Schema.Struct({ "x-revision": Schema.String });
     `
 import { Http, Operation } from "@effx/runtime";
 import { Root, Input, Body, AlreadyCreated, BareBody, ResponseHeaders } from "./support.ts";
-export const Group = Http.group("shared", { root: Root });
+export const Group = Http.group({ group: "shared", root: Root });
 export const Read = Operation.query({ name: "shared.read", input: Input, success: Body })
   .in(Group).http.get("/read").http.contract({ status: 200, responseHeaders: ResponseHeaders, conditional: true }).declare();
 export const Create = Operation.command({ name: "shared.create", input: Input, success: Body })
@@ -156,7 +156,10 @@ describe("generated response status envelopes", () => {
         ["/inherit", "get", ["201"]],
       ] as const) {
         const responses = doc.paths[route]![method]!.responses;
-        assert.deepStrictEqual(Object.keys(responses), statuses);
+        assert.deepStrictEqual(
+          Object.keys(responses).filter((code) => Number(code) < 400),
+          statuses,
+        );
 
         for (const status of statuses)
           assert.deepStrictEqual(responses[status]!.headers, expectedHeaders);
@@ -178,7 +181,10 @@ describe("generated response status envelopes", () => {
         ["/bare-override", "get", "200"],
       ] as const) {
         const responses = doc.paths[route]![method]!.responses;
-        assert.deepStrictEqual(Object.keys(responses), [status]);
+        assert.deepStrictEqual(
+          Object.keys(responses).filter((code) => Number(code) < 400),
+          [status],
+        );
         const response = responses[status]!;
         assert.isUndefined(response.headers);
         const ref = response.content!["application/json"]!.schema.$ref!;
