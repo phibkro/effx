@@ -158,6 +158,37 @@ describe("persistence compiler", () => {
       }),
   );
 
+  it.effect("static errors under one exported root retain distinct required scenario keys", () =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(
+        collected([
+          declaration("Users.setEmail", "Command", ["Errors.NotFound", "Errors.EmailTaken"]),
+        ]),
+        extensions,
+      );
+
+      assert.deepStrictEqual(result.diagnostics, []);
+      const [suite, port] = files(result);
+      assert.isDefined(suite);
+      assert.isDefined(port);
+      assert.include(port!.contents, "typeof Errors.NotFound.Type");
+      assert.include(port!.contents, "typeof Errors.EmailTaken.Type");
+      assert.include(
+        suite!.contents,
+        'readonly "Errors.NotFound": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof Errors.NotFound.Type',
+      );
+      assert.include(
+        suite!.contents,
+        'readonly "Errors.EmailTaken": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof Errors.EmailTaken.Type',
+      );
+      assert.include(suite!.contents, 'scenarios.methods["setEmail"].errors["Errors.NotFound"]');
+      assert.include(suite!.contents, 'scenarios.methods["setEmail"].errors["Errors.EmailTaken"]');
+      assert.include(suite!.contents, "G1 domain error: setEmail.Errors.NotFound");
+      assert.include(suite!.contents, "G1 domain error: setEmail.Errors.EmailTaken");
+      assert.notInclude(suite!.contents, 'readonly "Errors":');
+    }),
+  );
+
   it.effect(
     "output and semantic hash are independent of declaration ordering, generation mode and target",
     () =>

@@ -30,10 +30,11 @@ export const conformanceBody = (
     input: schemaExpr(imports, operation.input),
     success: schemaExpr(imports, operation.success),
     errors: errorsExpr(imports, operation.errors.values),
-    members: operation.errors.values.map((ref) => ({
-      key: ref.export,
-      expression: schemaExpr(imports, ref),
-    })),
+    members: operation.errors.values.map((ref) => {
+      const expression = schemaExpr(imports, ref);
+
+      return { key: expression, expression };
+    }),
   }));
 
   const methodTypes = methodSchemas.flatMap((method) => [
