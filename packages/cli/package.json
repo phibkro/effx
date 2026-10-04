@@ -34,10 +34,18 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build src/main.ts --target=bun --outfile dist/effx.js --external @typescript/typescript6 && bun build src/config.ts --target=bun --outfile dist/config.js --external @effx/compiler && bunx tsc --ignoreConfig --noCheck --noResolve --declaration --emitDeclarationOnly --outDir dist src/config.ts"
+    "build": "bun build src/main.ts --target=bun --outfile dist/effx.js --external @typescript/typescript6 --external @cedar-policy/cedar-wasm && bun build src/config.ts --target=bun --outfile dist/config.js --external @effx/compiler && bunx tsc --ignoreConfig --noCheck --noResolve --declaration --emitDeclarationOnly --outDir dist src/config.ts"
   },
   "dependencies": {
     "@effx/compiler": "0.1.0",
     "@typescript/typescript6": "6.0.2"
+  },
+  "peerDependencies": {
+    "@cedar-policy/cedar-wasm": "4.13.0"
+  },
+  "peerDependenciesMeta": {
+    "@cedar-policy/cedar-wasm": {
+      "optional": true
+    }
   }
 }

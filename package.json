@@ -33,6 +33,7 @@
     "effect": "4.0.0"
   },
   "devDependencies": {
+    "@cedar-policy/cedar-wasm": "4.13.0",
     "@changesets/cli": "3.0.3",
     "@commitlint/cli": "21.2.3",
     "@commitlint/config-conventional": "21.2.3",

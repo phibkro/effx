@@ -172,6 +172,8 @@ try {
       "@effx/compiler": compilerPackage.version,
       "@typescript/typescript6": "6.0.2",
     },
+    peerDependencies: cliPackage.peerDependencies,
+    peerDependenciesMeta: cliPackage.peerDependenciesMeta,
     publishConfig: cliPackage.publishConfig,
   });
   await $`bun pm pack --filename ${join(artifacts, cliName)} --quiet`.cwd(cliStage).quiet();
