@@ -81,3 +81,32 @@ The director explicitly ordered a confirmation rerun of the same light command
 inside granted custody. On committed `169ad91`, it exited 0 with **2 files and
 17 tests passed**; both observed failures above were repaired. The fresh archive
 copy was removed by its EXIT finalizer.
+
+## First acceptance attempt and process boundary
+
+The serial acceptance command on committed `169ad91` exited 1: thirteen tests,
+ten passed and three failed. The generated full conformance child reached the
+existing 180-second subprocess deadline (exit 143); mixed transactions failed
+their final snapshot assertion; the rc.116 port typecheck resolved RC schemas
+against stable-runtime source and failed with incompatible SchemaAST types.
+The mixed source assertion used nonexistent Chai `assert.notDeepStrictEqual`;
+its supported negative deep comparison is `assert.notDeepEqual`. This source
+repair does not change any transaction implementation.
+
+The first full check copy passed docs fences, TypeScript, lint, formatting and
+AI-doc drift checks before reaching Vitest. It was then terminated to release
+custody on the director's instruction; that attempt is not a passing full check.
+No heavy job remains active during source repair.
+
+EX-0023 registers the unstable native process seam at
+`packages/persistence/test/process.ts` (owner: repository root, `AGENTS.md`).
+Rules: FX003/FX012 and `effecttsgo/unstable-api-usage`. Required capability:
+owned, interruptible subprocesses with streamed progress and scope cleanup;
+blocking Bun.spawnSync hides child progress and delays cancellation until its
+deadline. The native `effect/process` ChildProcess/ChildProcessSpawner path is
+used behind this test adapter, not in the compiler or generated files.
+Examined versions: Effect/platform-bun 4.0.0 and @effect/tsgo 0.48.0. Verification
+is the focused child-cancellation/progress and acceptance tests. Retire the
+directive when the process API loses its unstable annotation; cohort upgrades
+reopen the decision. No deadline increase or arbitrary-run reduction is
+authorized as a substitute for diagnosing the slow child.

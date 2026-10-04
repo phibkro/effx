@@ -31,7 +31,7 @@ Rules: native Effect first; pure total transformations stay plain functions; no 
 no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServices` only at
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 `effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
-`effect/process` (unstable `ChildProcess`) is bound only in `scripts/docs-api.ts`, to run the `docgen` CLI, with a file-level diagnostics directive.
+`effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
 ## Commands
