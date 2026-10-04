@@ -1,0 +1,19 @@
+// effx cedar projection of semanticHash {{HASH}}
+
+namespace Effx {
+  entity Principal;
+  entity User;
+
+  @capability("User.ChangeEmail") @focus("email")
+  action "capability/User.ChangeEmail";
+  @capability("User.Read")
+  action "capability/User.Read";
+
+  @operation("User.ChangeEmail") @kind("Command")
+  action "operation/User.ChangeEmail" in ["capability/User.ChangeEmail"]
+    appliesTo { principal: [Principal], resource: [User], context: {} };
+
+  @operation("User.Get") @kind("Query")
+  action "operation/User.Get" in ["capability/User.Read"]
+    appliesTo { principal: [Principal], resource: [User], context: {} };
+}

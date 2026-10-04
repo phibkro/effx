@@ -1,0 +1,19 @@
+// effx cedar projection of semanticHash {{HASH}}
+
+namespace Effx {
+  entity Person;
+  entity ProfileCurrentPerson;
+
+  @capability("profile.read-self")
+  action "capability/profile.read-self";
+  @capability("profile.update-self")
+  action "capability/profile.update-self";
+
+  @operation("Profile.Read") @kind("Query") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#ProfileCurrentPerson") @concealment("Reveal") @decisionTime("SnapshotRead")
+  action "operation/Profile.Read" in ["capability/profile.read-self"]
+    appliesTo { principal: [Person], resource: [ProfileCurrentPerson], context: { "profile.owner": Bool } };
+
+  @operation("Profile.Update") @kind("Command") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#ProfileCurrentPerson") @concealment("Reveal") @decisionTime("Transaction")
+  action "operation/Profile.Update" in ["capability/profile.update-self"]
+    appliesTo { principal: [Person], resource: [ProfileCurrentPerson], context: { "profile.owner": Bool } };
+}

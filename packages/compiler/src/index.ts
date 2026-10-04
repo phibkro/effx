@@ -26,6 +26,16 @@ export {
 
 export * from "./surface-check.ts";
 
+export {
+  AccessContractProjection,
+  DEFAULT_CEDAR_NAMESPACE,
+  cedarOf,
+  type CedarFiles,
+  type CedarOptions,
+  type CedarProjection,
+  type FieldDisposition,
+} from "./cedar.ts";
+
 // INTERNAL: retained for the CLI, frontend, built-ins, and existing test callers.
 export {
   AnnotationArg,

@@ -1,0 +1,52 @@
+// effx cedar projection of semanticHash {{HASH}}
+
+namespace Effx {
+  entity AllScope;
+  entity Anonymous;
+  entity AnyScope;
+  entity CapabilityHolder;
+  entity ContactDepartmentRecipient;
+  entity NoneScope;
+  entity Org;
+  entity Person;
+  entity ServicePrincipal;
+
+  @capability("cap \"quoted\" \\ name")
+  action "capability/cap \"quoted\" \\ name";
+  @capability("cap.a") @focus("members")
+  action "capability/cap.a";
+  @capability("cap.b")
+  action "capability/cap.b";
+  @capability("cap.orphan")
+  action "capability/cap.orphan";
+  @capability("cap.x")
+  action "capability/cap.x";
+  @capability("cap.y")
+  action "capability/cap.y";
+  @capability("contact.submit")
+  action "capability/contact.submit";
+
+  @operation("All.Op") @kind("Query") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#AllScope") @concealment("Reveal") @decisionTime("SnapshotRead")
+  action "operation/All.Op"
+    appliesTo { principal: [Person], resource: [AllScope], context: {} };
+
+  @operation("Any.Op") @kind("Query") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#AnyScope") @concealment("Reveal") @decisionTime("SnapshotRead")
+  action "operation/Any.Op" in ["capability/cap.a", "capability/cap.b"]
+    appliesTo { principal: [Person, ServicePrincipal], resource: [AnyScope], context: {} };
+
+  @operation("Contact.Submit") @kind("Command") @exposure("External") @acceptedCredentials("ObjectCapability") @canonicalScopeResolver("profile/access#ContactDepartmentRecipient") @concealment("Reveal") @decisionTime("SnapshotRead") @snapshotDecisionForCommand("true")
+  action "operation/Contact.Submit" in ["capability/contact.submit"]
+    appliesTo { principal: [CapabilityHolder], resource: [ContactDepartmentRecipient], context: {} };
+
+  @operation("None.Op") @kind("Query") @exposure("Internal") @acceptedCredentials("None") @canonicalScopeResolver("profile/access#NoneScope") @concealment("Reveal") @decisionTime("SnapshotRead")
+  action "operation/None.Op"
+    appliesTo { principal: [Anonymous], resource: [NoneScope], context: {} };
+
+  @operation("Params.Op") @kind("Query") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#AnyScope") @concealment("NotFound:credential,scope") @decisionTime("SnapshotRead")
+  action "operation/Params.Op" in ["capability/cap.a"]
+    appliesTo { principal: [Person], resource: [AnyScope, Org], context: { "org.member": Bool, "profile.owner": Bool } };
+
+  @operation("Quote.Op") @kind("Command") @exposure("External") @acceptedCredentials("BetterAuthCookie,OAuthUserBearer") @canonicalScopeResolver("profile/access#AnyScope") @concealment("Reveal") @decisionTime("SnapshotRead")
+  action "operation/Quote.Op" in ["capability/cap \"quoted\" \\ name"]
+    appliesTo { principal: [Person], resource: [AnyScope], context: {} };
+}
