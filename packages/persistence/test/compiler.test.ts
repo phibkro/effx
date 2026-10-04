@@ -180,6 +180,9 @@ describe("persistence compiler", () => {
         assert.include(suite!.contents, "G1 closed error channel: find");
         assert.include(suite!.contents, "G1 domain error: setEmail.EmailTaken");
         assert.include(suite!.contents, "G2 query purity: find");
+        assert.include(suite!.contents, "Schema.toEquivalence(Schema.toType(User.Public))");
+        assert.include(suite!.contents, "Schema.toEquivalence(Schema.toType(m0Errors))");
+        assert.notInclude(suite!.contents, "m0EncodeError");
         assert.include(suite!.contents, "G3 rollback successful command: setEmail");
         assert.include(suite!.contents, "G4 shared transaction rollback: setDisplayName+setEmail");
         assert.include(

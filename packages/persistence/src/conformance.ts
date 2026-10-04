@@ -71,7 +71,8 @@ export const conformanceBody = (
       `m${index}Errors`,
       `m${index}Error`,
       `m${index}EncodeSuccess`,
-      `m${index}EncodeError`,
+      `m${index}EqualSuccess`,
+      `m${index}EqualError`,
     ]),
   );
 
@@ -126,7 +127,10 @@ export const conformanceBody = (
     `const ${method.local}Error = Schema.is(Schema.toType(${method.local}Errors));`,
     `const ${method.local}EncodeSuccess = Schema.encodeUnknownEffect(${method.success});`,
     ...(method.operation.kind === "Query"
-      ? [`const ${method.local}EncodeError = Schema.encodeUnknownEffect(${method.local}Errors);`]
+      ? [
+          `const ${method.local}EqualSuccess = Schema.toEquivalence(Schema.toType(${method.success}));`,
+          `const ${method.local}EqualError = Schema.toEquivalence(Schema.toType(${method.local}Errors));`,
+        ]
       : []),
     "",
   ]);
@@ -162,9 +166,14 @@ export const conformanceBody = (
         `        assertClosed(second, ${method.local}Success, ${method.local}Error);`,
         "        assert.deepStrictEqual(yield* snapshot, before);",
         "        assert.strictEqual(first._tag, second._tag);",
-        `        const firstValue = Exit.isSuccess(first) ? yield* ${method.local}EncodeSuccess(first.value) : yield* ${method.local}EncodeError(failureValue(first));`,
-        `        const secondValue = Exit.isSuccess(second) ? yield* ${method.local}EncodeSuccess(second.value) : yield* ${method.local}EncodeError(failureValue(second));`,
-        "        assert.deepStrictEqual(firstValue, secondValue);",
+        "        if (Exit.isSuccess(first) && Exit.isSuccess(second)) {",
+        `          assert.isTrue(${method.local}EqualSuccess(first.value, second.value), "Identical Queries returned unequal success values");`,
+        "        } else {",
+        "          const firstValue = failureValue(first);",
+        "          const secondValue = failureValue(second);",
+        `          if (!${method.local}Error(firstValue) || !${method.local}Error(secondValue)) assert.fail("Undeclared error escaped the port");`,
+        `          assert.isTrue(${method.local}EqualError(firstValue, secondValue), "Identical Queries returned unequal errors");`,
+        "        }",
         "      })),",
         "      { arbitrary: { runs: 10 } },",
         "    );",

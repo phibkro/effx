@@ -185,3 +185,75 @@ import { sharedUsersScenarios } from "./src/scenarios.ts";
 // The temp copy of UsersSql deliberately lets the real PostgreSQL unique violation defect.
 usersConformance({ ...usersSqlHarness, name: "broken unique mapping" }, sharedUsersScenarios);
 `;
+
+// The generated G2 law must compare Type values even when a codec normalizes both to one encoding.
+export const equalityDeclarations = `
+import { Operation } from "@effx/runtime";
+import { Persist } from "@effx/persistence/syntax";
+import { Schema, SchemaGetter } from "effect";
+export const EmptyInput = Schema.Struct({ fail: Schema.Boolean });
+export const CollapsedSuccess = Schema.Int.pipe(Schema.decodeTo(Schema.Int, {
+  decode: SchemaGetter.passthrough(),
+  encode: SchemaGetter.transform(() => 0),
+}));
+const ErrorShape = Schema.Struct({ _tag: Schema.Literal("CollapsedError"), value: Schema.Int });
+export const CollapsedError = ErrorShape.pipe(Schema.decodeTo(ErrorShape, {
+  decode: SchemaGetter.passthrough(),
+  encode: SchemaGetter.transform((error) => ({ ...error, value: 0 })),
+}));
+export const SuccessQuery = Operation.query({
+  name: "Equality.success", input: EmptyInput, success: CollapsedSuccess,
+}).with(Persist.Port({ port: "Equality" })).declare();
+export const ErrorQuery = Operation.query({
+  name: "Equality.failure", input: EmptyInput, success: CollapsedSuccess,
+}).errors(CollapsedError).with(Persist.Port({ port: "Equality" })).declare();
+`;
+
+export const equalityProgram = `
+import { assert, it } from "@effect/vitest";
+import { Effect, Layer, Schema } from "effect";
+import { EqualityPort } from "./.effx/generated/equality-port.ts";
+import { equalityConformance, type EqualityHarness, type EqualityScenarios } from "./.effx/generated/equality-conformance.ts";
+import { CollapsedError, CollapsedSuccess } from "./src/equality.ts";
+
+it.effect("distinct Type values collapse to identical encodings", () => Effect.gen(function* () {
+  const success = Schema.encodeEffect(CollapsedSuccess);
+  const error = Schema.encodeEffect(CollapsedError);
+  assert.strictEqual(yield* success(1), yield* success(2));
+  assert.deepStrictEqual(
+    yield* error({ _tag: "CollapsedError", value: 1 }),
+    yield* error({ _tag: "CollapsedError", value: 2 }),
+  );
+}));
+const scenarios: EqualityScenarios = {
+  seed: Effect.void,
+  methods: {
+    success: { success: [{ name: "first value", input: { fail: false }, expected: 1 }], errors: {} },
+    failure: {
+      success: [{ name: "successful alternate input", input: { fail: false }, expected: 1 }],
+      errors: { CollapsedError: [{ name: "first error", input: { fail: true }, expected: { _tag: "CollapsedError", value: 1 } }] },
+    },
+  },
+  sharedTransactions: {},
+};
+for (const changing of [false, true]) {
+  const harness: EqualityHarness<never, never> = {
+    name: changing ? "changing" : "stable",
+    layer: Layer.effect(EqualityPort, Effect.sync(() => {
+      let successes = 0;
+      let failures = 0;
+      let alternateSuccesses = 0;
+      return EqualityPort.of({
+        success: () => Effect.sync(() => changing ? ++successes : 1),
+        failure: (input) => input.fail
+          ? Effect.fail({ _tag: "CollapsedError" as const, value: changing ? ++failures : 1 })
+          : Effect.sync(() => changing ? ++alternateSuccesses : 1),
+      });
+    })),
+    transact: (effect) => effect,
+    snapshot: Effect.succeed([]),
+    supportsConcurrentConnections: false,
+  };
+  equalityConformance(harness, scenarios);
+}
+`;

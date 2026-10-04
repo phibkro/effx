@@ -7,6 +7,8 @@ import { semanticHash } from "@effx/ir";
 import { persistenceExtension } from "@effx/persistence/compiler";
 import {
   conformanceProgram,
+  equalityDeclarations,
+  equalityProgram,
   interruptionProgram,
   liveJourneyProgram,
   misMappedProgram,
@@ -563,6 +565,52 @@ export class LocalUsers {
           result.text,
         );
         assert.isTrue(failures.every((test) => test.failureMessages.length > 0));
+      }).pipe(Effect.provide(Services)),
+    180_000,
+  );
+
+  it.live(
+    "G2 rejects unequal success and error Type values hidden by identical encodings",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fixture = yield* workspace();
+        yield* fs.writeFileString(
+          path.join(fixture.project, "src/equality.ts"),
+          equalityDeclarations,
+        );
+        yield* generate(fixture, ["src/ports.ts", "src/equality.ts"]);
+        const result = yield* suite(fixture, "equality", equalityProgram);
+        assert.notStrictEqual(result.code, 0, result.text);
+        const tests = result.report.testResults.flatMap((file) => file.assertionResults);
+        const failures = tests.filter((test) => test.status === "failed");
+        assert.strictEqual(failures.length, 2, result.text);
+
+        for (const method of ["success", "failure"]) {
+          assert.isTrue(
+            failures.some(
+              (test) =>
+                test.fullName.includes("changing") &&
+                test.fullName.includes("G2 query purity: " + method),
+            ),
+            result.text,
+          );
+        }
+
+        const stable = tests.filter((test) => test.fullName.includes("stable"));
+        assert.isAbove(stable.length, 0);
+        assert.isTrue(
+          stable.every((test) => test.status === "passed"),
+          result.text,
+        );
+        assert.isTrue(
+          tests.some(
+            (test) =>
+              test.fullName.includes("distinct Type values collapse") && test.status === "passed",
+          ),
+          result.text,
+        );
       }).pipe(Effect.provide(Services)),
     180_000,
   );
