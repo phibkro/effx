@@ -1,5 +1,5 @@
-import { Option, Result, Schema } from "effect";
-import { IRGraph, StableId, SymbolRef } from "@effx/ir";
+import { Equal, Option, Result, Schema } from "effect";
+import { IRGraph, StableId, SymbolRef, type OperationKind } from "@effx/ir";
 import { Contribution, type Analysis, type Extension, type Interpreter } from "../Extension.ts";
 import { SymbolArg, decodeArgs } from "../args.ts";
 import { error, warning, type Diagnostic } from "../Diagnostic.ts";
@@ -39,9 +39,14 @@ const AccessOptions = Schema.Struct({
   canonicalScopeResolver: SymbolArg,
   concealment: Concealment,
   decisionTime: Schema.Literals(["SnapshotRead", "Transaction"]),
+  /** Only `true` is a claim, and only `true` is recorded in the IR (ADR 0013). */
+  snapshotDecisionForCommand: Schema.optionalKey(Schema.Boolean),
 });
 
-/** JSON-only semantic declaration. Neither symbol is invoked by the compiler. */
+/**
+ * JSON-only semantic declaration. Neither symbol is invoked by the compiler. The claim key is
+ * present only when true, so a declaration without a claim keeps its canonical IR and hash.
+ */
 export const AccessContractData = Schema.Struct({
   ...AccessOptions.fields,
   annotator: SymbolRef,
@@ -49,6 +54,8 @@ export const AccessContractData = Schema.Struct({
 });
 
 export type AccessContractData = typeof AccessContractData.Type;
+
+type AccessContractDraft = { -readonly [K in keyof AccessContractData]: AccessContractData[K] };
 
 const access: Interpreter = (annotation, declaration, ctx) => {
   if (Option.isNone(ctx.operationId))
@@ -65,7 +72,7 @@ const access: Interpreter = (annotation, declaration, ctx) => {
       const operation = Option.getOrThrow(ctx.operationId);
       const id = StableId.make("ext", `access-contract/${StableId.nameOf(operation)}`);
 
-      const data: AccessContractData = {
+      const data: AccessContractDraft = {
         annotator: options.annotator.ref,
         exposure: options.exposure,
         acceptedCredentials: options.acceptedCredentials,
@@ -77,12 +84,41 @@ const access: Interpreter = (annotation, declaration, ctx) => {
         decisionTime: options.decisionTime,
       };
 
+      // Only `true` is recorded; absent and `false` mean no claim and leave IR and hash unchanged.
+      if (options.snapshotDecisionForCommand === true) data.snapshotDecisionForCommand = true;
+
       return Contribution.make(
         [{ _tag: "Extension", id, extension: "access-contract", tag: "AccessContract", data }],
         [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "AccessContract" }],
       );
     },
   });
+};
+
+/**
+ * Why `snapshotDecisionForCommand: true` is not allowed here; empty means it is (ADR 0013). The
+ * compiler checks only the declared shape. It cannot see what the canonical resolver or the
+ * application guard reads, so an accepted claim is a reviewable assertion, not a proof.
+ */
+const snapshotClaimViolations = (
+  kind: OperationKind,
+  data: AccessContractData,
+): ReadonlyArray<string> => {
+  const violations: Array<string> = [];
+
+  if (kind !== "Command") violations.push("only a Command may claim a snapshot decision");
+
+  if (data.decisionTime !== "SnapshotRead") violations.push('decisionTime must be "SnapshotRead"');
+
+  if (data.requirements.length > 0) violations.push("requirements must be empty");
+
+  if (!Equal.equals(data.acceptedCredentials, ["ObjectCapability"]))
+    violations.push('acceptedCredentials must be exactly ["ObjectCapability"]');
+
+  if (!Equal.equals(data.principalKinds, ["CapabilityHolder"]))
+    violations.push('principalKinds must be exactly ["CapabilityHolder"]');
+
+  return violations;
 };
 
 const analyzeAccess: Analysis = (ir, index, context) => {
@@ -146,8 +182,11 @@ const analyzeAccess: Analysis = (ir, index, context) => {
       }
 
       const data = decoded.success;
+      const claimed = data.snapshotDecisionForCommand === true;
+      const violations = claimed ? snapshotClaimViolations(operation.kind, data) : [];
+      const accepted = claimed && violations.length === 0;
 
-      if (operation.kind === "Command" && data.decisionTime === "SnapshotRead")
+      if (operation.kind === "Command" && data.decisionTime === "SnapshotRead" && !accepted)
         diagnostics.push(
           error("EFFX2501", `${operation.name}: Command access cannot decide in a read snapshot`),
         );
@@ -155,6 +194,14 @@ const analyzeAccess: Analysis = (ir, index, context) => {
       if (operation.kind === "Query" && data.decisionTime === "Transaction")
         diagnostics.push(
           warning("EFFX2502", `${operation.name}: Query access declares a transaction decision`),
+        );
+
+      if (violations.length > 0)
+        diagnostics.push(
+          error(
+            "EFFX2506",
+            `${operation.name}: snapshotDecisionForCommand is invalid — ${violations.join("; ")}`,
+          ),
         );
 
       if (data.acceptedCredentials.some((credential) => credential !== "None")) {

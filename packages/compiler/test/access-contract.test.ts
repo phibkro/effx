@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Option, Predicate, Result, Schema } from "effect";
 import { IRGraph, StableId, make, type Edge, type Node, type OperationNode } from "@effx/ir";
 import { accessContractExtension, AccessContractData } from "../src/extensions/access-contract.ts";
 import type { AnnotationArg, Declaration } from "../src/Collected.ts";
+import type { Diagnostic } from "../src/Diagnostic.ts";
 
 const operationId = StableId.make("operation", "Profile.Read");
 
@@ -21,6 +22,8 @@ const success = {
 const annotator = { module: "profile/access", export: "profileAccessAnnotations" };
 
 const resolver = { module: "profile/access", export: "ProfileCurrentPerson" };
+
+const contactResolver = { module: "contact/access", export: "ContactDepartmentRecipient" };
 
 const security = { module: "profile/security", export: "PersonSecurity" };
 
@@ -57,6 +60,19 @@ const options = (
   decisionTime,
 });
 
+/** The mono-web Contact declaration: an ObjectCapability CapabilityHolder, no requirements. */
+const contact = {
+  annotator: { _tag: "Symbol", ref: annotator },
+  exposure: "External",
+  acceptedCredentials: ["ObjectCapability"],
+  principalKinds: ["CapabilityHolder"],
+  capabilities: { _tag: "One", capability: "contact.submit" },
+  requirements: [],
+  canonicalScopeResolver: { _tag: "Symbol", ref: contactResolver },
+  concealment: { _tag: "Reveal" },
+  decisionTime: "SnapshotRead",
+} satisfies AnnotationArg;
+
 const declaration = (arg: AnnotationArg, copies = 1): Declaration => ({
   id: "Profile.read",
   kind: "staticMethod",
@@ -77,8 +93,20 @@ const httpId = StableId.make("ext", "http-contract/Profile.Read");
 
 const exposureId = StableId.make("exposure", "http:Profile.Read");
 
+/** Cached IR can hold a claim the interpreter never writes: `false`, or a bare `true`. */
+const cachedClaim = (node: Node, claim: boolean | undefined): Node => {
+  if (claim === undefined || node._tag !== "Extension") return node;
+  const decoded = Schema.decodeUnknownResult(AccessContractData)(node.data);
+
+  return Result.isSuccess(decoded)
+    ? { ...node, data: { ...decoded.success, snapshotDecisionForCommand: claim } }
+    : node;
+};
+
 const analyze = ({
   access = true,
+  arg,
+  claim,
   credentials = ["BetterAuthCookie"],
   decisionTime = "SnapshotRead",
   kind = "Query",
@@ -89,6 +117,8 @@ const analyze = ({
   strictAccess = false,
 }: {
   access?: boolean;
+  arg?: AnnotationArg;
+  claim?: boolean;
   credentials?: ReadonlyArray<string>;
   decisionTime?: "SnapshotRead" | "Transaction";
   kind?: "Query" | "Command";
@@ -98,8 +128,9 @@ const analyze = ({
   unrelatedMarker?: boolean;
   strictAccess?: boolean;
 } = {}) => {
-  const contribution = access ? interpret(options(credentials, decisionTime)) : undefined;
-  const nodes: Array<Node> = [operation(kind), ...(contribution?.nodes ?? [])];
+  const contribution = access ? interpret(arg ?? options(credentials, decisionTime)) : undefined;
+  const contributed = contribution?.nodes.map((node) => cachedClaim(node, claim)) ?? [];
+  const nodes: Array<Node> = [operation(kind), ...contributed];
   const edges: Array<Edge> = [...(contribution?.edges ?? [])];
 
   if (http) {
@@ -135,6 +166,38 @@ const analyze = ({
   return accessContractExtension.analyses.flatMap((analysis) =>
     analysis(ir, IRGraph.toGraph(ir), { strictAccess }),
   );
+};
+
+/** The raw IR data of the one AccessContract an interpretation contributes. */
+const contractData = (arg: AnnotationArg) => {
+  const node = interpret(arg).nodes[0];
+
+  if (node?._tag !== "Extension" || !Predicate.isObject(node.data))
+    return assert.fail("expected one AccessContract extension node with object data");
+
+  return node.data;
+};
+
+/** The nine IR keys an AccessContract had before `snapshotDecisionForCommand` existed. */
+const existingKeys = [
+  "acceptedCredentials",
+  "annotator",
+  "canonicalScopeResolver",
+  "capabilities",
+  "concealment",
+  "decisionTime",
+  "exposure",
+  "principalKinds",
+  "requirements",
+];
+
+const codes = (diagnostics: ReadonlyArray<Diagnostic>) => diagnostics.map((d) => d.code);
+
+/** What EFFX2506 reported, so a test can pin which declared condition was violated. */
+const claimReasons = (diagnostics: ReadonlyArray<Diagnostic>): string => {
+  const reported = diagnostics.filter((d) => d.code === "EFFX2506");
+
+  return reported.map((d) => d.message).join("\n");
 };
 
 describe("Http.Access semantic contract", () => {
@@ -194,6 +257,7 @@ describe("Http.Access semantic contract", () => {
         { capabilities: { _tag: "Any", capabilities: [] } },
         { concealment: { _tag: "NotFound", stages: [] } },
         { requirements: [{ id: "profile.owner", parameters: { invalid: undefined } }] },
+        { snapshotDecisionForCommand: "true" },
       ]) {
         const base = Result.isSuccess(valid) ? valid.success : undefined;
         assert.isTrue(
@@ -211,6 +275,10 @@ describe("Http.Access semantic contract", () => {
       );
       assert.deepStrictEqual(
         interpret(options([])).diagnostics.map((d) => d.code),
+        ["EFFX1102"],
+      );
+      assert.deepStrictEqual(
+        codes(interpret({ ...contact, snapshotDecisionForCommand: "yes" }).diagnostics),
         ["EFFX1102"],
       );
 
@@ -320,6 +388,138 @@ describe("Http.Access semantic contract", () => {
         analyze({ marker: false, strictAccess: true }).map((d) => [d.code, d.severity]),
         [["EFFX2503", "error"]],
       );
+    }),
+  );
+});
+
+describe("Http.Access snapshotDecisionForCommand", () => {
+  it.effect("accepts the claim on exactly the Contact shape", () =>
+    Effect.sync(() => {
+      const claimed = { ...contact, snapshotDecisionForCommand: true };
+
+      assert.deepStrictEqual(analyze({ kind: "Command", arg: claimed }), []);
+      assert.deepStrictEqual(analyze({ kind: "Command", arg: claimed, strictAccess: true }), []);
+    }),
+  );
+
+  it.effect("keeps EFFX2501 on the same Command when the claim is absent or false", () =>
+    Effect.sync(() => {
+      const explicitFalse = { ...contact, snapshotDecisionForCommand: false };
+
+      for (const arg of [contact, explicitFalse]) {
+        assert.deepStrictEqual(codes(analyze({ kind: "Command", arg })), ["EFFX2501"]);
+      }
+    }),
+  );
+
+  it.effect("reports EFFX2506 and keeps EFFX2501 when a claimed Command has requirements", () =>
+    Effect.sync(() => {
+      const arg = {
+        ...contact,
+        snapshotDecisionForCommand: true,
+        requirements: [{ id: "contact.owner" }],
+      };
+
+      const diagnostics = analyze({ kind: "Command", arg });
+
+      assert.deepStrictEqual(codes(diagnostics), ["EFFX2501", "EFFX2506"]);
+      assert.isTrue(diagnostics.every((d) => d.severity === "error"));
+      assert.include(claimReasons(diagnostics), "requirements must be empty");
+    }),
+  );
+
+  it.effect("rejects the claim on a Query or a Transaction decision", () =>
+    Effect.sync(() => {
+      const claimed = { ...contact, snapshotDecisionForCommand: true };
+      const transaction = { ...claimed, decisionTime: "Transaction" };
+
+      const queryRead = analyze({ kind: "Query", arg: claimed });
+      const commandTransaction = analyze({ kind: "Command", arg: transaction });
+      const queryTransaction = analyze({ kind: "Query", arg: transaction });
+
+      assert.deepStrictEqual(codes(queryRead), ["EFFX2506"]);
+      assert.include(claimReasons(queryRead), "only a Command may claim");
+      assert.deepStrictEqual(codes(commandTransaction), ["EFFX2506"]);
+      assert.include(claimReasons(commandTransaction), 'decisionTime must be "SnapshotRead"');
+      assert.deepStrictEqual(codes(queryTransaction), ["EFFX2502", "EFFX2506"]);
+    }),
+  );
+
+  it.effect("rejects a wrong or mixed credential set", () =>
+    Effect.sync(() => {
+      const claimed = { ...contact, snapshotDecisionForCommand: true };
+
+      const credentials = [
+        ["BetterAuthCookie"],
+        ["None"],
+        ["ObjectCapability", "BetterAuthCookie"],
+        ["ObjectCapability", "None"],
+      ];
+
+      for (const acceptedCredentials of credentials) {
+        const arg = { ...claimed, acceptedCredentials };
+        const diagnostics = analyze({ kind: "Command", arg });
+
+        assert.deepStrictEqual(
+          codes(diagnostics),
+          ["EFFX2501", "EFFX2506"],
+          acceptedCredentials.join(" + "),
+        );
+        assert.include(claimReasons(diagnostics), "acceptedCredentials must be exactly");
+        assert.notInclude(claimReasons(diagnostics), "principalKinds");
+      }
+    }),
+  );
+
+  it.effect("rejects a wrong or mixed principal set", () =>
+    Effect.sync(() => {
+      const claimed = { ...contact, snapshotDecisionForCommand: true };
+      const principals = [["Person"], ["Anonymous"], ["CapabilityHolder", "Person"]];
+
+      for (const principalKinds of principals) {
+        const arg = { ...claimed, principalKinds };
+        const diagnostics = analyze({ kind: "Command", arg });
+
+        assert.deepStrictEqual(
+          codes(diagnostics),
+          ["EFFX2501", "EFFX2506"],
+          principalKinds.join(" + "),
+        );
+        assert.include(claimReasons(diagnostics), "principalKinds must be exactly");
+        assert.notInclude(claimReasons(diagnostics), "acceptedCredentials");
+      }
+    }),
+  );
+
+  it.effect("records the claim in the IR only when it is true", () =>
+    Effect.sync(() => {
+      const claimed = contractData({ ...contact, snapshotDecisionForCommand: true });
+      const explicitFalse = { ...contact, snapshotDecisionForCommand: false };
+      const expected = [...existingKeys, "snapshotDecisionForCommand"];
+
+      for (const arg of [options(), contact, explicitFalse]) {
+        assert.deepStrictEqual(Object.keys(contractData(arg)).toSorted(), existingKeys);
+      }
+
+      assert.deepStrictEqual(Object.keys(claimed).toSorted(), expected);
+      assert.strictEqual(claimed.snapshotDecisionForCommand, true);
+    }),
+  );
+
+  it.effect("reads the claim from cached IR, where only true is a claim", () =>
+    Effect.sync(() => {
+      const cachedFalse = analyze({ kind: "Command", arg: contact, claim: false });
+      const cachedTrue = analyze({ kind: "Command", arg: contact, claim: true });
+
+      const cachedFalseSafe = analyze({
+        kind: "Command",
+        decisionTime: "Transaction",
+        claim: false,
+      });
+
+      assert.deepStrictEqual(codes(cachedFalse), ["EFFX2501"]);
+      assert.deepStrictEqual(cachedTrue, []);
+      assert.deepStrictEqual(cachedFalseSafe, []);
     }),
   );
 });

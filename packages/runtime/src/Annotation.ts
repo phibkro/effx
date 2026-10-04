@@ -150,6 +150,14 @@ export interface HttpAccessOptions extends Omit<
   readonly acceptedCredentials?: HttpAccessAnnotationSpec["acceptedCredentials"];
   readonly principalKinds?: HttpAccessAnnotationSpec["principalKinds"];
   readonly concealment?: HttpAccessAnnotationSpec["concealment"];
+  /**
+   * Compiler-checked claim that a Command decides authority in a read snapshot. Only `true` has
+   * meaning, and only for `decisionTime: "SnapshotRead"` with empty `requirements`,
+   * `acceptedCredentials: ["ObjectCapability"]` and `principalKinds: ["CapabilityHolder"]`
+   * (ADR 0013); anything else is `EFFX2506`. The annotator never receives it: it is not part of
+   * `HttpAccessAnnotationSpec`.
+   */
+  readonly snapshotDecisionForCommand?: boolean;
 }
 
 export interface HttpProblemsOptions<Code extends string = string> {
