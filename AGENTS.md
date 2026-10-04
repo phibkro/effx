@@ -32,6 +32,7 @@ no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServic
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 `effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
 `effect/process` (unstable `ChildProcess`) is bound only in `scripts/docs-api.ts`, to run the `docgen` CLI, with a file-level diagnostics directive.
+`effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
 ## Commands
 
@@ -64,6 +65,7 @@ The rc.116 fixture typecheck generates its own Profile contract and handler proj
 | `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                     | compiler, runtime     |
 | `packages/runtime` (`@effx/runtime`)         | tiny standards-compatible decorators + builder API derived from annotation definitions (`Annotation.define`, `A`); source syntax only        | effect                |
 | `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/surface check/cedar` composition root (writes `.effx/surface.json`, `.effx/cedar/`)                          | compiler, frontend-ts |
+| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI     | compiler, runtime, ir |
 | `examples/users`                             | the User slice from the research report                                                                                                      | runtime               |
 | `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                         | generated pages       |
 

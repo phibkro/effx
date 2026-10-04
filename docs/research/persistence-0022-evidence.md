@@ -17,9 +17,9 @@ production database use, publishing or deployment.
 
 The existing annotation definition/implementation API and generator helpers are
 reused rather than introducing another annotation convention or SchemaRef
-resolver. `examples/users` remains unchanged; the sibling
-`examples/persistence` supplies the port and adapters and includes the original
-operation source in its project. SQL statements and the Drizzle table belong to
+resolver. The original `examples/users/src/operations.ts` remains unchanged; its
+package manifest exposes shared schemas/services for the sibling
+`examples/persistence`, which includes the original operation source in its project. SQL statements and the Drizzle table belong to
 the example adapters, not generated output.
 
 ## Drizzle patch provenance
@@ -44,3 +44,14 @@ of row-lock contention or transaction isolation. No Prisma or TypeORM adapter
 is shipped. The optional Prisma probe was not run: no PostgreSQL/Prisma/database
 URL variable was configured and no `prisma` executable was found in this worker's
 environment (the discovery command printed no names or executable path).
+
+## Registered native SQL boundary — EX-0022
+
+- Rules: FX012; `effecttsgo/unstable-api-usage` (`unstableApiUsage` file directive).
+- Owner: repository root (`AGENTS.md`), reference adapter slice `examples/persistence/src`.
+- Scope: `database.ts`, `UsersSql.ts`, `UsersDrizzle.ts`, `harness.ts`, `scenarios.ts`; only SQL driver, ambient transaction and SQL-typed harness APIs. No generated port/compiler directive.
+- Reason and missing capability: spec 0022 mandates real Effect SQL and its PGlite driver, whose installed interfaces retain `@stability unstable` metadata (`@effect/sql-pglite/src/PgliteClient.ts:64–70`). There is no stable-tagged native PGlite SQL API in the pinned cohort.
+- Native alternatives examined: `effect/sql/SqlClient` supplies the required shared `withTransaction`; `@effect/sql-pglite/PgliteClient` supplies scoped real PostgreSQL WASM connections. Both are used, not replaced; an in-memory mock would erase the contract boundary. Drizzle effect-pglite delegates to the same ambient SQL transaction.
+- Verification contract: the focused persistence acceptance suite exercises generated G1–G4, mixed transactions, typed unique errors, interruption observations and named broken-adapter failures; strict Effect diagnostics covers the remaining code. Observed results are recorded below after the gates run.
+- Examined versions: `effect` 4.0.0, `@effect/sql-pglite` 4.0.0, `@effect/tsgo` 0.48.0, `drizzle-orm` 1.0.0-rc.4 with the provenance-pinned patch above.
+- Retirement: remove the narrow directives when SQL/PGlite APIs lose unstable annotations; any change to the pinned cohort reopens the decision and reruns the conformance/transaction evidence.
