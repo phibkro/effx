@@ -237,3 +237,21 @@ landing worker, not a missing implementation step.
 This evidence-only handoff update does not change the verified compiler,
 adapters or executable tests. The final source revision is identified by the
 exact-commit package manifest; no runtime pass is inferred from this prose update.
+
+## Fresh-clone gate preparation red — 2026-10-04
+
+On rebased `f1ace7c5a14cf28e257ea8104135fa12cd6a6ec8`, an ordinary fresh clone
+ran `bun install --frozen-lockfile`, then `bun run typecheck` before generation.
+Typecheck exited 1 with TS2307 for the missing persistence users-port,
+users-conformance, and HTTP projections. The users example also lacked its
+generated projections in this deliberately unprepared clone.
+
+The earlier check passed because its disposable worktree explicitly built
+both examples before `bun run check`. The generated persistence output was
+present there, but git ignored it. It was not part of the committed source.
+The parent review worktree had no generated example or rc.116 output.
+
+The root gate now builds the persistence example beside its existing users
+preparation. This keeps generation, checks, diagnostics, the rc.116 fixture
+typecheck, documentation, packaging, and changeset status in one root command.
+The director requested the red first and approved this preparation step.
