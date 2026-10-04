@@ -62,3 +62,17 @@ environment (the discovery command printed no names or executable path).
 - Verification contract: the focused persistence acceptance suite exercises generated G1–G4, mixed transactions, typed unique errors, interruption observations and named broken-adapter failures; strict Effect diagnostics covers the remaining code. Observed results are recorded below after the gates run.
 - Examined versions: `effect` 4.0.0, `@effect/sql-pglite` 4.0.0, `@effect/tsgo` 0.48.0, `drizzle-orm` 1.0.0-rc.4 with the provenance-pinned patch above.
 - Retirement: remove the narrow directives when SQL/PGlite APIs lose unstable annotations; any change to the pinned cohort reopens the decision and reruns the conformance/transaction evidence.
+
+## Exercised preliminary gate
+
+On committed `8269c5ae93f96c5431dd29361c17cd690f788246`, after rebasing
+onto local main `39e638a3759e26eeb464fadb190617c7063e520e`, the light command
+`bun --bun node_modules/.bin/vitest run packages/persistence/test/compiler.test.ts packages/persistence/test/syntax.test.ts --project persistence-integration`
+ran from a fresh `git archive` copy with an EXIT cleanup finalizer. It exited 1:
+the compiler suite reported two failures in fourteen tests. One test falsely
+claimed `.find` was a valid operation StableId for an empty port; the other
+omitted the native Crypto service required by semanticHash. The repairs retain
+the frozen String argument algebra and existing StableId rules, test empty
+annotation data/total filename handling instead of an invalid source program,
+and provide native BunCrypto.layer as the existing IR hash tests do. This failed
+run is not runtime evidence for either database adapter.
