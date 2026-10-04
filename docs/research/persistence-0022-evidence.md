@@ -10,10 +10,11 @@ production database use, publishing or deployment.
 
 | Ambiguity or conflict | Resolution |
 | --- | --- |
-| The initial brief requested spawned PostgreSQL, while spec 0022 §5 (`docs/specs/0022-persistence-ports.md:99`) explicitly chooses PGlite. | The operator corrected the brief: the spec wins. Use fresh PGlite instances only; do not spawn PostgreSQL. PGlite runs the PostgreSQL engine, not a mock. |
-| Spec 0022 §6.9 (`docs/specs/0022-persistence-ports.md:113`) includes ff-merge, while the assignment forbids this worker from merging. | The operator clarified that ff-merge is the separate landing step, ordered after review and run by a landing worker. This branch is committed but not merged or pushed. |
+| The initial brief requested spawned PostgreSQL, while spec 0022 §5 (`docs/specs/0022-persistence-ports.md:110`, after amendment) explicitly chooses PGlite. | The operator corrected the brief: the spec wins. Use fresh PGlite instances only; do not spawn PostgreSQL. PGlite runs the PostgreSQL engine, not a mock. |
+| Spec 0022 §6.9 (`docs/specs/0022-persistence-ports.md:124`, after amendment) includes ff-merge, while the assignment forbids this worker from merging. | The operator clarified that ff-merge is the separate landing step, ordered after review and run by a landing worker. This branch is committed but not merged or pushed. |
 | The generated-output sketch says “two files per project” but names files by port (`docs/specs/0022-persistence-ports.md:42–45`). | Emit a port/conformance pair for each declared port; methods are sorted by name, and filenames are determined by the port name. No adapter choice enters that derivation. |
 | The schema-expression helpers used by HTTP emission are internal (`packages/compiler/src/generate/emit.ts`), while spec 0022 §3 requires reuse and §7 forbids a core dependency on persistence. | Expose a curated generator-facing subset from the public compiler package and reuse the same helper implementations. The optional persistence package depends on core, never the reverse. |
+| The original §3 harness sketch (`docs/specs/0022-persistence-ports.md:61–63` before amendment) left `R` open although a generic `it.effect` must execute a closed program. | The operator approved an explicit dated §3 implementation amendment: the harness Layer exports the port and transaction services, `transact` retains those requirements, and leaf method `R` stays `never`. The separate `docs(specs):` amendment precedes all implementation commits. Generated scenario skips actually branch on `supportsConcurrentConnections`. |
 
 The existing annotation definition/implementation API and generator helpers are
 reused rather than introducing another annotation convention or SchemaRef
@@ -35,6 +36,9 @@ MIT-licensed; spec 0022 §5 identifies upstream `yielded-dev/auth` commit
 resolved in `bun.lock`. It adapts the named prerelease to stable Effect v4.
 Retire the patch when Drizzle ships a stable-v4-compatible effect driver;
 version changes reopen this compatibility decision.
+The generated patch is 38,729 bytes; SHA-256 is
+`bfb194db9b8294c35cfdc54a9cf9a56eb62899acbec7771203276030d3e2ac1d`
+(`wc -c` and `sha256sum`, exit 0).
 
 ## Scope limits
 
