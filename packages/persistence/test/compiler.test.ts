@@ -187,6 +187,53 @@ describe("persistence compiler", () => {
       }),
   );
 
+  it.effect("emits one fresh store root per test, never per arbitrary sample", () =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(collected(), extensions);
+      const suite = files(result).find((file) => file.path === "users-conformance.ts")!;
+      assert.notInclude(
+        suite.contents,
+        "Effect.provide(",
+        "Samples must reuse their test-owned store, not initialize PGlite again",
+      );
+      assert.include(
+        suite.contents,
+        "Effect.scoped(Effect.gen(function* () {\n      yield* scenarios.seed;\n      return yield* program;\n    }));",
+        "Every sample must reset storage and close its own Command scope",
+      );
+
+      const roots = [
+        ...suite.contents.matchAll(
+          /it\.layer\(Layer\.fresh\(harness\.layer\)\)\(\(it\) => \{([\s\S]*?)^    \}\);/gm,
+        ),
+      ];
+
+      const registrations = suite.contents.match(/(?:it\.effect\.prop|test)\(/g) ?? [];
+      assert.isAbove(roots.length, 1, "Distinct tests require independent store roots");
+      assert.strictEqual(
+        roots.length,
+        registrations.length,
+        "Every property and authored scenario must own exactly one fresh root",
+      );
+
+      for (const root of roots) {
+        assert.strictEqual(
+          (root[1]!.match(/(?:it\.effect\.prop|test)\(/g) ?? []).length,
+          1,
+          "A layer block must not share storage between distinct tests",
+        );
+
+        if (root[1]!.includes("it.effect.prop(")) {
+          assert.include(
+            root[1]!,
+            "{ arbitrary: { runs: 10 } }",
+            "Store reuse must not reduce sample coverage",
+          );
+        }
+      }
+    }),
+  );
+
   it("shared schema imports preserve ordinary bytes and alias module and authored-local collisions", () => {
     const imports = new GeneratedImports();
     const first = { ...ref("User.Public"), module: "first" };
