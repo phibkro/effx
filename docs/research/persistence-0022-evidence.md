@@ -151,3 +151,20 @@ markers because native TestConsole captured Effect.log. This does not establish
 runtime acquisition/reset/release counts; the source-level native single-test
 scope and the real property/typecheck results are the evidence. No second
 property was run to confirm that diagnostic instrumentation error.
+
+## Complete reset falsifier
+
+The focused incomplete-reset command first exited 1 because the deliberately
+broken SQL probe used raw id `1` against JSON-encoded storage ids and therefore
+accidentally performed a complete reset. The probe was repaired to reuse the
+same `encodeId` Schema codec as the adapters, with a parameterized retained id;
+no physical encoding literal or production reset special case was added.
+
+On committed `382fb82`, the fresh-copy command
+`bun --bun node_modules/.bin/vitest run packages/persistence/test/acceptance.test.ts --project persistence-integration --silent=false -t "generated G1 rejects an incomplete reset"`
+exited 0 in 6.946 seconds. Its actual emitted broken-adapter child exited 1 with
+one named G1 find failure after **2 runs and 1 shrink**:
+`Conformance reset did not restore the empty store`, showing retained Alice
+versus the captured empty `[]` baseline before reseeding. The child selected
+one property and skipped 24 unrelated tests; the outer negative proof passed.
+Both scoped copies were removed by their finalizers.
