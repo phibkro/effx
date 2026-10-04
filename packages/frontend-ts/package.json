@@ -9,6 +9,7 @@
   "dependencies": {
     "@effx/compiler": "workspace:*",
     "@effx/ir": "workspace:*",
+    "@effx/runtime": "workspace:*",
     "@typescript/typescript6": "6.0.2",
     "effect": "4.0.0"
   }

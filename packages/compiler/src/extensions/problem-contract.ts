@@ -1,9 +1,10 @@
 import { Option, Result, Schema } from "effect";
+import { Builtins } from "@effx/runtime";
 import { IRGraph, StableId, SymbolRef, type OperationNode } from "@effx/ir";
-import { Contribution, type Analysis, type Extension, type Interpreter } from "../Extension.ts";
-import { SymbolArg, decodeArgs } from "../args.ts";
+import { Contribution, type Analysis, type Extension } from "../Extension.ts";
+import { extension, implement } from "../annotation.ts";
 import { error, type Diagnostic } from "../Diagnostic.ts";
-import { notAnOperation } from "./core.ts";
+import { notAnOperation } from "./not-an-operation.ts";
 
 /** JSON-only payload attached to an operation; no application module is evaluated. */
 export const ProblemContractData = Schema.Struct({
@@ -22,66 +23,46 @@ export type ProblemContractData = typeof ProblemContractData.Type;
 
 type ProblemContractDraft = { -readonly [K in keyof ProblemContractData]: ProblemContractData[K] };
 
-const ProblemsArgs = Schema.Tuple([
-  Schema.Struct({
-    registry: SymbolArg,
-    codes: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
-    identifier: Schema.optionalKey(Schema.String),
-    map: Schema.optionalKey(Schema.Record(Schema.String, Schema.NonEmptyString)),
-  }),
-]);
+const problems = implement(Builtins.HttpProblems, {
+  notOperation: notAnOperation,
+  read: ([args], { declaration, ctx }) => {
+    const operationId = Option.getOrThrow(ctx.operationId);
+    const id = StableId.make("ext", `problem-contract/${StableId.nameOf(operationId)}`);
+    const signatureErrors = declaration.handlerSignature?.errors ?? [];
 
-const problems: Interpreter = (annotation, declaration, ctx) => {
-  if (Option.isNone(ctx.operationId))
-    return Contribution.diagnostics(notAnOperation(annotation, declaration));
-
-  if (declaration.annotations.filter((item) => item.name === "Http.Problems").length > 1) {
-    return Contribution.diagnostics(
-      error("EFFX2402", `${declaration.id}: duplicate @Http.Problems annotations`),
-    );
-  }
-
-  return Result.match(decodeArgs(ProblemsArgs, annotation, declaration), {
-    onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-    onSuccess: ([args]) => {
-      const operationId = Option.getOrThrow(ctx.operationId);
-      const id = StableId.make("ext", `problem-contract/${StableId.nameOf(operationId)}`);
-      const signatureErrors = declaration.handlerSignature?.errors ?? [];
-
-      const errorTags = Object.fromEntries(
-        signatureErrors.flatMap((entry) =>
-          entry._tag === "Schema" && entry.errorTag !== undefined
-            ? [[entry.ref.export, entry.errorTag]]
-            : [],
-        ),
-      );
-
-      const statusAnnotated = signatureErrors.flatMap((entry) =>
-        entry._tag === "Schema" && entry.httpStatus !== undefined
-          ? [entry.errorTag ?? entry.ref.export]
+    const errorTags = Object.fromEntries(
+      signatureErrors.flatMap((entry) =>
+        entry._tag === "Schema" && entry.errorTag !== undefined
+          ? [[entry.ref.export, entry.errorTag]]
           : [],
-      );
+      ),
+    );
 
-      const data: ProblemContractDraft = {
-        registry: args.registry.ref,
-        codes: args.codes,
-      };
+    const statusAnnotated = signatureErrors.flatMap((entry) =>
+      entry._tag === "Schema" && entry.httpStatus !== undefined
+        ? [entry.errorTag ?? entry.ref.export]
+        : [],
+    );
 
-      if (args.identifier !== undefined) data.identifier = args.identifier;
+    const data: ProblemContractDraft = {
+      registry: args.registry.ref,
+      codes: args.codes,
+    };
 
-      if (args.map !== undefined) data.map = args.map;
+    if (args.identifier !== undefined) data.identifier = args.identifier;
 
-      if (Object.keys(errorTags).length > 0) data.errorTags = errorTags;
+    if (args.map !== undefined) data.map = args.map;
 
-      if (statusAnnotated.length > 0) data.statusAnnotated = statusAnnotated;
+    if (Object.keys(errorTags).length > 0) data.errorTags = errorTags;
 
-      return Contribution.make(
-        [{ _tag: "Extension", id, extension: "problem-contract", tag: "ProblemContract", data }],
-        [{ kind: "ExtensionOf", from: id, to: operationId, qualifier: "ProblemContract" }],
-      );
-    },
-  });
-};
+    if (statusAnnotated.length > 0) data.statusAnnotated = statusAnnotated;
+
+    return Contribution.make(
+      [{ _tag: "Extension", id, extension: "problem-contract", tag: "ProblemContract", data }],
+      [{ kind: "ExtensionOf", from: id, to: operationId, qualifier: "ProblemContract" }],
+    );
+  },
+});
 
 const analyzeProblems: Analysis = (ir, index) => {
   const diagnostics: Array<Diagnostic> = [];
@@ -214,9 +195,6 @@ const mappingDiagnostics = (
 };
 
 /** @Http.Problems contributes a JSON contract; analysis never runs the registry. */
-export const problemContract: Extension = {
-  name: "problem-contract",
-  interpreters: { "Http.Problems": problems },
+export const problemContract: Extension = extension("problem-contract", [problems], {
   analyses: [analyzeProblems],
-  generators: [],
-};
+});

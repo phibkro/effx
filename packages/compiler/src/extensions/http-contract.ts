@@ -1,43 +1,20 @@
-import { Option, Result, Schema } from "effect";
+import { Option, Schema } from "effect";
+import { Builtins } from "@effx/runtime";
 import { type ExtensionNode, IRGraph, StableId } from "@effx/ir";
-import { type Analysis, Contribution, type Extension, type Interpreter } from "../Extension.ts";
+import { type Analysis, Contribution, type Extension } from "../Extension.ts";
 import { type Diagnostic, error } from "../Diagnostic.ts";
-import { SchemaArg, SymbolArg, decodeArgs } from "../args.ts";
-import { notAnOperation } from "./core.ts";
+import { SchemaArg, SymbolArg } from "../args.ts";
+import { extension, implement } from "../annotation.ts";
+import { notAnOperation } from "./not-an-operation.ts";
 
-const Metadata = Schema.Struct({
-  annotator: Schema.optionalKey(SymbolArg),
+const ContractMetadata = Schema.Struct({
+  annotator: Schema.optionalKey(SymbolArg.fields.ref),
   operationId: Schema.optionalKey(Schema.String),
   summary: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
   tags: Schema.optionalKey(Schema.Array(Schema.String)),
-  commandIdentity: Schema.optionalKey(SymbolArg),
-});
-
-const ContractMetadata = Schema.Struct({
-  ...Metadata.fields,
-  annotator: Schema.optionalKey(SymbolArg.fields.ref),
   commandIdentity: Schema.optionalKey(SymbolArg.fields.ref),
 });
-
-const Options = Schema.Struct({
-  root: Schema.optionalKey(Schema.String),
-  group: Schema.String,
-  params: Schema.optionalKey(SchemaArg),
-  query: Schema.optionalKey(SchemaArg),
-  headers: Schema.optionalKey(SchemaArg),
-  payload: Schema.optionalKey(SchemaArg),
-  payloadIsQuery: Schema.optionalKey(Schema.Boolean),
-  success: SchemaArg,
-  status: Schema.optionalKey(Schema.Int),
-  mediaType: Schema.optionalKey(Schema.String),
-  responseHeaders: Schema.optionalKey(SchemaArg),
-  conditional: Schema.optionalKey(Schema.Boolean),
-  middleware: Schema.optionalKey(Schema.Array(SymbolArg)),
-  metadata: Schema.optionalKey(Metadata),
-});
-
-const Args = Schema.Tuple([Options]);
 
 /** Transport-specific IR payload. References remain importable symbols, not serialized Schema ASTs. */
 export const HttpContractData = Schema.Struct({
@@ -69,81 +46,69 @@ type ContractMetadataDraft = {
   -readonly [K in keyof typeof ContractMetadata.Type]: (typeof ContractMetadata.Type)[K];
 };
 
-const httpContract: Interpreter = (annotation, declaration, ctx) => {
-  if (Option.isNone(ctx.operationId)) {
-    return Contribution.diagnostics(notAnOperation(annotation, declaration));
-  }
+const httpContract = implement(Builtins.HttpContract, {
+  notOperation: notAnOperation,
+  read: ([options], { ctx }) => {
+    const operation = Option.getOrThrow(ctx.operationId);
+    const id = StableId.make("ext", `http-contract/${StableId.nameOf(operation)}`);
 
-  if (declaration.annotations.filter((item) => item.name === "Http.Contract").length > 1) {
-    return Contribution.diagnostics(
-      error("EFFX2402", `${declaration.id}: duplicate @Http.Contract annotations`),
+    const data: HttpContractDraft = {
+      root: options.root ?? "effx",
+      group: options.group,
+      success: options.success.ref,
+      conditional: options.conditional ?? false,
+      payloadIsQuery: options.payloadIsQuery ?? false,
+      middleware: (options.middleware ?? []).map((marker) => marker.ref),
+      securityMiddleware: (options.middleware ?? []).flatMap((marker) =>
+        marker.security === true ? [marker.ref] : [],
+      ),
+    };
+
+    if (options.params !== undefined) data.params = options.params.ref;
+
+    if (options.params?.fields !== undefined) data.paramsKeys = options.params.fields;
+
+    if (options.query !== undefined) data.query = options.query.ref;
+
+    if (options.headers !== undefined) data.headers = options.headers.ref;
+
+    if (options.headers?.fields !== undefined) data.headersKeys = options.headers.fields;
+
+    if (options.payload !== undefined) data.payload = options.payload.ref;
+
+    if (options.status !== undefined) data.status = options.status;
+
+    if (options.mediaType !== undefined) data.mediaType = options.mediaType;
+
+    if (options.responseHeaders !== undefined) data.responseHeaders = options.responseHeaders.ref;
+
+    if (options.metadata !== undefined) {
+      const metadata: ContractMetadataDraft = {};
+
+      if (options.metadata.annotator !== undefined)
+        metadata.annotator = options.metadata.annotator.ref;
+
+      if (options.metadata.operationId !== undefined)
+        metadata.operationId = options.metadata.operationId;
+
+      if (options.metadata.summary !== undefined) metadata.summary = options.metadata.summary;
+
+      if (options.metadata.description !== undefined)
+        metadata.description = options.metadata.description;
+
+      if (options.metadata.tags !== undefined) metadata.tags = options.metadata.tags;
+
+      if (options.metadata.commandIdentity !== undefined)
+        metadata.commandIdentity = options.metadata.commandIdentity.ref;
+      data.metadata = metadata;
+    }
+
+    return Contribution.make(
+      [{ _tag: "Extension", id, extension: "http-contract", tag: "HttpContract", data }],
+      [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "HttpContract" }],
     );
-  }
-
-  return Result.match(decodeArgs(Args, annotation, declaration), {
-    onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-    onSuccess: ([options]) => {
-      const operation = Option.getOrThrow(ctx.operationId);
-      const id = StableId.make("ext", `http-contract/${StableId.nameOf(operation)}`);
-
-      const data: HttpContractDraft = {
-        root: options.root ?? "effx",
-        group: options.group,
-        success: options.success.ref,
-        conditional: options.conditional ?? false,
-        payloadIsQuery: options.payloadIsQuery ?? false,
-        middleware: (options.middleware ?? []).map((marker) => marker.ref),
-        securityMiddleware: (options.middleware ?? []).flatMap((marker) =>
-          marker.security === true ? [marker.ref] : [],
-        ),
-      };
-
-      if (options.params !== undefined) data.params = options.params.ref;
-
-      if (options.params?.fields !== undefined) data.paramsKeys = options.params.fields;
-
-      if (options.query !== undefined) data.query = options.query.ref;
-
-      if (options.headers !== undefined) data.headers = options.headers.ref;
-
-      if (options.headers?.fields !== undefined) data.headersKeys = options.headers.fields;
-
-      if (options.payload !== undefined) data.payload = options.payload.ref;
-
-      if (options.status !== undefined) data.status = options.status;
-
-      if (options.mediaType !== undefined) data.mediaType = options.mediaType;
-
-      if (options.responseHeaders !== undefined) data.responseHeaders = options.responseHeaders.ref;
-
-      if (options.metadata !== undefined) {
-        const metadata: ContractMetadataDraft = {};
-
-        if (options.metadata.annotator !== undefined)
-          metadata.annotator = options.metadata.annotator.ref;
-
-        if (options.metadata.operationId !== undefined)
-          metadata.operationId = options.metadata.operationId;
-
-        if (options.metadata.summary !== undefined) metadata.summary = options.metadata.summary;
-
-        if (options.metadata.description !== undefined)
-          metadata.description = options.metadata.description;
-
-        if (options.metadata.tags !== undefined) metadata.tags = options.metadata.tags;
-
-        if (options.metadata.commandIdentity !== undefined)
-          metadata.commandIdentity = options.metadata.commandIdentity.ref;
-        data.metadata = metadata;
-      }
-
-      return Contribution.make(
-        [{ _tag: "Extension", id, extension: "http-contract", tag: "HttpContract", data }],
-        [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "HttpContract" }],
-      );
-    },
-  });
-};
+  },
+});
 
 const identifier = /^[A-Za-z_$][A-Za-z0-9_$-]*$/u;
 
@@ -432,9 +397,6 @@ const validate: Analysis = (ir, index) => {
   return diagnostics;
 };
 
-export const httpContractExtension: Extension = {
-  name: "http-contract",
-  interpreters: { "Http.Contract": httpContract },
+export const httpContractExtension: Extension = extension("http-contract", [httpContract], {
   analyses: [validate],
-  generators: [],
-};
+});

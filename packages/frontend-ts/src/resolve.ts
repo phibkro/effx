@@ -1,4 +1,6 @@
 import { type SchemaRef, StableId, type SymbolRef } from "@effx/ir";
+import type { DefinitionEntry } from "@effx/compiler";
+import type { AppliedUse } from "./leaf.ts";
 import type { Project } from "./project.ts";
 import {
   KEY_TYPE_ID,
@@ -17,6 +19,10 @@ export interface Resolver {
   readonly moduleOf: (file: string) => string;
   /** StableId identity path relative to the source projectRoot, independent of emission. */
   readonly idPathOf: (file: string) => string;
+  /** Extension-declared definitions by annotation name (spec 0020); built-ins are always known. */
+  readonly definitions?: ReadonlyMap<string, DefinitionEntry>;
+  /** Applications of extension-declared annotations seen while collecting (spec 0020 EFFX1306). */
+  readonly appliedUses?: Array<AppliedUse>;
 }
 
 /** Where a symbol is declared, after following import aliases. */

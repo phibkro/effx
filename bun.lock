@@ -109,6 +109,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@effx/ir": "0.1.0",
+        "@effx/runtime": "0.1.0",
       },
       "devDependencies": {
         "effect": "4.0.0",
@@ -123,6 +124,7 @@
       "dependencies": {
         "@effx/compiler": "workspace:*",
         "@effx/ir": "workspace:*",
+        "@effx/runtime": "workspace:*",
         "@typescript/typescript6": "6.0.2",
         "effect": "4.0.0",
       },

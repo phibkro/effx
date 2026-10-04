@@ -1,5 +1,4 @@
 export type {
-  Annotation,
   AnnotationValue,
   Capability as CapabilityValue,
   Focus as FocusValue,
@@ -52,3 +51,25 @@ export {
 } from "./builder.js";
 
 export * as Reflect from "./reflect.js";
+
+export { A, Annotation, rest } from "./define/index.js";
+
+export * as Builtins from "./builtins.js";
+
+export type {
+  Applied,
+  Arg,
+  ArgsPlan,
+  CapabilityMarker,
+  Definition,
+  DefinitionData,
+  DefinitionDiagnostic,
+  EffectClause,
+  JsonValue,
+  Plan,
+  ReadParameters,
+  RootSymbolMarker,
+  SchemaMarker,
+  SymbolCheck,
+  SymbolMarker,
+} from "./define/index.js";

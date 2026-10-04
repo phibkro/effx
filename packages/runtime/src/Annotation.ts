@@ -1,4 +1,5 @@
 import type { Context, Schema } from "effect";
+import type * as Builtins from "./builtins.js";
 
 /** A value usable as an annotation argument: literal, Schema, service class, capability, focus, record, array, function. */
 export type AnnotationValue = string | number | boolean | object;
@@ -17,11 +18,16 @@ export interface ServiceLike {
   readonly key: string;
 }
 
-export interface OperationOptions {
-  readonly name?: string;
-  readonly input: Schema.Top;
-  readonly success: Schema.Top;
-}
+/*
+ * The per-annotation option types below are DERIVED from the built-in definitions
+ * (`builtins.ts`, spec 0020 §3): the definition's `args` is the only declaration. The types the
+ * definitions themselves consume (`ServiceLike`, `Focus`, `Capability`, `ProblemRegistry`,
+ * `HttpAccessAnnotationSpec`, ...) stay hand-written: deriving them from the definitions that
+ * mention them would make the type alias circular.
+ */
+
+/** `Query`/`Command` options. */
+export type OperationOptions = Parameters<typeof Builtins.Query>[0];
 
 /** The app owns key issuance and keeps the original HTTP request and precondition for retries. */
 export interface CommandIdentityValue {
@@ -45,57 +51,31 @@ export interface HttpOperationMetadata {
 export type HttpOperationAnnotator = (metadata: HttpOperationMetadata) => Context.Context<never>;
 
 /** App-owned Message schemas; the generated Command only maps into their declared types. */
-export interface FoldkitCommandOptions {
-  readonly success: Schema.Top;
-  readonly failure: Schema.Top;
-}
+export type FoldkitCommandOptions = Parameters<typeof Builtins.FoldkitCommand>[0];
 
 /** Live HTTP contract values are lowered to references by the source frontend. */
-export interface HttpContractOptions {
-  readonly root?: string;
-  readonly group?: string;
-  readonly params?: Schema.Top;
-  readonly query?: Schema.Top | true;
-  readonly headers?: Schema.Top;
-  readonly payload?: Schema.Top;
-  /** POST body carrying read-only query input; the compiler checks verb and operation. */
-  readonly payloadIsQuery?: boolean;
-  readonly success?: Schema.Top;
-  readonly status?: number;
-  readonly mediaType?: string;
-  readonly responseHeaders?: Schema.Top;
-  readonly conditional?: boolean;
-  readonly middleware?: ReadonlyArray<ServiceLike>;
-  readonly metadata?: {
-    readonly annotator?: HttpOperationAnnotator;
-    readonly operationId?: string;
-    readonly commandIdentity?: ExportedFunctionSymbol;
-    readonly summary?: string;
-    readonly description?: string;
-    readonly tags?: ReadonlyArray<string>;
-  };
-}
+export type HttpContractOptions = Parameters<typeof Builtins.HttpContract>[0];
 
 /** A named HTTP group is source metadata, independent of its operation declarations. */
-export interface HttpGroupOptions {
-  /** A legacy name, or an exported concrete HttpApi value with a literal identifier. */
-  readonly root: string | { readonly identifier: string };
-  readonly group: string;
-  readonly title?: string;
-  readonly description?: string;
-  readonly displayName?: string;
-  readonly defaults?: {
-    readonly middleware?: ReadonlyArray<ServiceLike>;
-    readonly metadata?: { readonly annotator?: HttpOperationAnnotator };
-    readonly problems?: { readonly registry?: ProblemRegistry };
-    readonly access?: Partial<
-      Pick<
-        HttpAccessOptions,
-        "annotator" | "exposure" | "acceptedCredentials" | "principalKinds" | "concealment"
-      >
-    >;
-  };
-}
+export type HttpGroupOptions = Parameters<typeof Builtins.HttpGroup>[0];
+
+/** Source-only declaration; the application owns evaluation and transaction timing. */
+export type HttpAccessOptions = Parameters<typeof Builtins.HttpAccess>[0];
+
+/**
+ * `Http.Problems` options. The definition is not generic, so only the two `Code`-dependent fields
+ * are written here; every other field is derived.
+ */
+export type HttpProblemsOptions<Code extends string = string> = Omit<
+  Parameters<typeof Builtins.HttpProblems>[0],
+  "registry" | "codes"
+> & {
+  readonly registry?: ProblemRegistry<Code>;
+  readonly codes: ReadonlyArray<Code>;
+};
+
+/** `PersistentModel` options; the collector (or the decorator) supplies `schema`. */
+export type PersistentModelOptions = Parameters<typeof Builtins.PersistentModel>[0];
 
 /** Exported derivation function imported by the generated endpoint. */
 export type ProblemRegistry<Code extends string = string> = (
@@ -137,40 +117,6 @@ export interface HttpAccessAnnotationSpec {
   readonly canonicalScopeResolver: object;
   readonly concealment: AccessConcealment;
   readonly decisionTime: "SnapshotRead" | "Transaction";
-}
-
-/** Source-only declaration; the application owns evaluation and transaction timing. */
-export interface HttpAccessOptions extends Omit<
-  HttpAccessAnnotationSpec,
-  "exposure" | "acceptedCredentials" | "principalKinds" | "concealment"
-> {
-  /** Exported function lowered as a SymbolRef, never called by the decorator. */
-  readonly annotator?: (spec: HttpAccessAnnotationSpec) => Context.Context<never>;
-  readonly exposure?: HttpAccessAnnotationSpec["exposure"];
-  readonly acceptedCredentials?: HttpAccessAnnotationSpec["acceptedCredentials"];
-  readonly principalKinds?: HttpAccessAnnotationSpec["principalKinds"];
-  readonly concealment?: HttpAccessAnnotationSpec["concealment"];
-  /**
-   * Compiler-checked claim that a Command decides authority in a read snapshot. Only `true` has
-   * meaning, and only for `decisionTime: "SnapshotRead"` with empty `requirements`,
-   * `acceptedCredentials: ["ObjectCapability"]` and `principalKinds: ["CapabilityHolder"]`
-   * (ADR 0013); anything else is `EFFX2506`. The annotator never receives it: it is not part of
-   * `HttpAccessAnnotationSpec`.
-   */
-  readonly snapshotDecisionForCommand?: boolean;
-}
-
-export interface HttpProblemsOptions<Code extends string = string> {
-  readonly registry?: ProblemRegistry<Code>;
-  readonly codes: ReadonlyArray<Code>;
-  readonly identifier?: string;
-  readonly map?: Readonly<Record<string, string>>;
-}
-
-export interface PersistentModelOptions {
-  readonly table: string;
-  readonly views?: Readonly<Record<string, Schema.Top>>;
-  readonly focus?: Readonly<Record<string, Focus | ReadonlyArray<string>>>;
 }
 
 export interface Focus {

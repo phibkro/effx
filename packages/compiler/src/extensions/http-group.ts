@@ -1,45 +1,12 @@
-import { Option, Result, Schema } from "effect";
-import { StableId, SymbolRef, type HttpGroupNode } from "@effx/ir";
-import { Contribution, type Analysis, type Extension, type Interpreter } from "../Extension.ts";
+import { Option, Predicate, Schema } from "effect";
+import { Builtins } from "@effx/runtime";
+import { StableId, type HttpGroupNode } from "@effx/ir";
+import { Contribution, type Analysis, type Extension } from "../Extension.ts";
 import { error, type Diagnostic } from "../Diagnostic.ts";
-import { SymbolArg, decodeArgs } from "../args.ts";
+import { extension, implement } from "../annotation.ts";
+import { expandGroupDefaults } from "../group-defaults.ts";
 import { groupApiName, groupClassName, handlerName } from "../generate/http-contracts.ts";
 import { HttpContractData } from "./http-contract.ts";
-
-const RootSymbol = Schema.TaggedStruct("Symbol", { ref: SymbolRef, identifier: Schema.String });
-
-const isRootSymbol = Schema.is(RootSymbol);
-
-export const GroupOptions = Schema.Tuple([
-  Schema.Struct({
-    root: Schema.Union([Schema.String, RootSymbol]),
-    group: Schema.String,
-    title: Schema.optionalKey(Schema.String),
-    description: Schema.optionalKey(Schema.String),
-    displayName: Schema.optionalKey(Schema.String),
-    defaults: Schema.optionalKey(
-      Schema.Struct({
-        middleware: Schema.optionalKey(Schema.Array(SymbolArg)),
-        metadata: Schema.optionalKey(Schema.Struct({ annotator: Schema.optionalKey(SymbolArg) })),
-        problems: Schema.optionalKey(Schema.Struct({ registry: Schema.optionalKey(SymbolArg) })),
-        access: Schema.optionalKey(
-          Schema.Struct({
-            annotator: Schema.optionalKey(SymbolArg),
-            exposure: Schema.optionalKey(Schema.Literals(["External", "Internal"])),
-            acceptedCredentials: Schema.optionalKey(Schema.Array(Schema.String)),
-            principalKinds: Schema.optionalKey(Schema.Array(Schema.String)),
-            concealment: Schema.optionalKey(
-              Schema.TaggedUnion({
-                Reveal: {},
-                NotFound: { stages: Schema.Array(Schema.String) },
-              }),
-            ),
-          }),
-        ),
-      }),
-    ),
-  }),
-]);
 
 const safeName = /^[A-Za-z_$][A-Za-z0-9_$-]*$/u;
 
@@ -48,47 +15,37 @@ const safeGroupName = /^[A-Za-z_$][A-Za-z0-9_$._-]*$/u;
 type HttpGroupDraft = { -readonly [K in keyof HttpGroupNode]: HttpGroupNode[K] };
 
 /** Group declarations have their own IR identity, independent of an operation binding. */
-const group: Interpreter = (annotation, declaration) => {
-  if (declaration.kind !== "class" && declaration.kind !== "builder")
-    return Contribution.diagnostics(
-      error("EFFX2402", `${declaration.id}: @Http.Group requires an exported class or builder`),
-    );
+const group = implement(Builtins.HttpGroup, {
+  before: (_annotation, declaration) =>
+    declaration.kind !== "class" && declaration.kind !== "builder"
+      ? error("EFFX2402", `${declaration.id}: @Http.Group requires an exported class or builder`)
+      : undefined,
+  read: ([options], { declaration }) => {
+    const root = Predicate.isString(options.root) ? options.root : options.root.identifier;
 
-  if (declaration.annotations.filter((item) => item.name === "Http.Group").length > 1)
-    return Contribution.diagnostics(
-      error("EFFX2402", `${declaration.id}: duplicate @Http.Group annotations`),
-    );
+    if (!safeName.test(root) || !safeGroupName.test(options.group))
+      return Contribution.diagnostics(
+        error("EFFX2402", `${declaration.id}: HTTP root and group must be safe identifiers`),
+      );
 
-  return Result.match(decodeArgs(GroupOptions, annotation, declaration), {
-    onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-    onSuccess: ([options]) => {
-      const rootIsSymbol = isRootSymbol(options.root);
-      const root = rootIsSymbol ? options.root.identifier : options.root;
+    const data: HttpGroupDraft = {
+      _tag: "HttpGroup",
+      id: StableId.make("group", `${root}/${options.group}`),
+      root,
+      group: options.group,
+    };
 
-      if (!safeName.test(root) || !safeGroupName.test(options.group))
-        return Contribution.diagnostics(
-          error("EFFX2402", `${declaration.id}: HTTP root and group must be safe identifiers`),
-        );
+    if (!Predicate.isString(options.root)) data.rootSymbol = options.root.ref;
 
-      const data: HttpGroupDraft = {
-        _tag: "HttpGroup",
-        id: StableId.make("group", `${root}/${options.group}`),
-        root,
-        group: options.group,
-      };
+    if (options.title !== undefined) data.title = options.title;
 
-      if (rootIsSymbol) data.rootSymbol = options.root.ref;
+    if (options.description !== undefined) data.description = options.description;
 
-      if (options.title !== undefined) data.title = options.title;
+    if (options.displayName !== undefined) data.displayName = options.displayName;
 
-      if (options.description !== undefined) data.description = options.description;
-
-      if (options.displayName !== undefined) data.displayName = options.displayName;
-
-      return Contribution.make([data]);
-    },
-  });
-};
+    return Contribution.make([data]);
+  },
+});
 
 const validate: Analysis = (ir) => {
   const definitions = new Map<string, string>();
@@ -186,9 +143,7 @@ const validateExportNames: Analysis = (ir) => {
   return diagnostics;
 };
 
-export const httpGroupExtension: Extension = {
-  name: "http-group",
-  interpreters: { "Http.Group": group },
+export const httpGroupExtension: Extension = extension("http-group", [group], {
   analyses: [validate, validateExportNames],
-  generators: [],
-};
+  expand: expandGroupDefaults,
+});

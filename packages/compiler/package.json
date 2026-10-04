@@ -31,7 +31,8 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@effx/ir": "0.1.0"
+    "@effx/ir": "0.1.0",
+    "@effx/runtime": "0.1.0"
   },
   "devDependencies": {
     "effect": "4.0.0"

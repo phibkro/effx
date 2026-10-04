@@ -2,6 +2,7 @@ import { Effect, Option, Predicate } from "effect";
 import type { ApplicationIR } from "@effx/ir";
 import {
   defaultGenerationContext,
+  type EndpointFragmentPart,
   type GeneratedFile,
   type GenerationContext,
   type Generator,
@@ -89,7 +90,10 @@ const contractSuccess = (imports: Imports, item: HttpItem): string => {
   return success;
 };
 
-const endpointExpr = (imports: Imports, item: HttpItem): string => {
+/** The fragments the extensions contribute to one endpoint (spec 0020 §6), in extension-list order. */
+type EndpointFragments = (item: HttpItem) => ReadonlyArray<EndpointFragmentPart>;
+
+const endpointExpr = (imports: Imports, item: HttpItem, fragments: EndpointFragments): string => {
   const name = endpointKey(item);
   const contract = item.contract;
   const options: Array<string> = [];
@@ -193,7 +197,7 @@ const endpointExpr = (imports: Imports, item: HttpItem): string => {
     expression += `.annotateMerge(${annotator}({ exposure: ${JSON.stringify(data.exposure)}, acceptedCredentials: ${JSON.stringify(data.acceptedCredentials)}, principalKinds: ${JSON.stringify(data.principalKinds)}, capabilities: ${JSON.stringify(data.capabilities)}, requirements: ${JSON.stringify(data.requirements)}, canonicalScopeResolver: ${resolver}, concealment: ${JSON.stringify(data.concealment)}, decisionTime: ${JSON.stringify(data.decisionTime)} }))`;
   }
 
-  return expression;
+  return fragments(item).reduce((chain, part) => chain + part.render(imports), expression);
 };
 
 const handlerLine = (imports: Imports, item: HttpItem): string => {
@@ -243,12 +247,16 @@ const groupAnnotation = (imports: Imports, group: HttpGroup): string => {
     : `.annotateMerge(${imports.add("effect/http-api", "OpenApi")}.annotations({ ${fields.join(", ")} }))`;
 };
 
-const groupLines = (imports: Imports, group: HttpGroup): ReadonlyArray<string> => {
+const groupLines = (
+  imports: Imports,
+  group: HttpGroup,
+  fragments: EndpointFragments,
+): ReadonlyArray<string> => {
   const groupType = imports.add("effect/http-api", "HttpApiGroup");
 
   return [
     `export class ${groupClassName(group.root, group.group)} extends ${groupType}.make(${JSON.stringify(group.group)}).add(`,
-    ...indent(group.items.map((item) => `${endpointExpr(imports, item)},`)),
+    ...indent(group.items.map((item) => `${endpointExpr(imports, item, fragments)},`)),
     `)${groupAnnotation(imports, group)} {}`,
   ];
 };
@@ -288,12 +296,16 @@ const handlersLines = (imports: Imports, group: HttpGroup): ReadonlyArray<string
 };
 
 /** A standalone group contract has no root or executable implementation imports. */
-const contractLines = (imports: Imports, group: HttpGroup): ReadonlyArray<string> => {
+const contractLines = (
+  imports: Imports,
+  group: HttpGroup,
+  fragments: EndpointFragments,
+): ReadonlyArray<string> => {
   const groupType = imports.add("effect/http-api", "HttpApiGroup");
   const name = groupApiName(group.group);
 
   const expressions = new Map(
-    group.items.map((item) => [item, endpointExpr(imports, item)] as const),
+    group.items.map((item) => [item, endpointExpr(imports, item, fragments)] as const),
   );
 
   const annotation = groupAnnotation(imports, group);
@@ -447,6 +459,7 @@ const body = (
   items: ReadonlyArray<HttpItem>,
   rpcs: ReadonlyArray<Exposed<RpcTransport>>,
   context: GenerationContext,
+  fragments: EndpointFragments,
 ): ReadonlyArray<string> => {
   if (items.length === 0 && rpcs.length === 0) return [];
 
@@ -507,7 +520,7 @@ const body = (
 
   return [
     ...guardImports,
-    ...groups.flatMap((group) => [...groupLines(imports, group), ""]),
+    ...groups.flatMap((group) => [...groupLines(imports, group, fragments), ""]),
     ...roots.map((root) => rootLines(imports, root, groups)),
     "",
     ...groups.flatMap((group) => [...handlersLines(imports, group), ""]),
@@ -530,6 +543,9 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
     const rpcs = all.flatMap((item): ReadonlyArray<Exposed<RpcTransport>> =>
       isRpc(item.transport) ? [{ ...item, transport: item.transport }] : [],
     );
+
+    const fragments: EndpointFragments = (item) =>
+      (context.fragments ?? []).flatMap((fragment) => fragment(item.operation, { ir, index }));
 
     const files: Array<GeneratedFile> = [];
 
@@ -570,7 +586,7 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
         files.push(
           generated(
             filename(group, "contract"),
-            render(header(group.items), imports, contractLines(imports, group)),
+            render(header(group.items), imports, contractLines(imports, group, fragments)),
           ),
         );
       }
@@ -596,7 +612,7 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
           render(
             header([...localItems, ...rpcs]),
             imports,
-            body(imports, ir, localItems, rpcs, context),
+            body(imports, ir, localItems, rpcs, context, fragments),
           ),
         ),
       );

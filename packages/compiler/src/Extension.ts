@@ -1,6 +1,7 @@
 import type { Effect, Option } from "effect";
-import type { ApplicationIR, Edge, GraphIndex, Node, StableId } from "@effx/ir";
-import type { Annotation, Declaration } from "./Collected.ts";
+import type { DefinitionData } from "@effx/runtime";
+import type { ApplicationIR, Edge, GraphIndex, Node, OperationNode, StableId } from "@effx/ir";
+import type { Annotation, Collected, Declaration } from "./Collected.ts";
 import type { EmitMode, TargetProfile } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
@@ -67,6 +68,26 @@ export interface GeneratedFile {
   readonly contents: string;
 }
 
+/** The import collector a fragment renders into: registers `name` from `module`, returns the local name. */
+export interface FragmentImports {
+  add(module: string, name: string): string;
+}
+
+/** One rendered method-call suffix of a generated endpoint (it starts with `.`, e.g. `.annotate(K, v)`). */
+export interface EndpointFragmentPart {
+  readonly render: (imports: FragmentImports) => string;
+}
+
+/**
+ * What an extension appends to the generated HTTP endpoint of an operation (spec 0020 §6): zero or more
+ * method-call suffixes, appended after the generator's own annotations. Pure and total; any import is
+ * registered only by `render`, so computing the parts does no work on the generated file.
+ */
+export type EndpointFragment = (
+  operation: OperationNode,
+  ctx: { readonly ir: ApplicationIR; readonly index: GraphIndex },
+) => ReadonlyArray<EndpointFragmentPart>;
+
 /**
  * Output policy never enters ApplicationIR or its semantic hash.
  *
@@ -80,6 +101,8 @@ export interface GenerationContext {
   readonly outputDir?: string;
   /** Runtime-only target-project resolver; never part of serialized IR or project settings. */
   readonly resolveEffectModule?: (specifier: string) => boolean;
+  /** The extensions' endpoint fragments in extension-list order; `generate` fills it from the extensions. */
+  readonly fragments?: ReadonlyArray<EndpointFragment>;
 }
 
 /** @internal */
@@ -95,9 +118,36 @@ export type Generator = (
   context?: GenerationContext,
 ) => Effect.Effect<ReadonlyArray<GeneratedFile>, CompilerFault>;
 
+/** What a pre-pass leaves of `Collected.declarations`, and the diagnostics it found. */
+export interface Expansion {
+  readonly declarations: ReadonlyArray<Declaration>;
+  readonly diagnostics: ReadonlyArray<Diagnostic>;
+}
+
+/**
+ * A cross-annotation pre-pass over the collected declarations, run before any interpreter (spec 0020 §3,
+ * the 0013 seam). Pure; it may rewrite annotations (source sugar becomes ordinary annotations) but never
+ * adds IR. `declarations` replaces the input's, in the order returned.
+ */
+export type Expand = (collected: Collected) => Expansion;
+
 export interface Extension {
   readonly name: string;
+  /** Definitions this extension implements; their plans drive frontend lowering (spec 0020). */
+  readonly annotations?: ReadonlyArray<DefinitionData>;
   readonly interpreters: Readonly<Record<string, Interpreter>>;
   readonly analyses: ReadonlyArray<Analysis>;
+  /**
+   * An optional pre-pass over `Collected` (`http-group` expands group defaults, spec 0013). The pipeline
+   * runs every extension's `expand` in list order, each seeing the previous one's declarations, and keeps
+   * their diagnostics in the same order.
+   */
+  readonly expand?: Expand;
+  /**
+   * Endpoint fragments, in declaration order (spec 0020 §6). `extension()` derives one for every
+   * definition with an `effect` clause; the pipeline hands them to the generators through
+   * `GenerationContext.fragments`.
+   */
+  readonly fragments?: ReadonlyArray<EndpointFragment>;
   readonly generators: ReadonlyArray<Generator>;
 }

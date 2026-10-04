@@ -1,10 +1,11 @@
 import { Equal, Option, Result, Schema } from "effect";
+import { Builtins } from "@effx/runtime";
 import { IRGraph, StableId, SymbolRef, type OperationKind } from "@effx/ir";
-import { Contribution, type Analysis, type Extension, type Interpreter } from "../Extension.ts";
-import { SymbolArg, decodeArgs } from "../args.ts";
-import { error, warning, type Diagnostic } from "../Diagnostic.ts";
-import { notAnOperation } from "./core.ts";
+import { Contribution, type Analysis, type Extension } from "../Extension.ts";
+import { extension, implement } from "../annotation.ts";
+import { warning, type Diagnostic, error } from "../Diagnostic.ts";
 import { HttpContractData } from "./http-contract.ts";
+import { notAnOperation } from "./not-an-operation.ts";
 
 const Names = Schema.UniqueArray(Schema.NonEmptyString).check(Schema.isMinLength(1));
 
@@ -29,71 +30,56 @@ const Requirement = Schema.Struct({
   parameters: Schema.optionalKey(Schema.JsonObject),
 });
 
-const AccessOptions = Schema.Struct({
-  annotator: SymbolArg,
+/**
+ * JSON-only semantic declaration. Neither symbol is invoked by the compiler. The claim key is
+ * present only when true, so a declaration without a claim keeps its canonical IR and hash.
+ */
+export const AccessContractData = Schema.Struct({
+  annotator: SymbolRef,
   exposure: Schema.Literals(["External", "Internal"]),
   acceptedCredentials: Names,
   principalKinds: PrincipalKinds,
   capabilities: CapabilityExpression,
   requirements: Schema.Array(Requirement),
-  canonicalScopeResolver: SymbolArg,
+  canonicalScopeResolver: SymbolRef,
   concealment: Concealment,
   decisionTime: Schema.Literals(["SnapshotRead", "Transaction"]),
   /** Only `true` is a claim, and only `true` is recorded in the IR (ADR 0013). */
   snapshotDecisionForCommand: Schema.optionalKey(Schema.Boolean),
 });
 
-/**
- * JSON-only semantic declaration. Neither symbol is invoked by the compiler. The claim key is
- * present only when true, so a declaration without a claim keeps its canonical IR and hash.
- */
-export const AccessContractData = Schema.Struct({
-  ...AccessOptions.fields,
-  annotator: SymbolRef,
-  canonicalScopeResolver: SymbolRef,
-});
-
 export type AccessContractData = typeof AccessContractData.Type;
 
 type AccessContractDraft = { -readonly [K in keyof AccessContractData]: AccessContractData[K] };
 
-const access: Interpreter = (annotation, declaration, ctx) => {
-  if (Option.isNone(ctx.operationId))
-    return Contribution.diagnostics(notAnOperation(annotation, declaration));
+const access = implement(Builtins.HttpAccess, {
+  notOperation: notAnOperation,
+  duplicate: { code: "EFFX2500" },
+  read: ([options], { ctx }) => {
+    const operation = Option.getOrThrow(ctx.operationId);
+    const id = StableId.make("ext", `access-contract/${StableId.nameOf(operation)}`);
 
-  if (declaration.annotations.filter((item) => item.name === "Http.Access").length > 1)
-    return Contribution.diagnostics(
-      error("EFFX2500", `${declaration.id}: duplicate @Http.Access annotations`),
+    const data: AccessContractDraft = {
+      annotator: options.annotator.ref,
+      exposure: options.exposure,
+      acceptedCredentials: options.acceptedCredentials,
+      principalKinds: options.principalKinds,
+      capabilities: options.capabilities,
+      requirements: options.requirements,
+      canonicalScopeResolver: options.canonicalScopeResolver.ref,
+      concealment: options.concealment,
+      decisionTime: options.decisionTime,
+    };
+
+    // Only `true` is recorded; absent and `false` mean no claim and leave IR and hash unchanged.
+    if (options.snapshotDecisionForCommand === true) data.snapshotDecisionForCommand = true;
+
+    return Contribution.make(
+      [{ _tag: "Extension", id, extension: "access-contract", tag: "AccessContract", data }],
+      [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "AccessContract" }],
     );
-
-  return Result.match(decodeArgs(Schema.Tuple([AccessOptions]), annotation, declaration), {
-    onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-    onSuccess: ([options]) => {
-      const operation = Option.getOrThrow(ctx.operationId);
-      const id = StableId.make("ext", `access-contract/${StableId.nameOf(operation)}`);
-
-      const data: AccessContractDraft = {
-        annotator: options.annotator.ref,
-        exposure: options.exposure,
-        acceptedCredentials: options.acceptedCredentials,
-        principalKinds: options.principalKinds,
-        capabilities: options.capabilities,
-        requirements: options.requirements,
-        canonicalScopeResolver: options.canonicalScopeResolver.ref,
-        concealment: options.concealment,
-        decisionTime: options.decisionTime,
-      };
-
-      // Only `true` is recorded; absent and `false` mean no claim and leave IR and hash unchanged.
-      if (options.snapshotDecisionForCommand === true) data.snapshotDecisionForCommand = true;
-
-      return Contribution.make(
-        [{ _tag: "Extension", id, extension: "access-contract", tag: "AccessContract", data }],
-        [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "AccessContract" }],
-      );
-    },
-  });
-};
+  },
+});
 
 /**
  * Why `snapshotDecisionForCommand: true` is not allowed here; empty means it is (ADR 0013). The
@@ -182,6 +168,7 @@ const analyzeAccess: Analysis = (ir, index, context) => {
       }
 
       const data = decoded.success;
+
       const claimed = data.snapshotDecisionForCommand === true;
       const violations = claimed ? snapshotClaimViolations(operation.kind, data) : [];
       const accepted = claimed && violations.length === 0;
@@ -246,9 +233,6 @@ const analyzeAccess: Analysis = (ir, index, context) => {
   return diagnostics;
 };
 
-export const accessContractExtension: Extension = {
-  name: "access-contract",
-  interpreters: { "Http.Access": access },
+export const accessContractExtension: Extension = extension("access-contract", [access], {
   analyses: [analyzeAccess],
-  generators: [],
-};
+});

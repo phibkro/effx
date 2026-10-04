@@ -45,8 +45,19 @@ export const AnnotationArg: Schema.Codec<AnnotationArg> = Schema.Union([
   ),
 ]);
 
-/** @internal */
-export const Annotation = Schema.Struct({ name: Schema.String, args: Schema.Array(AnnotationArg) });
+/**
+ * One applied annotation. `definition` is the export of the annotation's own definition (spec 0020): the
+ * frontend records it for an applied user definition (decorator or `.with(...)`), never for a built-in or
+ * the generic `Annotate(name, ...)`, so a default writer can import the definition
+ * (`<Definition>.effect.key`) into generated code.
+ *
+ * @internal
+ */
+export const Annotation = Schema.Struct({
+  name: Schema.String,
+  args: Schema.Array(AnnotationArg),
+  definition: Schema.optionalKey(SymbolRef),
+});
 
 /** @internal */
 export type Annotation = typeof Annotation.Type;

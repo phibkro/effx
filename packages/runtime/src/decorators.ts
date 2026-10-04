@@ -1,18 +1,6 @@
-import type { Schema } from "effect";
-import {
-  type Annotation,
-  type Capability,
-  type FoldkitCommandOptions,
-  type HttpAccessOptions,
-  type HttpContractOptions,
-  type HttpGroupOptions,
-  type HttpProblemsOptions,
-  type OperationOptions,
-  type PersistentModelOptions,
-  type ServiceLike,
-  record,
-} from "./Annotation.js";
-import { group } from "./builder.js";
+import { type Annotation, record } from "./Annotation.js";
+import * as Builtins from "./builtins.js";
+import { group, problems } from "./builder.js";
 
 /**
  * TC39 standard method decorator. Records the annotation on the method function and returns
@@ -28,72 +16,53 @@ export type ClassDecorator = <Class extends abstract new (...args: never) => obj
   context: ClassDecoratorContext<Class>,
 ) => undefined;
 
-const method =
-  (annotation: Annotation): MethodDecorator =>
+/*
+ * Every decorator is its definition from `builtins.ts` (spec 0020 §2.3): calling it yields an
+ * `Applied` value that is the decorator and records exactly `{ name, args }`.
+ */
+
+export const Query = Builtins.Query;
+
+export const Command = Builtins.Command;
+
+export const Errors = Builtins.Errors;
+
+export const Requirements = Builtins.Requirements;
+
+/**
+ * Generic source annotation (spec 0015): records exactly `{ name, args }`, the record an applied
+ * definition records (spec 0020 §2.1). An extension, not the runtime, gives the name its meaning.
+ */
+export const Annotate =
+  (name: string, ...args: Annotation["args"]): MethodDecorator =>
   (value) => {
-    record(value, annotation);
+    record(value, { name, args });
 
     return undefined;
   };
 
-const classAnnotation =
-  (annotation: Annotation): ClassDecorator =>
-  (value) => {
-    record(value, annotation);
+export const Authorize = Builtins.Authorize;
 
-    return undefined;
-  };
+export const Rpc = Builtins.Rpc;
 
-/** Generic source annotation; an extension, not the runtime, gives it meaning. */
-export const Annotate = (name: string, ...args: Annotation["args"]): MethodDecorator =>
-  method({ name, args });
-
-export const Query = (options: OperationOptions): MethodDecorator =>
-  method({ name: "Query", args: [options] });
-
-export const Command = (options: OperationOptions): MethodDecorator =>
-  method({ name: "Command", args: [options] });
-
-export const Errors = (...schemas: ReadonlyArray<Schema.Top>): MethodDecorator =>
-  method({ name: "Errors", args: schemas });
-
-export const Requirements = (...services: ReadonlyArray<ServiceLike>): MethodDecorator =>
-  method({ name: "Requirements", args: services });
-
-export const Authorize = (capability: Capability): MethodDecorator =>
-  method({ name: "Authorize", args: [capability] });
-
-export const Rpc = (name: string): MethodDecorator => method({ name: "Rpc", args: [name] });
-
-export const Cli = (words: string): MethodDecorator => method({ name: "Cli", args: [words] });
+export const Cli = Builtins.Cli;
 
 export const Http = {
-  Group: (options: HttpGroupOptions): ClassDecorator =>
-    classAnnotation({ name: "Http.Group", args: [options] }),
+  Group: Builtins.HttpGroup,
   group,
-  Access: (options: HttpAccessOptions): MethodDecorator =>
-    method({ name: "Http.Access", args: [options] }),
-  Contract: (options: HttpContractOptions): MethodDecorator =>
-    method({ name: "Http.Contract", args: [options] }),
-  Problems: <Code extends string>(options: HttpProblemsOptions<Code>): MethodDecorator =>
-    method({ name: "Http.Problems", args: [options] }),
-  Get: (path: string): MethodDecorator => method({ name: "Http.Get", args: [path] }),
-  Post: (path: string): MethodDecorator => method({ name: "Http.Post", args: [path] }),
-  Put: (path: string): MethodDecorator => method({ name: "Http.Put", args: [path] }),
-  Patch: (path: string): MethodDecorator => method({ name: "Http.Patch", args: [path] }),
-  Delete: (path: string): MethodDecorator => method({ name: "Http.Delete", args: [path] }),
+  Access: Builtins.HttpAccess,
+  Contract: Builtins.HttpContract,
+  Problems: problems,
+  Get: Builtins.HttpGet,
+  Post: Builtins.HttpPost,
+  Put: Builtins.HttpPut,
+  Patch: Builtins.HttpPatch,
+  Delete: Builtins.HttpDelete,
 };
 
 export const Foldkit = {
-  Command: (options: FoldkitCommandOptions): MethodDecorator =>
-    method({ name: "Foldkit.Command", args: [options] }),
+  Command: Builtins.FoldkitCommand,
 };
 
-/** Class decorator; the decorated class is the model schema, so it is recorded as `schema` (spec 0002). */
-export const PersistentModel =
-  (options: PersistentModelOptions): ClassDecorator =>
-  (value) => {
-    record(value, { name: "PersistentModel", args: [{ ...options, schema: value }] });
-
-    return undefined;
-  };
+/** Class decorator; the decorated class is the model schema, recorded as `schema` (the definition's `selfAs`, spec 0002). */
+export const PersistentModel = Builtins.PersistentModel;

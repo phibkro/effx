@@ -1,5 +1,11 @@
 import { Effect, type FileSystem, Layer, Path, Predicate } from "effect";
-import { type Collected, CompilerFault, type ProjectConfig, SourceFrontend } from "@effx/compiler";
+import {
+  type AnalyzeOptions,
+  type Collected,
+  CompilerFault,
+  type ProjectConfig,
+  SourceFrontend,
+} from "@effx/compiler";
 import { collect } from "./collect.ts";
 import { loadProject } from "./project.ts";
 import type { Resolver } from "./resolve.ts";
@@ -28,7 +34,10 @@ const packageSpecifier = (file: string): string | undefined => {
 };
 
 /** `SourceFrontend` over TypeScript 6 (ADR 0009). Nothing `ts.*` leaves `analyze`. */
-export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (config: ProjectConfig) {
+export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (
+  config: ProjectConfig,
+  options: AnalyzeOptions = {},
+) {
   const path = yield* Path.Path;
 
   const project = yield* loadProject(config).pipe(
@@ -62,7 +71,7 @@ export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (config: 
     },
   };
 
-  const collected = yield* tryTs("collect", () => collect(resolver));
+  const collected = yield* tryTs("collect", () => collect(resolver, options.definitions));
 
   const result: CollectedDraft = {
     declarations: collected.declarations,
@@ -84,6 +93,9 @@ export const layer: Layer.Layer<SourceFrontend, never, FileSystem.FileSystem | P
     Effect.gen(function* () {
       const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
 
-      return { analyze: (config: ProjectConfig) => analyze(config).pipe(Effect.provide(context)) };
+      return {
+        analyze: (config: ProjectConfig, options?: AnalyzeOptions) =>
+          analyze(config, options).pipe(Effect.provide(context)),
+      };
     }),
   );

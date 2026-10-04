@@ -29,9 +29,9 @@ files included below. For the contract's fields, read [Extensions](/docs/extensi
 
 | Package | You use it for |
 | --- | --- |
-| `@effx/compiler` | `Extension`, `Interpreter`, `Analysis`, `Generator`, `Contribution`, `error`, `warning`, `decodeArgs`, `GeneratedFile`, `CompilerFault`, `Extensions.builtin` |
+| `@effx/compiler` | `Extension`, `Interpreter`, `Analysis`, `Generator`, `Contribution`, `error`, `warning`, `decodeArgs`, `GeneratedFile`, `CompilerFault`, `Extensions.builtin`, and for typed definitions `implement`, `extension`, `dataOf`, `laws`, `LawViolation` |
 | `@effx/ir` | `Node`, `StableId`, `IRGraph` to build and read IR |
-| `@effx/runtime` | `@Annotate` and `.annotate` in application source |
+| `@effx/runtime` | `@Annotate` and `.annotate` in application source; `Annotation.define` and `A` to declare a typed annotation |
 | `@effx/cli/config` | `defineConfig` (importing it does not start the CLI) |
 
 Anything else exported from `@effx/compiler` is marked internal (spec 0015). The example's manifest:
@@ -155,11 +155,32 @@ Source: `examples/extension-openapi-tags/test/extension.test.ts`.
 | Decorator and builder collect the same extension node, edge and generated file | compares node, edges, file, and a handler-neutral canonical form and hash |
 | The generator is lazy and a change to the IR alone changes the emitted JSDoc | calls the generator on a modified IR |
 
+## Typed definitions
+
+`@Annotate` is the untyped floor: `tsc` cannot check its arguments and you write the interpreter by
+hand. `Annotation.define` (`@effx/runtime`) is the typed layer over it (spec 0020). You declare the
+name, the target and the argument shape once; the decorator, the `.with(...)` builder argument, the
+frontend lowering and the compiler decode all derive from that one description. `implement` and
+`extension` (`@effx/compiler`) are the compiler half. The result is an ordinary `Extension` that you
+list in `effx.config.ts` next to a hand-written one.
+
+<include cwd lang="ts" meta='title="ai-docs/src/06_custom-extensions/03_define-annotation.ts"'>../../ai-docs/src/06_custom-extensions/03_define-annotation.ts</include>
+
+<include cwd lang="ts" meta='title="ai-docs/src/06_custom-extensions/05_implement-annotation.ts"'>../../ai-docs/src/06_custom-extensions/05_implement-annotation.ts</include>
+
+| Rule | Source |
+| --- | --- |
+| An applied definition records exactly the `{ name, args }` that `@Annotate(name, ...args)` records | spec 0020 section 2.1 |
+| A name with a registered definition lowers by the definition's plan in either spelling. A name without one lowers generically. An unregistered name stays `EFFX1101` | `packages/frontend-ts/src/collect.ts`; `packages/cli/test/config-annotation-definitions.test.ts` |
+| A wrong value reaches the compiler through `@Annotate` (`tsc` cannot check it) and is rejected by the definition's own decode: `EFFX1102` | same test |
+| Only the applied definition records its own export, so only it gets the `.annotate(key, ...)` that an `effect` clause writes into the generated endpoint | same test |
+| A definition module is a leaf (`effect` and `@effx/runtime` only), because the config evaluates it: `EFFX1306` otherwise | spec 0020 section 9 |
+
 ## Not available yet
 
 | Item | Status |
 | --- | --- |
-| Typed annotation definitions (`Annotation.define`) | frozen as spec 0020 (`docs/specs/0020-annotation-definitions.md`); no `define` exists in `@effx/runtime` yet |
+| Typed annotation definitions for a class, group or model target | v1 supports `target: "operation"` only (spec 0020 section 0.4) |
 | Running a custom extension without the CLI | not offered; the frontend is private |
 | A reserved diagnostic-code range for third parties | none |
 | A generated diagnostic catalogue | the diagnostic registry has not landed ([Diagnostics](/docs/diagnostics)) |

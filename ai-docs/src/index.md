@@ -78,19 +78,19 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
 | `effx inspect <operation>` | show an operation's contract and exposures           |
 | `effx graph [name]`        | print a Mermaid graph                                |
 
-Shared flags: `--project <tsconfig>`; compile flags: `--strict-access`,
-`--target`, `--emit` (`packages/cli/src/main.ts`).
+Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
+`--target`, `--emit`, `--out-dir` (`packages/cli/src/main.ts`).
 
 ## Sections
 
-| Section                     | Covers                                                                 |
-| --------------------------- | ---------------------------------------------------------------------- |
-| Declaring operations        | decorator and builder operations, annotation equivalence               |
-| Declaration-only operations | `.declare()` and external binding by the application                   |
-| Group defaults              | `Http.group` / `@Http.Group` shared middleware, problems, access       |
-| Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment |
-| Foldkit commands            | `Foldkit.Command` and command identity                                 |
-| Custom extensions           | the `Extension` contract (config loading is not landed)                |
+| Section                     | Covers                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------- |
+| Declaring operations        | decorator and builder operations, annotation equivalence                                 |
+| Declaration-only operations | `.declare()` and external binding by the application                                     |
+| Group defaults              | `Http.group` / `@Http.Group` shared middleware, problems, access                         |
+| Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment                   |
+| Foldkit commands            | `Foldkit.Command` and command identity                                                   |
+| Custom annotations          | `effx.config.ts`, `@Annotate`, and typed `Annotation.define` + `implement` / `extension` |
 
 **Note**: the examples contain comments for illustration. In practice you
 would not include these comments in your code.

@@ -1,9 +1,13 @@
 import { Option, Predicate, Schema } from "effect";
-import { AnnotationArg, type Annotation, type Collected, type Declaration } from "./Collected.ts";
+import { Builtins } from "@effx/runtime";
+import { AnnotationArg, type Annotation, type Declaration } from "./Collected.ts";
 import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Expand } from "./Extension.ts";
 import { SchemaArg, SymbolArg } from "./args.ts";
+import { decodeSchemaOf } from "./annotation.ts";
 import { OperationArgs } from "./extensions/core.ts";
-import { GroupOptions } from "./extensions/http-group.ts";
+
+const GroupOptions = decodeSchemaOf(Builtins.HttpGroup);
 
 const InArgs = Schema.Tuple([SymbolArg]);
 
@@ -29,11 +33,6 @@ const mapsInput = (candidate: AnnotationArg | undefined, input: typeof SchemaArg
 
 const symbolKey = (module: string, name: string): string => `${module}\0${name}`;
 
-interface GroupDefaultsExpansion {
-  readonly declarations: ReadonlyArray<Declaration>;
-  readonly diagnostics: ReadonlyArray<Diagnostic>;
-}
-
 /** Operation fields win even when an override is an empty array. */
 const inheritFields = (
   fields: Readonly<Record<string, AnnotationArg>>,
@@ -49,7 +48,7 @@ const inheritFields = (
 };
 
 /** Defaults are source syntax only: this returns ordinary annotations for existing interpreters. */
-export const expandGroupDefaults = (collected: Collected): GroupDefaultsExpansion => {
+export const expandGroupDefaults: Expand = (collected) => {
   const diagnostics: Array<Diagnostic> = [];
   const symbols = new Map<string, Array<Declaration>>();
 
@@ -142,7 +141,7 @@ export const expandGroupDefaults = (collected: Collected): GroupDefaultsExpansio
       return { ...declaration, annotations };
     }
 
-    const decoded = Schema.decodeUnknownOption(GroupOptions)(groups[0]!.args);
+    const decoded = Schema.decodeOption(GroupOptions)(groups[0]!.args);
 
     if (Option.isNone(decoded)) {
       // The group interpreter reports the malformed option arguments at their source.
@@ -182,9 +181,7 @@ export const expandGroupDefaults = (collected: Collected): GroupDefaultsExpansio
     );
 
     const declared =
-      operation === undefined
-        ? Option.none()
-        : Schema.decodeUnknownOption(OperationArgs)(operation.args);
+      operation === undefined ? Option.none() : Schema.decodeOption(OperationArgs)(operation.args);
 
     const operationArgs = Option.getOrUndefined(declared)?.[0];
 

@@ -1,24 +1,39 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   type Analysis,
+  type Annotation as CollectedAnnotation,
   CompilerFault,
   Contribution,
   Diagnostic,
+  type EndpointFragment,
+  type Expand,
   type Extension,
+  Extensions,
   type GeneratedFile,
   type Generator,
+  type ImplementOptions,
+  type Implementation,
   type Interpreter,
+  type Law,
+  LawViolation,
   Location,
   type ProjectConfig,
+  type ReadArgs,
   Severity,
   SourceFrontend,
   compile,
+  dataOf,
   error,
+  extension,
   hasErrors,
+  implement,
+  laws,
   warning,
 } from "@effx/compiler";
+import { A, Annotation, type DefinitionData } from "@effx/runtime";
 import { Effect, Option, Schema } from "effect";
 import { expectTypeOf } from "vitest";
+import { decoratorStyle, getUser } from "./fixtures/users.ts";
 
 describe("public compiler extension index", () => {
   it.effect(
@@ -78,5 +93,75 @@ describe("public compiler extension index", () => {
         );
         assert.deepStrictEqual(Option.getOrThrow(result.files.value), [file]);
       }),
+  );
+
+  it.effect("authors can derive an extension from a typed definition through the same index", () =>
+    Effect.gen(function* () {
+      const Note = Annotation.define({
+        name: "plugin.Note",
+        target: "operation",
+        args: { text: A.string },
+      });
+
+      const options: ImplementOptions<ReadArgs<typeof Note>> = {
+        analyze: (ir) =>
+          ir.nodes.flatMap((node) =>
+            node._tag === "Operation"
+              ? Option.match(dataOf(Note, ir, node.id), {
+                  onNone: () => [],
+                  onSome: ([note]) => [warning("EFFX9004", `${node.name}: ${note.text}`)],
+                })
+              : [],
+          ),
+      };
+
+      const implementation: Implementation<typeof Note> = implement(Note, options);
+      const derived: Extension = extension("plugin", [implementation]);
+
+      const expand: Expand = (collected) => ({
+        declarations: collected.declarations,
+        diagnostics: [],
+      });
+
+      const fragments: ReadonlyArray<EndpointFragment> = [];
+      const extended: Extension = { ...derived, expand, fragments };
+
+      expectTypeOf(derived.annotations).toEqualTypeOf<ReadonlyArray<DefinitionData> | undefined>();
+
+      const noted: CollectedAnnotation = {
+        name: "plugin.Note",
+        args: [{ text: "from the typed layer" }],
+      };
+
+      const result = yield* compile({ tsconfigPath: "tsconfig.json" }, [
+        ...Extensions.builtin,
+        extended,
+      ]).pipe(
+        Effect.provide(
+          SourceFrontend.fromCollected({
+            ...decoratorStyle,
+            declarations: decoratorStyle.declarations.map((declaration) =>
+              declaration.id === getUser.id
+                ? { ...declaration, annotations: [...declaration.annotations, noted] }
+                : declaration,
+            ),
+          }),
+        ),
+      );
+
+      assert.deepStrictEqual(
+        result.diagnostics
+          .filter((diagnostic) => diagnostic.code === "EFFX9004")
+          .map((diagnostic) => diagnostic.message),
+        ["User.Get: from the typed layer"],
+      );
+
+      // The derived laws run from the same index: a violation is the public `LawViolation`.
+      const derivedLaws: ReadonlyArray<Law> = laws(Note);
+
+      yield* Effect.forEach(derivedLaws, (law): Effect.Effect<void, LawViolation> =>
+        law.check({ runs: 20, seed: 1 }),
+      );
+    }),
   );
 });

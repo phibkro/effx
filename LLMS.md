@@ -78,19 +78,19 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
 | `effx inspect <operation>` | show an operation's contract and exposures           |
 | `effx graph [name]`        | print a Mermaid graph                                |
 
-Shared flags: `--project <tsconfig>`; compile flags: `--strict-access`,
-`--target`, `--emit` (`packages/cli/src/main.ts`).
+Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
+`--target`, `--emit`, `--out-dir` (`packages/cli/src/main.ts`).
 
 ## Sections
 
-| Section                     | Covers                                                                 |
-| --------------------------- | ---------------------------------------------------------------------- |
-| Declaring operations        | decorator and builder operations, annotation equivalence               |
-| Declaration-only operations | `.declare()` and external binding by the application                   |
-| Group defaults              | `Http.group` / `@Http.Group` shared middleware, problems, access       |
-| Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment |
-| Foldkit commands            | `Foldkit.Command` and command identity                                 |
-| Custom extensions           | the `Extension` contract (config loading is not landed)                |
+| Section                     | Covers                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------- |
+| Declaring operations        | decorator and builder operations, annotation equivalence                                 |
+| Declaration-only operations | `.declare()` and external binding by the application                                     |
+| Group defaults              | `Http.group` / `@Http.Group` shared middleware, problems, access                         |
+| Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment                   |
+| Foldkit commands            | `Foldkit.Command` and command identity                                                   |
+| Custom annotations          | `effx.config.ts`, `@Annotate`, and typed `Annotation.define` + `implement` / `extension` |
 
 **Note**: the examples contain comments for illustration. In practice you
 would not include these comments in your code.
@@ -1043,46 +1043,100 @@ export class SettingsOperations {
   `.foldkit.command(...)` is the builder twin of `@Foldkit.Command`. A Command with
   `idempotency-key` and `if-match` headers may also name a `commandIdentity` function.
 
-## Custom extensions
+## Custom annotations and extensions
 
-An **extension** gives annotations meaning. You register one in `effx.config.ts`; the CLI loads
-that single module for `check`, `build`, `inspect` and `graph` (spec 0015,
-`packages/cli/src/config.ts`). The full path from source to files:
+An **extension** gives annotations meaning. You register one in `effx.config.ts`; the CLI loads that
+single module for `check`, `build`, `inspect` and `graph` (spec 0015, `packages/cli/src/config.ts`).
+Two layers attach custom annotations, and both produce the same record, `Annotation { name, args }`:
+
+- **The generic floor** (spec 0015): `@Annotate(name, ...args)` and `.annotate(name, ...args)` from
+  `@effx/runtime` attach any literal name. A hand-written `Extension` interprets it. Nothing about the
+  arguments is typed.
+- **Typed definitions** (spec 0020): `Annotation.define` (`@effx/runtime`) states the name, target
+  and argument shape once. The decorator `@RateLimit(...)`, the builder argument
+  `.with(RateLimit(...))`, the frontend lowering and the compiler decode all derive from it.
+  `implement` + `extension` (`@effx/compiler`) are the compiler half. An applied definition records
+  exactly the `{ name, args }` that `@Annotate(name, ...args)` records, so a definition is the typed,
+  schema-lowered form of the same annotation.
 
 ```
- @Annotate("Audit", {...})        effx.config.ts
- .annotate("Audit", {...})        defineConfig({ extensions: [auditExtension] })
-        │                                   │
-        ▼ frontend lowers a literal name    ▼ registered next to the built-ins
-   Annotation { name, args } ──interpreter──► Contribution { nodes, edges, diagnostics }
+ @Annotate("Audit", {...})    @RateLimit({...})
+ .annotate("Audit", {...})    .with(RateLimit({...}))
+   untyped floor (0015)         typed by Annotation.define (0020)
+              └──────────────┬──────────────┘
+                             ▼ the frontend reads a literal name and lowers the arguments
+                               (by the definition's plan when the name has one)
+                 Annotation { name, args }
+                             │ the interpreter registered for that name in effx.config.ts
+                             ▼
+                 Contribution { nodes, edges, diagnostics }
 ```
 
-What holds (spec 0015; the examples below were run through the CLI, and
-`examples/extension-openapi-tags` in the effx repository is the tested reference):
+What holds for both (spec 0015; `examples/extension-openapi-tags` in the effx repository is the
+tested reference):
 
-- `@Annotate(name, ...args)` and `.annotate(name, ...args)` from `@effx/runtime` are the generic way
-  to attach a custom annotation. The name must be a string literal and the arguments static
-  literals: the compiler reads source and never evaluates your application modules.
+- The arguments are static literals and the name given to `@Annotate` is a string literal: the
+  compiler reads source and never evaluates your application modules.
 - A name no registered extension owns is `EFFX1101`. Registering the extension in `effx.config.ts`
   is what makes it valid.
 - An `extensions` array in the config **appends** to the built-ins; a callback
-  `(builtin) => [...]` returns the complete ordered list.
+  `(builtin) => [...]` returns the complete ordered list. A hand-written `Extension` and an
+  `extension(...)` built from definitions register the same way.
 - `generators: { http, rpc, cli, client, foldkit }` toggles built-in file generators only. It never
   changes interpretation, analyses, the IR or its semantic hash, and never toggles a custom
   extension's generator.
 - The config module and everything it imports must not import application code that declares
   operations.
 - Your extension imports only public packages: `@effx/compiler` (`Extension`, `Interpreter`,
-  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `error`, `warning`, `GeneratedFile`) and
+  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `error`, `warning`, `GeneratedFile`, and
+  the typed layer `implement`, `extension`, `dataOf`, `laws`, `LawViolation`), `@effx/runtime` and
   `@effx/ir`. Anything else exported from `@effx/compiler` is marked internal.
 
 Not available: there is no public way to run a custom extension outside the CLI without the private
 TypeScript frontend. Use the CLI with a config.
 
-The contract below is what every extension implements. The built-in
-features (core, http, rpc, cli, client, foldkit, http-contract, http-group,
-access-contract, problem-contract) are extensions built from the same
-contract (`packages/compiler/src/Extension.ts`,
+### Typed definitions over the generic floor
+
+A definition module is a leaf: it imports only `effect` and `@effx/runtime`, otherwise `EFFX1306`.
+In v1 a user annotation attaches to an operation (`target: "operation"`). `implement` derives the
+interpreter, the argument decode and the guards from the definition; with no `read` it records the
+arguments as a declarative `Extension` node, and `dataOf(definition, ir, operationId)` reads them
+back typed.
+
+How the two spellings meet (spec 0020 section 9, `packages/frontend-ts/src/collect.ts`):
+
+- A name with a registered definition lowers by that definition's plan whichever spelling you use:
+  `@Annotate("app.RateLimit", { perMinute: 60 })` and `@RateLimit({ perMinute: 60 })` lower to the
+  same `args`, so the default read records the same arguments in its `Extension` node and `dataOf`
+  returns them for both. A name with no definition lowers generically. `tsc` checks only the typed
+  spelling; the definition's own decode rejects a malformed value of the generic one (`EFFX1102`).
+- Only the applied definition records its own export. A definition with an `effect` clause writes
+  its annotation into the generated HTTP endpoint through that export, so `@Annotate(name, ...)` of
+  an effect-clause name keeps the IR node but writes no `.annotate(key, ...)`. Apply the definition
+  when generated output must carry the annotation.
+
+With an `effect` clause the generated HTTP endpoint carries the annotation as an Effect `Context`
+annotation (spec 0020 section 4 and 6):
+
+```ts
+HttpApiEndpoint.get("Limited.Get", "/limited/:id", { ... })
+  .annotate(RateLimit.effect.key, { perMinute: 60, burst: 5 })
+```
+
+| Code       | Meaning                                                             |
+| ---------- | ------------------------------------------------------------------- |
+| `EFFX1301` | `A.fromSchema` met a Schema node the frontend cannot lower          |
+| `EFFX1302` | annotation name outside `[A-Za-z][A-Za-z0-9._-]*` or declared twice |
+| `EFFX1303` | a definition's target does not fit the declaring syntax             |
+| `EFFX1304` | two definitions share an `effect.key` id                            |
+| `EFFX1306` | a definition module reaches an application module                   |
+
+### The extension contract
+
+The contract below is what every extension implements. The typed layer derives it; the hand-written
+form (see the linked skeleton) remains valid. The built-in features (core, http, rpc, cli, client,
+foldkit, http-contract, http-group, access-contract, problem-contract) are extensions built from
+the same contract (`packages/compiler/src/Extension.ts`,
 `packages/compiler/src/extensions/index.ts`).
 
 ```
@@ -1102,6 +1156,12 @@ contract (`packages/compiler/src/Extension.ts`,
 | `interpreters` | `Record<annotationName, (annotation, declaration, ctx) => Contribution>`    | pure; an annotation name no extension owns is `EFFX1101`                |
 | `analyses`     | `(ir, index, { strictAccess }) => Diagnostic[]`                             | pure; reads the graph; an `error` diagnostic stops generation           |
 | `generators`   | `(ir, index, generationContext?) => Effect<GeneratedFile[], CompilerFault>` | emit ordinary files; output is sorted by path and must be deterministic |
+| `annotations`  | `ReadonlyArray<DefinitionData>?`                                            | the definitions it implements; their plans drive frontend lowering      |
+| `expand`       | `(collected) => { declarations, diagnostics }` (optional)                   | pure pre-pass before any interpreter; group defaults use it             |
+| `fragments`    | `ReadonlyArray<EndpointFragment>?`                                          | method-call suffixes appended to a generated HTTP endpoint              |
+
+`extension(name, implementations)` fills `annotations`, derives `interpreters`, and derives the
+`fragments` of `effect` clauses. A hand-written `Extension` omits all three optional parts.
 
 Rules to keep:
 
@@ -1122,142 +1182,6 @@ Rules to keep:
 - No `ts.*` objects in the IR. Source locations live in the manifest.
 - Diagnostic codes: choose codes that do not collide with the built-ins. No range is reserved
   for third-party extensions in the sources read, so the examples use `EFFX9xxx`.
-
-### Extension skeleton: interpreter, analysis, generator
-
-An `Extension` has three parts: interpreters turn annotations into IR
-contributions, analyses read the IR graph, and generators emit ordinary files.
-
-```ts
-import {
-  Contribution,
-  decodeArgs,
-  error,
-  warning,
-  type Analysis,
-  type Extension,
-  type GeneratedFile,
-  type Generator,
-  type Interpreter,
-} from "@effx/compiler";
-import { IRGraph, StableId } from "@effx/ir";
-import { Effect, Option, Order, Result, Schema } from "effect";
-import * as Arr from "effect/Array";
-
-// The annotation this extension owns is `Audit`, called with one options
-// object: `@Annotate("Audit", { level: "sensitive" })`. Argument shape is a Schema, so a
-// malformed call becomes a data diagnostic (EFFX1102), never a thrown error.
-const AuditLevel = Schema.Literals(["standard", "sensitive"]);
-
-const AuditArgs = Schema.Tuple([Schema.Struct({ level: AuditLevel })]);
-
-// The IR is plain JSON. Define the extension node's `data` as a Schema so the
-// analysis and the generator decode it instead of casting.
-const AuditPolicyData = Schema.Struct({ level: AuditLevel });
-
-// 1. Interpreter: annotation -> contribution to the IR.
-//    It returns nodes, edges and diagnostics. It never returns behaviour.
-const interpretAudit: Interpreter = (annotation, declaration, ctx) => {
-  // `ctx.operationId` is set when this declaration defines a Query or Command.
-  if (Option.isNone(ctx.operationId)) {
-    return Contribution.diagnostics(
-      error("EFFX9002", `${declaration.id}: the Audit annotation requires an operation`),
-    );
-  }
-
-  const operation = ctx.operationId.value;
-
-  return Result.match(decodeArgs(AuditArgs, annotation, declaration), {
-    onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-    onSuccess: ([options]) => {
-      // One extension node per operation. The id is deterministic.
-      const id = StableId.make("ext", `audit/${StableId.nameOf(operation)}`);
-
-      return Contribution.make(
-        [
-          {
-            _tag: "Extension",
-            id,
-            extension: "audit",
-            tag: "AuditPolicy",
-            data: { level: options.level },
-          },
-        ],
-        // `ExtensionOf` ties the extension node to its owning operation. The
-        // qualifier must equal the extension node's `tag`.
-        [{ kind: "ExtensionOf", from: id, to: operation, qualifier: "AuditPolicy" }],
-      );
-    },
-  });
-};
-
-// 2. Analysis: read the normalized IR and its graph index, return diagnostics.
-//    Diagnostics are data; returning an error diagnostic skips generation.
-const unauditedCommands: Analysis = (ir, index) =>
-  ir.nodes.flatMap((node) => {
-    if (node._tag !== "Operation" || node.kind !== "Command") return [];
-
-    const audited = IRGraph.incoming(index, node.id, "ExtensionOf").some(
-      (edge) => edge.qualifier === "AuditPolicy",
-    );
-
-    // Pick codes that do not collide with the built-ins (EFFX0001..EFFX2701).
-    return audited ? [] : [warning("EFFX9001", `${node.name}: Command has no Audit annotation`)];
-  });
-
-// 3. Generator: IR -> files. The output is ordinary TypeScript data. There is
-//    no runtime library, and the file must be deterministic.
-const generateAuditTable: Generator = (ir, index) => {
-  const entries = ir.nodes.flatMap((node) => {
-    if (node._tag !== "Extension" || node.extension !== "audit") return [];
-
-    const data = Schema.decodeUnknownOption(AuditPolicyData)(node.data);
-
-    const owner = Option.flatMap(
-      Option.fromUndefinedOr(IRGraph.outgoing(index, node.id, "ExtensionOf")[0]),
-      (edge) => IRGraph.nodeOf(index, edge.to),
-    );
-
-    if (Option.isNone(data) || Option.isNone(owner) || owner.value._tag !== "Operation") {
-      return [];
-    }
-
-    return [{ operation: owner.value.name, level: data.value.level }];
-  });
-
-  // Never emit an empty placeholder file for a missing feature.
-  if (entries.length === 0) return Effect.succeed([]);
-
-  const rows = Arr.sort(
-    entries,
-    Order.mapInput(Order.String, (entry: (typeof entries)[number]) => entry.operation),
-  ).map(
-    (entry) =>
-      `  { operation: ${JSON.stringify(entry.operation)}, level: ${JSON.stringify(entry.level)} },`,
-  );
-
-  const file: GeneratedFile = {
-    path: "audit.ts",
-    contents: [
-      "// Generated by the audit extension. Do not edit.",
-      "export const auditPolicies = [",
-      ...rows,
-      "] as const;",
-      "",
-    ].join("\n"),
-  };
-
-  return Effect.succeed([file]);
-};
-
-// The extension value. `interpreters` is keyed by annotation name.
-export const auditExtension: Extension = {
-  name: "audit",
-  interpreters: { Audit: interpretAudit },
-  analyses: [unauditedCommands],
-  generators: [generateAuditTable],
-};
-```
 
 ### Using a custom annotation in source
 
@@ -1305,27 +1229,185 @@ export const chargebackBuilder = Operation.command({
   );
 ```
 
-### Registering the extension in effx.config.ts
+### Registering extensions in effx.config.ts
 
 The CLI evaluates exactly one user module: the selected config. It default-exports
-`defineConfig(...)` from `@effx/cli/config`.
+`defineConfig(...)` from `@effx/cli/config`. A hand-written `Extension` and an extension built
+from typed definitions register the same way.
 
 ```ts
 import { defineConfig } from "@effx/cli/config";
-import { auditExtension } from "./01_audit-extension.ts";
+import { appExtension } from "./05_implement-annotation.ts";
+import { auditExtension } from "./10_hand-written-extension.ts";
 
 // Keep this module, and everything it imports, free of application code: the CLI executes it,
-// and spec 0015 forbids evaluating the application modules that declare operations.
+// and spec 0015 forbids evaluating the application modules that declare operations. A definition
+// module is a leaf that imports only `effect` and `@effx/runtime`, so it is safe to import here
+// (spec 0020, EFFX1306).
 export default defineConfig({
   // Optional; relative paths resolve from the directory of this file.
   project: "tsconfig.json",
 
   // An array APPENDS to the built-in extensions. Pass a callback instead to see the built-ins
-  // and return the complete, ordered list: `(builtin) => [...builtin, auditExtension]`.
-  extensions: [auditExtension],
+  // and return the complete, ordered list: `(builtin) => [...builtin, auditExtension, appExtension]`.
+  extensions: [auditExtension, appExtension],
 
   // File emission only: a toggle never changes interpretation, analyses, the IR or its hash.
   // Omitted means enabled. Generators from custom extensions are never toggled here.
   generators: { foldkit: false },
 });
 ```
+
+### Declaring an annotation
+
+`Annotation.define` declares a user annotation once: its name, where it may attach and the
+argument shape. The derived decorator and builder argument are typed from `args`, and the
+compiler lowers and decodes the same description. Keep this file a leaf module: it may
+import only `effect` and `@effx/runtime` (spec 0020, EFFX1306), so loading it never loads
+application code.
+
+```ts
+import { A, Annotation } from "@effx/runtime";
+import { Context } from "effect";
+
+// An Effect annotation key: the generated HttpApi endpoint carries the value, typed by `tsc`, and a
+// hand-written middleware reads it back with `Context.getOption(endpoint.annotations, RateLimitPolicy)`.
+// The literal id is what a static lift matches (spec 0020 section 4).
+export class RateLimitPolicy extends Context.Service<
+  RateLimitPolicy,
+  { readonly perMinute: number; readonly burst?: number }
+>()("app/RateLimit") {}
+
+export const RateLimit = Annotation.define({
+  // Namespaced and unique across all extensions (EFFX1302 on a clash).
+  name: "app.RateLimit",
+  // v1 user annotations attach to operations only (spec 0020 section 0.4).
+  target: "operation",
+  // `A.*` is the closed set of argument shapes the TypeScript frontend can read from source
+  // without running your code. `tsc` checks the shape at the use site; value constraints such as a
+  // minimum are decoded by the compiler (EFFX1102).
+  args: { perMinute: A.int, burst: A.optional(A.int) },
+  // The compiler rejects a second `@RateLimit` on one operation.
+  cardinality: "one",
+  // Optional default writer: generated endpoints get `.annotate(RateLimit.effect.key, { ... })`.
+  // `tsc` checks the written value against the key's shape in the generated file.
+  effect: { target: "endpoint", key: RateLimitPolicy },
+});
+```
+
+### Using a declared annotation
+
+The value `RateLimit(...)` is both a standard decorator and a builder argument. Both
+spellings record the same `{ name, args }` annotation, so the compiler sees one meaning
+(spec 0020 section 2.1). The generic `@Annotate(name, ...args)` of spec 0015 reaches the same
+definition by its name.
+
+```ts
+import { Annotate, Http, Operation, Query } from "@effx/runtime";
+import { Effect } from "effect";
+import { GetUserInput, UserPublic, Users } from "./fixtures/users.ts";
+import { RateLimit } from "./03_define-annotation.ts";
+
+export class LimitedUsers {
+  @Query({ name: "Limited.Get", input: GetUserInput, success: UserPublic })
+  @Http.Get("/limited/:id")
+  // A literal object: the frontend lowers it statically. A variable here would be EFFX1102.
+  @RateLimit({ perMinute: 60, burst: 5 })
+  static get(input: typeof GetUserInput.Type) {
+    return Effect.gen(function* () {
+      const users = yield* Users;
+      const user = yield* users.find(input.id);
+
+      return { id: user.id, displayName: user.displayName };
+    });
+  }
+
+  // The untyped floor: the name is a string literal, so `tsc` no longer checks the arguments, but
+  // the frontend lowers them by the definition's plan and records the same `{ name, args }`.
+  @Query({ name: "Limited.Generic", input: GetUserInput, success: UserPublic })
+  @Http.Get("/limited-generic/:id")
+  @Annotate("app.RateLimit", { perMinute: 60, burst: 5 })
+  static generic(input: typeof GetUserInput.Type) {
+    return Effect.gen(function* () {
+      const users = yield* Users;
+      const user = yield* users.find(input.id);
+
+      return { id: user.id, displayName: user.displayName };
+    });
+  }
+}
+
+// The builder spelling: `.with(...)` takes the applied annotation.
+export const limitedBuilder = Operation.query({
+  name: "Limited.Builder",
+  input: GetUserInput,
+  success: UserPublic,
+})
+  .http.get("/limited-builder/:id")
+  .with(RateLimit({ perMinute: 60, burst: 5 }))
+  .handler((input: typeof GetUserInput.Type) =>
+    Effect.gen(function* () {
+      const users = yield* Users;
+      const user = yield* users.find(input.id);
+
+      return { id: user.id, displayName: user.displayName };
+    }),
+  );
+```
+
+### Giving a declared annotation meaning
+
+`implement` is the compiler half. With no `read` it records the arguments as a declarative
+`Extension` node `ext:<name>/<operation>` linked by `ExtensionOf`; analyses and generators add
+checks and files. `extension` bundles implementations into an ordinary `Extension`, the value
+you list in `effx.config.ts`.
+
+```ts
+import { dataOf, error, extension, implement, warning } from "@effx/compiler";
+import { IRGraph } from "@effx/ir";
+import { Option } from "effect";
+import { RateLimit } from "./03_define-annotation.ts";
+
+const rateLimit = implement(RateLimit, {
+  // Analyses read the normalized IR and return diagnostics (data, not failures).
+  analyze: (ir, index) =>
+    ir.nodes.flatMap((node) => {
+      if (node._tag !== "Operation") return [];
+
+      // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.
+      const limit = dataOf(RateLimit, ir, node.id);
+
+      if (Option.isNone(limit)) return [];
+
+      const [options] = limit.value;
+
+      const exposed = IRGraph.outgoing(index, node.id, "ExposedAs").some(
+        (edge) => edge.qualifier === "http",
+      );
+
+      if (!exposed) {
+        return [error("EFFX9101", `${node.name}: @RateLimit needs an HTTP exposure`)];
+      }
+
+      return options.perMinute > 10_000
+        ? [
+            warning(
+              "EFFX9102",
+              `${node.name}: perMinute ${options.perMinute} is effectively unlimited`,
+            ),
+          ]
+        : [];
+    }),
+});
+
+// An ordinary `Extension`. List it in `effx.config.ts`: the CLI compiles with the built-ins
+// followed by the config's extensions (spec 0015), and lowers `@RateLimit(...)` by the plan of
+// the definition it carries (spec 0020).
+export const appExtension = extension("app", [rateLimit]);
+```
+
+### More examples
+
+- **[Extension skeleton: interpreter, analysis, generator](./ai-docs/src/06_custom-extensions/10_hand-written-extension.ts)**:
+  An `Extension` has three parts: interpreters turn annotations into IR
+  contributions, analyses read the IR graph, and generators emit ordinary files.

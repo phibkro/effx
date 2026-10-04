@@ -1,18 +1,21 @@
 import { Schema } from "effect";
+import { Builtins, type ArgsPlan, type Plan } from "@effx/runtime";
 import { AnnotationArg as AnnotationArgSchema, SymbolArg, error } from "@effx/compiler";
 import type {
   Annotation,
   AnnotationArg,
   Collected,
   Declaration,
+  DefinitionEntry,
   Diagnostic,
   HandlerSignature,
 } from "@effx/compiler";
+import { type AppliedUse, leafViolations } from "./leaf.ts";
 import { lowerAnnotationName, lowerExpression } from "./lower.ts";
 import {
   type Resolver,
+  exportedSymbol,
   isFromRuntime,
-  isSchemaValueType,
   runtimeName,
   schemaRefOf,
 } from "./resolve.ts";
@@ -62,23 +65,17 @@ const runtimeCallee = (
   return { name: runtimeName(resolver, symbol), tail };
 };
 
-/** Check the static Type of a Schema value, not its initializer or runtime contents. */
-const isTaggedMessage = (resolver: Resolver, schemaValue: ts.Type, node: ts.Node): boolean => {
-  if (!isSchemaValueType(schemaValue)) return false;
+/** Lowering plans of the built-in annotations, derived from their definitions (spec 0020). */
+const PLANS: ReadonlyMap<string, ArgsPlan> = new Map(
+  Builtins.all.map((definition) => [definition.name, definition.plan]),
+);
 
-  const checker = resolver.project.checker;
-  const typeMember = schemaValue.getProperty("Type");
+/** A definition declared by an extension: the registry minus the built-in table, whose uses keep their own diagnostics. */
+const userDefinition = (resolver: Resolver, name: string): DefinitionEntry | undefined =>
+  PLANS.has(name) ? undefined : resolver.definitions?.get(name);
 
-  if (typeMember === undefined) return false;
-  const messageType = checker.getTypeOfSymbolAtLocation(typeMember, node);
-  const tagMember = messageType.getProperty("_tag");
-
-  if (tagMember === undefined) return false;
-  const tag = checker.getTypeOfSymbolAtLocation(tagMember, node);
-  const cases = tag.isUnion() ? tag.types : [tag];
-
-  return cases.length > 0 && cases.every((item) => (item.flags & ts.TypeFlags.StringLiteral) !== 0);
-};
+const argumentPlan = (plan: ArgsPlan | undefined, index: number): Plan | undefined =>
+  plan === undefined ? undefined : (plan.items[index] ?? plan.rest);
 
 const lowerArguments = (
   resolver: Resolver,
@@ -89,74 +86,63 @@ const lowerArguments = (
 ): ReadonlyArray<AnnotationArg> | undefined => {
   const out: Array<AnnotationArg> = [];
 
-  for (const arg of args) {
+  const plan =
+    annotationName === undefined
+      ? undefined
+      : (resolver.definitions?.get(annotationName)?.plan ?? PLANS.get(annotationName));
+
+  for (const [index, arg] of args.entries()) {
     const lowered = lowerExpression(
       resolver,
       declarationId,
       arg,
-      annotationName === "Http.Problems",
-      annotationName === "Http.Contract",
-      annotationName === "Http.Group"
-        ? "group-object"
-        : annotationName === "Http.In"
-          ? "group-association"
-          : annotationName === "Http.Access"
-            ? "access-object"
-            : annotationName === "Http.Contract"
-              ? "contract-object"
-              : undefined,
+      argumentPlan(plan, index),
+      annotationName,
     );
 
     sink.diagnostics.push(...lowered.diagnostics);
 
     if (lowered.value === undefined) return undefined;
     out.push(lowered.value);
-
-    if (annotationName === "Foldkit.Command") {
-      for (const field of ["success", "failure"] as const) {
-        const checker = resolver.project.checker;
-        const member = checker.getTypeAtLocation(arg).getProperty(field);
-
-        if (member === undefined) continue; // Args decoding reports the missing field.
-
-        const property = ts.isObjectLiteralExpression(arg)
-          ? arg.properties.find(
-              (candidate): candidate is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
-                (ts.isPropertyAssignment(candidate) ||
-                  ts.isShorthandPropertyAssignment(candidate)) &&
-                (ts.isIdentifier(candidate.name) || ts.isStringLiteral(candidate.name)) &&
-                candidate.name.text === field,
-            )
-          : undefined;
-
-        const value =
-          property === undefined
-            ? undefined
-            : ts.isPropertyAssignment(property)
-              ? property.initializer
-              : property.name;
-
-        const type =
-          value === undefined
-            ? checker.getTypeOfSymbolAtLocation(member, arg)
-            : checker.getTypeAtLocation(value);
-
-        if (!isTaggedMessage(resolver, type, arg)) {
-          sink.diagnostics.push(
-            error(
-              "EFFX2601",
-              `${declarationId}: Foldkit.Command ${field} must be an exported tagged Message schema`,
-              positionOf(arg),
-            ),
-          );
-
-          return undefined;
-        }
-      }
-    }
   }
 
   return out;
+};
+
+/** The `~effx/Annotation/Applied` brand's literal annotation name on a call's static type, if any. */
+const appliedName = (resolver: Resolver, call: ts.CallExpression): string | undefined => {
+  const checker = resolver.project.checker;
+  const brand = checker.getTypeAtLocation(call).getProperty("~effx/Annotation/Applied");
+
+  if (brand === undefined) return undefined;
+  const name = checker.getTypeOfSymbolAtLocation(brand, call).getProperty("name");
+
+  if (name === undefined) return undefined;
+  const literal = checker.getTypeOfSymbolAtLocation(name, call);
+
+  return literal.isStringLiteral() ? literal.value : undefined;
+};
+
+/**
+ * An applied extension-declared annotation (decorator or `.with(...)`): its lowered arguments, plus the
+ * definition's own export (the callee of the applied call) so a default writer can import it. A callee
+ * that is not an exported value leaves `definition` out, as for a hand-built `Collected`.
+ */
+const lowerApplied = (
+  resolver: Resolver,
+  sink: Sink,
+  declarationId: string,
+  call: ts.CallExpression,
+  name: string,
+): Annotation | undefined => {
+  resolver.appliedUses?.push({ name, call });
+  const args = lowerArguments(resolver, sink, declarationId, call.arguments, name);
+
+  if (args === undefined) return undefined;
+  const callee = resolver.project.checker.getSymbolAtLocation(call.expression);
+  const definition = callee === undefined ? undefined : exportedSymbol(resolver, callee)?.ref;
+
+  return definition === undefined ? { name, args } : { name, args, definition };
 };
 
 /** Decorators of a class or member that come from `@effx/runtime`, as annotations in source order. */
@@ -188,7 +174,17 @@ const decoratorAnnotations = (
 
     const callee = runtimeCallee(resolver, expression.expression);
 
-    if (callee === undefined) continue;
+    if (callee === undefined) {
+      // Not a runtime export: an extension-declared annotation is recognised by the brand of its type.
+      const applied = appliedName(resolver, expression);
+
+      if (applied === undefined) continue;
+      const lowered = lowerApplied(resolver, sink, declarationId, expression, applied);
+
+      if (lowered !== undefined) annotations.push(lowered);
+      continue;
+    }
+
     const name = [callee.name, ...callee.tail].join(".");
 
     if (!includeGroup && name === "Http.Group") continue;
@@ -273,7 +269,18 @@ const collectClass = (
     }
 
     if (annotation.name !== "PersistentModel") {
-      unsupported(sink, node, `${className}: @${annotation.name} is not a class decorator`);
+      if (userDefinition(resolver, annotation.name)?.target === "operation") {
+        sink.diagnostics.push(
+          error(
+            "EFFX1303",
+            `${className}: @${annotation.name} targets "operation" and cannot decorate a class`,
+            positionOf(node),
+          ),
+        );
+      } else {
+        unsupported(sink, node, `${className}: @${annotation.name} is not a class decorator`);
+      }
+
       continue;
     }
 
@@ -428,24 +435,11 @@ const unwindChain = (
   }
 };
 
+/** The builder step each built-in definition declares, plus the untyped `.annotate(name, ...args)` (spec 0015). */
 const CHAIN_ANNOTATIONS = new Map<string, string>([
-  ["query", "Query"],
-  ["in", "Http.In"],
-  ["command", "Command"],
-  ["http.get", "Http.Get"],
-  ["http.post", "Http.Post"],
-  ["http.put", "Http.Put"],
-  ["http.patch", "Http.Patch"],
-  ["http.delete", "Http.Delete"],
-  ["http.contract", "Http.Contract"],
-  ["http.access", "Http.Access"],
-  ["http.problems", "Http.Problems"],
-  ["foldkit.command", "Foldkit.Command"],
-  ["rpc", "Rpc"],
-  ["cli", "Cli"],
-  ["authorize", "Authorize"],
-  ["errors", "Errors"],
-  ["requirements", "Requirements"],
+  ...Builtins.all.flatMap((definition) =>
+    definition.builder === undefined ? [] : [[definition.builder, definition.name] as const],
+  ),
   ["annotate", "Annotate"],
 ]);
 
@@ -565,6 +559,48 @@ const collectBuilder = (
   const annotations: Array<Annotation> = [];
 
   for (const step of chain.steps.slice(0, -1)) {
+    if (step.names.join(".") === "with") {
+      const [applied] = step.args;
+
+      const appliedAnnotation =
+        step.args.length === 1 && applied !== undefined && ts.isCallExpression(applied)
+          ? appliedName(resolver, applied)
+          : undefined;
+
+      if (
+        applied === undefined ||
+        !ts.isCallExpression(applied) ||
+        appliedAnnotation === undefined
+      ) {
+        unsupported(
+          sink,
+          step.call,
+          `${id}: .with(...) takes one applied annotation call, e.g. .with(RateLimit({ ... }))`,
+        );
+
+        return;
+      }
+
+      const definition = userDefinition(resolver, appliedAnnotation);
+
+      if (definition !== undefined && definition.target !== "operation") {
+        sink.diagnostics.push(
+          error(
+            "EFFX1303",
+            `${id}: .with(${appliedAnnotation}(...)) applies an annotation whose target is "${definition.target}", not "operation"`,
+            positionOf(step.call),
+          ),
+        );
+
+        return;
+      }
+
+      const lowered = lowerApplied(resolver, sink, id, applied, appliedAnnotation);
+
+      if (lowered !== undefined) annotations.push(lowered);
+      continue;
+    }
+
     const name = CHAIN_ANNOTATIONS.get(step.names.join("."));
 
     if (name === undefined) {
@@ -661,7 +697,17 @@ const isProjectFile = (file: ts.SourceFile, rootPrefix: string): boolean =>
   file.fileName.startsWith(rootPrefix);
 
 /** Root operations select imported groups by their lowered .in(SymbolRef), never by mere import. */
-export const collect = (resolver: Resolver): Collected => {
+export const collect = (
+  baseResolver: Resolver,
+  definitions?: ReadonlyMap<string, DefinitionEntry>,
+): Collected => {
+  const appliedUses: Array<AppliedUse> = [];
+
+  const resolver: Resolver =
+    definitions === undefined
+      ? { ...baseResolver, appliedUses }
+      : { ...baseResolver, definitions, appliedUses };
+
   const sink: Sink = { declarations: [], diagnostics: [] };
   const rootDir = resolver.project.rootDir;
   const rootPrefix = rootDir.endsWith("/") ? rootDir : `${rootDir}/`;
@@ -721,6 +767,14 @@ export const collect = (resolver: Resolver): Collected => {
       collectFile(file, sink, false);
     }
   }
+
+  const declarationFiles = new Set(
+    sink.declarations.flatMap((declaration) =>
+      declaration.location === undefined ? [] : [declaration.location.file],
+    ),
+  );
+
+  sink.diagnostics.push(...leafViolations(resolver, appliedUses, declarationFiles));
 
   return { declarations: sink.declarations, diagnostics: sink.diagnostics };
 };

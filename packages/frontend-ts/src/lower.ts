@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { Plan } from "@effx/runtime";
 import { type AnnotationArg, type Diagnostic, SchemaArg, error } from "@effx/compiler";
 import {
   type Resolver,
@@ -11,25 +12,6 @@ import {
   schemaRefOf,
 } from "./resolve.ts";
 import { isExported, positionOf, ts } from "./ts.ts";
-
-/** The collector passes an annotation-level context only to that annotation's top-level object. */
-type SymbolContext =
-  | "group-object"
-  | "group-defaults"
-  | "group-default-metadata"
-  | "group-default-problems"
-  | "group-default-access"
-  | "group-association"
-  | "group-root"
-  | "access-object"
-  | "contract-object"
-  | "access-symbol"
-  | "contract-metadata"
-  | "metadata-annotator"
-  | "identity-symbol"
-  | "middleware-list"
-  | "header-fields"
-  | "middleware-entry";
 
 /** Top-level exported functions are valid application symbols, not Schema or service values. */
 const exportedAccessFunction = (resolver: Resolver, symbol: ts.Symbol) => {
@@ -230,7 +212,7 @@ const runtimeCall = (
       return reject(declarationId, call, 'expected Capability.make("name", { resource, focus? })');
     }
 
-    const lowered = lowerObject(resolver, declarationId, options);
+    const lowered = lowerObject(resolver, declarationId, options, undefined, undefined);
 
     if (lowered.value === undefined) return lowered;
     const record = lowered.value;
@@ -277,16 +259,64 @@ interface LoweredRecord {
   readonly diagnostics: ReadonlyArray<Diagnostic>;
 }
 
+const unwrap = (plan: Plan | undefined): Plan | undefined =>
+  plan?._tag === "Injected" || plan?._tag === "Refine" ? unwrap(plan.plan) : plan;
+
+/** A union position lowers an identifier by its Symbol/Schema member; every other form generically. */
+const identifierPlan = (plan: Plan | undefined): Plan | undefined => {
+  const inner = unwrap(plan);
+
+  if (inner?._tag !== "Union") return inner;
+
+  return inner.members.find((member) => member._tag === "Symbol" || member._tag === "Schema");
+};
+
+const DEFAULT_MESSAGE = {
+  callable: "metadata.annotator must be an exported callable symbol",
+  "exported-function": "commandIdentity must be an exported callable function",
+  "exported-value": "access symbol must be an exported value",
+  registry: "registry must be an exported value symbol",
+} as const;
+
+const checkMessage = (plan: Extract<Plan, { readonly _tag: "Symbol" }>): string =>
+  plan.message ??
+  (plan.check === "callable" ||
+  plan.check === "exported-function" ||
+  plan.check === "exported-value" ||
+  plan.check === "registry"
+    ? DEFAULT_MESSAGE[plan.check]
+    : plan.check);
+
+/** `isTaggedMessage` of a Foldkit Message: a Schema whose `Type` has a literal-union `_tag`. */
+const isTaggedMessage = (resolver: Resolver, schemaValue: ts.Type, node: ts.Node): boolean => {
+  if (!isSchemaValueType(schemaValue)) return false;
+
+  const checker = resolver.project.checker;
+  const typeMember = schemaValue.getProperty("Type");
+
+  if (typeMember === undefined) return false;
+  const messageType = checker.getTypeOfSymbolAtLocation(typeMember, node);
+  const tagMember = messageType.getProperty("_tag");
+
+  if (tagMember === undefined) return false;
+  const tag = checker.getTypeOfSymbolAtLocation(tagMember, node);
+  const cases = tag.isUnion() ? tag.types : [tag];
+
+  return cases.length > 0 && cases.every((item) => (item.flags & ts.TypeFlags.StringLiteral) !== 0);
+};
+
 const lowerObject = (
   resolver: Resolver,
   declarationId: string,
   object: ts.ObjectLiteralExpression,
-  allowRegistrySymbol = false,
-  captureParamsFields = false,
-  context?: SymbolContext,
+  plan: Plan | undefined,
+  annotationName: string | undefined,
 ): LoweredRecord => {
   const out: Record<string, AnnotationArg> = {};
   const diagnostics: Array<Diagnostic> = [];
+
+  const unwrapped = unwrap(plan);
+  const struct = unwrapped?._tag === "Struct" ? unwrapped : undefined;
 
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
@@ -310,11 +340,7 @@ const lowerObject = (
       return { value: undefined, diagnostics: [...diagnostics, ...rejected.diagnostics] };
     }
 
-    if (
-      Object.hasOwn(out, key) &&
-      ((context === "contract-metadata" && key === "commandIdentity") ||
-        (context === "contract-object" && key === "metadata"))
-    ) {
+    if (Object.hasOwn(out, key) && struct?.rejectDuplicate?.includes(key) === true) {
       const rejected = reject(declarationId, property, `duplicate ${key} declaration`);
 
       return { value: undefined, diagnostics: [...diagnostics, ...rejected.diagnostics] };
@@ -324,42 +350,58 @@ const lowerObject = (
       resolver,
       declarationId,
       ts.isPropertyAssignment(property) ? property.initializer : property.name,
-      (allowRegistrySymbol || context === "group-default-problems") && key === "registry",
-      captureParamsFields && (key === "params" || key === "headers"),
-      context === "group-object" && key === "root"
-        ? "group-root"
-        : context === "group-object" && key === "defaults"
-          ? "group-defaults"
-          : context === "group-defaults" && key === "middleware"
-            ? "middleware-list"
-            : context === "group-defaults" && key === "metadata"
-              ? "group-default-metadata"
-              : context === "group-defaults" && key === "problems"
-                ? "group-default-problems"
-                : context === "group-defaults" && key === "access"
-                  ? "group-default-access"
-                  : (context === "access-object" || context === "group-default-access") &&
-                      (key === "annotator" || key === "canonicalScopeResolver")
-                    ? "access-symbol"
-                    : context === "contract-object" && key === "headers"
-                      ? "header-fields"
-                      : context === "contract-object" && key === "middleware"
-                        ? "middleware-list"
-                        : context === "contract-object" && key === "metadata"
-                          ? "contract-metadata"
-                          : (context === "contract-metadata" ||
-                                context === "group-default-metadata") &&
-                              key === "annotator"
-                            ? "metadata-annotator"
-                            : context === "contract-metadata" && key === "commandIdentity"
-                              ? "identity-symbol"
-                              : undefined,
+      struct?.fields[key],
+      annotationName,
     );
 
     diagnostics.push(...lowered.diagnostics);
 
     if (lowered.value === undefined) return { value: undefined, diagnostics };
     out[key] = lowered.value;
+  }
+
+  // Tagged-message Schema fields (Foldkit.Command) are checked once the whole object lowered.
+  if (struct !== undefined) {
+    const checker = resolver.project.checker;
+
+    for (const [field, fieldPlan] of Object.entries(struct.fields)) {
+      if (fieldPlan._tag !== "Schema" || fieldPlan.taggedMessage !== true) continue;
+
+      const member = checker.getTypeAtLocation(object).getProperty(field);
+
+      if (member === undefined) continue; // Args decoding reports the missing field.
+
+      const property = object.properties.find(
+        (candidate): candidate is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
+          (ts.isPropertyAssignment(candidate) || ts.isShorthandPropertyAssignment(candidate)) &&
+          (ts.isIdentifier(candidate.name) || ts.isStringLiteral(candidate.name)) &&
+          candidate.name.text === field,
+      );
+
+      const value =
+        property === undefined
+          ? undefined
+          : ts.isPropertyAssignment(property)
+            ? property.initializer
+            : property.name;
+
+      const type =
+        value === undefined
+          ? checker.getTypeOfSymbolAtLocation(member, object)
+          : checker.getTypeAtLocation(value);
+
+      if (!isTaggedMessage(resolver, type, object)) {
+        diagnostics.push(
+          error(
+            "EFFX2601",
+            `${declarationId}: ${annotationName ?? "annotation"} ${field} must be an exported tagged Message schema`,
+            positionOf(object),
+          ),
+        );
+
+        return { value: undefined, diagnostics };
+      }
+    }
   }
 
   return { value: out, diagnostics };
@@ -376,14 +418,13 @@ export const lowerAnnotationName = (declarationId: string, call: ts.CallExpressi
       : reject(declarationId, node, "annotation name must be a string literal");
 };
 
-/** Spec 0002 §Argument lowering. */
+/** Spec 0002 §Argument lowering, directed by the annotation's lowering plan (spec 0020 §2.2). */
 export const lowerExpression = (
   resolver: Resolver,
   declarationId: string,
   node: ts.Expression,
-  allowRegistrySymbol = false,
-  captureParamsFields = false,
-  context?: SymbolContext,
+  plan: Plan | undefined,
+  annotationName?: string,
 ): Lowered => {
   const checker = resolver.project.checker;
 
@@ -392,27 +433,23 @@ export const lowerExpression = (
     ts.isAsExpression(node) ||
     ts.isSatisfiesExpression(node)
   )
-    return lowerExpression(
-      resolver,
-      declarationId,
-      node.expression,
-      allowRegistrySymbol,
-      captureParamsFields,
-      context,
-    );
+    return lowerExpression(resolver, declarationId, node.expression, plan, annotationName);
 
-  if (context === "group-association") {
+  const leaf = identifierPlan(plan);
+  const symbolPlan = leaf?._tag === "Symbol" ? leaf : undefined;
+
+  if (symbolPlan?.check === "exported-group") {
     return ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)
       ? groupReference(resolver, declarationId, node)
       : invalidGroup(declarationId, node);
   }
 
   if (
-    context === "metadata-annotator" &&
+    symbolPlan?.check === "callable" &&
     !ts.isIdentifier(node) &&
     !ts.isPropertyAccessExpression(node)
   )
-    return reject(declarationId, node, "metadata.annotator must be an exported callable symbol");
+    return reject(declarationId, node, checkMessage(symbolPlan));
 
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return ok(node.text);
 
@@ -427,16 +464,11 @@ export const lowerExpression = (
   if (ts.isArrayLiteralExpression(node)) {
     const items: Array<AnnotationArg> = [];
     const diagnostics: Array<Diagnostic> = [];
+    const inner = unwrap(plan);
+    const itemPlan = inner?._tag === "Array" ? inner.item : undefined;
 
     for (const element of node.elements) {
-      const lowered = lowerExpression(
-        resolver,
-        declarationId,
-        element,
-        false,
-        false,
-        context === "middleware-list" ? "middleware-entry" : undefined,
-      );
+      const lowered = lowerExpression(resolver, declarationId, element, itemPlan, annotationName);
 
       diagnostics.push(...lowered.diagnostics);
 
@@ -448,14 +480,7 @@ export const lowerExpression = (
   }
 
   if (ts.isObjectLiteralExpression(node))
-    return lowerObject(
-      resolver,
-      declarationId,
-      node,
-      allowRegistrySymbol,
-      captureParamsFields,
-      context,
-    );
+    return lowerObject(resolver, declarationId, node, plan, annotationName);
 
   if (ts.isCallExpression(node)) {
     return (
@@ -496,18 +521,18 @@ export const lowerExpression = (
 
     const exported = exportedSymbol(resolver, symbol);
 
-    if (context === "metadata-annotator") {
+    if (symbolPlan?.check === "callable") {
       const ref =
         checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0
           ? (exported?.ref ?? exportedAccessFunction(resolver, symbol))
           : undefined;
 
       return ref === undefined
-        ? reject(declarationId, node, "metadata.annotator must be an exported callable symbol")
+        ? reject(declarationId, node, checkMessage(symbolPlan))
         : ok({ _tag: "Symbol", ref });
     }
 
-    if (context === "group-root") {
+    if (symbolPlan?.check === "httpapi-root") {
       if (
         exported === undefined ||
         exported.ref.member !== undefined ||
@@ -526,16 +551,16 @@ export const lowerExpression = (
         : reject(declarationId, node, "HTTP root identifier must be a string literal");
     }
 
-    // Only these two Http.Access fields accept arbitrary exported application symbols.
-    if (context === "access-symbol") {
+    // Only these fields accept arbitrary exported application symbols.
+    if (symbolPlan?.check === "exported-value") {
       const ref = exported?.ref ?? exportedAccessFunction(resolver, symbol);
 
       return ref === undefined
-        ? reject(declarationId, node, "access symbol must be an exported value")
+        ? reject(declarationId, node, checkMessage(symbolPlan))
         : ok({ _tag: "Symbol", ref });
     }
 
-    if (context === "identity-symbol") {
+    if (symbolPlan?.check === "exported-function") {
       const ref =
         exportedAccessFunction(resolver, symbol) ??
         (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0
@@ -543,14 +568,14 @@ export const lowerExpression = (
           : undefined);
 
       return ref === undefined
-        ? reject(declarationId, node, "commandIdentity must be an exported callable function")
+        ? reject(declarationId, node, checkMessage(symbolPlan))
         : ok({ _tag: "Symbol", ref });
     }
 
-    // This exception is local to Http.Problems.registry; no application code is evaluated.
-    if (allowRegistrySymbol) {
+    // This exception is local to the registry position; no application code is evaluated.
+    if (symbolPlan?.check === "registry") {
       return exported === undefined
-        ? reject(declarationId, node, "registry must be an exported value symbol")
+        ? reject(declarationId, node, checkMessage(symbolPlan))
         : ok({ _tag: "Symbol", ref: exported.ref });
     }
 
@@ -564,8 +589,9 @@ export const lowerExpression = (
       }
 
       const ref = schemaRefOf(exported);
+      const fieldKeys = leaf?._tag === "Schema" ? leaf.fieldKeys : undefined;
 
-      if (!captureParamsFields) return ok({ _tag: "Schema", ref });
+      if (fieldKeys === undefined) return ok({ _tag: "Schema", ref });
       const fieldsSymbol = type.getProperty("fields");
 
       if (fieldsSymbol === undefined)
@@ -575,7 +601,7 @@ export const lowerExpression = (
       const fields = checker
         .getPropertiesOfType(fieldsType)
         .filter((field) => {
-          if (context !== "header-fields") return true;
+          if (fieldKeys !== "required") return true;
           const fieldType = checker.getTypeOfSymbolAtLocation(field, node);
           const marker = fieldType.getProperty("~type.optionality");
 
@@ -595,7 +621,7 @@ export const lowerExpression = (
         return reject(declarationId, node, "service must be an exported class");
 
       const securityProperty =
-        context === "middleware-entry" ? type.getProperty("security") : undefined;
+        symbolPlan?.check === "security-marker" ? type.getProperty("security") : undefined;
 
       const securityType =
         securityProperty === undefined
@@ -623,7 +649,7 @@ export const lowerExpression = (
       ts.isVariableDeclaration(found.declaration) &&
       found.declaration.initializer !== undefined
     ) {
-      return lowerExpression(resolver, declarationId, found.declaration.initializer);
+      return lowerExpression(resolver, declarationId, found.declaration.initializer, undefined);
     }
 
     return reject(

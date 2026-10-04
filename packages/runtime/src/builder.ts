@@ -1,16 +1,12 @@
 import type { Schema } from "effect";
 import type {
   Annotation,
-  Capability,
-  FoldkitCommandOptions,
-  HttpAccessOptions,
-  HttpContractOptions,
   HttpGroupOptions,
   HttpProblemsOptions,
-  OperationOptions,
   PersistentModelOptions,
-  ServiceLike,
 } from "./Annotation.js";
+import * as Builtins from "./builtins.js";
+import type { Applied } from "./define/index.js";
 
 /** A local operation keeps the author's untouched handler. */
 export interface OperationValue<Handler> {
@@ -35,8 +31,24 @@ export type HttpGroupReference = HttpGroupValue | (abstract new (...args: never[
 
 export const group = (options: HttpGroupOptions): HttpGroupValue => ({
   _tag: "HttpGroup",
-  annotations: [{ name: "Http.Group", args: [options] }],
+  annotations: [Builtins.HttpGroup(options).annotation],
 });
+
+/**
+ * `Http.Problems` keeps its `Code` generic, which the (non-generic) definition cannot carry.
+ * `ProblemRegistry<Code>` is contravariant in `Code`, so no assignment widens it to
+ * `ProblemRegistry<string>`; an overload (whose implementation signature TypeScript checks
+ * with type parameters erased) states the generic public signature without an assertion.
+ * The runtime never calls the registry: the compiler reads it by symbol.
+ */
+export function problems<Code extends string>(
+  options: HttpProblemsOptions<Code>,
+): Applied<typeof Builtins.HttpProblems.name, "operation">;
+export function problems(
+  options: HttpProblemsOptions,
+): Applied<typeof Builtins.HttpProblems.name, "operation"> {
+  return Builtins.HttpProblems(options);
+}
 
 export interface ModelValue<S extends Schema.Top> {
   readonly _tag: "Model";
@@ -47,58 +59,71 @@ export interface ModelValue<S extends Schema.Top> {
 /**
  * Value-level twin of the decorators. Each step appends exactly the annotation the matching
  * decorator would record, so `Reflect.annotationsOf(Class.method)` equals `value.annotations`.
+ * Every step is its definition from `builtins.ts` applied through `with`.
  */
 export class OperationBuilder {
   constructor(readonly annotations: ReadonlyArray<Annotation>) {}
 
-  private with(annotation: Annotation): OperationBuilder {
+  private append(annotation: Annotation): OperationBuilder {
     return new OperationBuilder([...this.annotations, annotation]);
   }
-  annotate(name: string, ...args: Annotation["args"]): OperationBuilder {
-    return this.with({ name, args });
+
+  /** Appends any applied operation annotation, built-in or user-defined (spec 0020 §2.1). */
+  with(applied: Applied<string, "operation">): OperationBuilder {
+    return this.append(applied.annotation);
   }
 
-  in(group: HttpGroupReference): OperationBuilder {
-    return this.with({ name: "Http.In", args: [group] });
+  /** Generic annotation (spec 0015): records exactly `{ name, args }`, as `@Annotate(name, ...args)` does. */
+  annotate(name: string, ...args: Annotation["args"]): OperationBuilder {
+    return this.append({ name, args });
+  }
+
+  in(...args: Parameters<typeof Builtins.HttpIn>): OperationBuilder {
+    return this.with(Builtins.HttpIn(...args));
   }
 
   readonly http = {
-    access: (options: HttpAccessOptions): OperationBuilder =>
-      this.with({ name: "Http.Access", args: [options] }),
-    contract: (options: HttpContractOptions): OperationBuilder =>
-      this.with({ name: "Http.Contract", args: [options] }),
+    access: (...args: Parameters<typeof Builtins.HttpAccess>): OperationBuilder =>
+      this.with(Builtins.HttpAccess(...args)),
+    contract: (...args: Parameters<typeof Builtins.HttpContract>): OperationBuilder =>
+      this.with(Builtins.HttpContract(...args)),
     problems: <Code extends string>(options: HttpProblemsOptions<Code>): OperationBuilder =>
-      this.with({ name: "Http.Problems", args: [options] }),
-    get: (path: string): OperationBuilder => this.with({ name: "Http.Get", args: [path] }),
-    post: (path: string): OperationBuilder => this.with({ name: "Http.Post", args: [path] }),
-    put: (path: string): OperationBuilder => this.with({ name: "Http.Put", args: [path] }),
-    patch: (path: string): OperationBuilder => this.with({ name: "Http.Patch", args: [path] }),
-    delete: (path: string): OperationBuilder => this.with({ name: "Http.Delete", args: [path] }),
+      this.with(problems(options)),
+    get: (...args: Parameters<typeof Builtins.HttpGet>): OperationBuilder =>
+      this.with(Builtins.HttpGet(...args)),
+    post: (...args: Parameters<typeof Builtins.HttpPost>): OperationBuilder =>
+      this.with(Builtins.HttpPost(...args)),
+    put: (...args: Parameters<typeof Builtins.HttpPut>): OperationBuilder =>
+      this.with(Builtins.HttpPut(...args)),
+    patch: (...args: Parameters<typeof Builtins.HttpPatch>): OperationBuilder =>
+      this.with(Builtins.HttpPatch(...args)),
+    delete: (...args: Parameters<typeof Builtins.HttpDelete>): OperationBuilder =>
+      this.with(Builtins.HttpDelete(...args)),
   };
 
   readonly foldkit = {
-    command: (options: FoldkitCommandOptions): OperationBuilder =>
-      this.with({ name: "Foldkit.Command", args: [options] }),
+    command: (...args: Parameters<typeof Builtins.FoldkitCommand>): OperationBuilder =>
+      this.with(Builtins.FoldkitCommand(...args)),
   };
 
-  rpc(name: string): OperationBuilder {
-    return this.with({ name: "Rpc", args: [name] });
+  rpc(...args: Parameters<typeof Builtins.Rpc>): OperationBuilder {
+    return this.with(Builtins.Rpc(...args));
   }
 
-  cli(words: string): OperationBuilder {
-    return this.with({ name: "Cli", args: [words] });
+  cli(...args: Parameters<typeof Builtins.Cli>): OperationBuilder {
+    return this.with(Builtins.Cli(...args));
   }
 
-  authorize(capability: Capability): OperationBuilder {
-    return this.with({ name: "Authorize", args: [capability] });
+  authorize(...args: Parameters<typeof Builtins.Authorize>): OperationBuilder {
+    return this.with(Builtins.Authorize(...args));
   }
 
-  errors(...schemas: ReadonlyArray<Schema.Top>): OperationBuilder {
-    return this.with({ name: "Errors", args: schemas });
+  errors(...args: Parameters<typeof Builtins.Errors>): OperationBuilder {
+    return this.with(Builtins.Errors(...args));
   }
 
-  requirements(...services: ReadonlyArray<ServiceLike>): OperationBuilder {
-    return this.with({ name: "Requirements", args: services });
+  requirements(...args: Parameters<typeof Builtins.Requirements>): OperationBuilder {
+    return this.with(Builtins.Requirements(...args));
   }
 
   handler<Handler>(handler: Handler): OperationValue<Handler> {
@@ -131,10 +156,10 @@ export class OperationBuilder {
  * ```
  */
 export const Operation = {
-  query: (options: OperationOptions): OperationBuilder =>
-    new OperationBuilder([{ name: "Query", args: [options] }]),
-  command: (options: OperationOptions): OperationBuilder =>
-    new OperationBuilder([{ name: "Command", args: [options] }]),
+  query: (...args: Parameters<typeof Builtins.Query>): OperationBuilder =>
+    new OperationBuilder([Builtins.Query(...args).annotation]),
+  command: (...args: Parameters<typeof Builtins.Command>): OperationBuilder =>
+    new OperationBuilder([Builtins.Command(...args).annotation]),
 };
 
 export const Model = {
@@ -143,7 +168,8 @@ export const Model = {
     options: PersistentModelOptions,
   ): ModelValue<S> => ({
     _tag: "Model",
-    annotations: [{ name: "PersistentModel", args: [{ ...options, schema }] }],
+    // The builder has no decorated class: `schema` is the definition's `selfAs` supplied explicitly.
+    annotations: [{ name: Builtins.PersistentModel.name, args: [{ ...options, schema }] }],
     schema,
   }),
 };

@@ -6,6 +6,7 @@ import { type Diagnostic, type Location, StageResult, error, hasErrors } from ".
 import {
   Contribution,
   type AnalysisContext,
+  type Expansion,
   type Extension,
   type GenerationContext,
   type GeneratedFile,
@@ -13,7 +14,7 @@ import {
 } from "./Extension.ts";
 import { SourceFrontend } from "./SourceFrontend.ts";
 import { operationIdOf } from "./extensions/core.ts";
-import { expandGroupDefaults } from "./group-defaults.ts";
+import { definitionDiagnostics, definitionsOf } from "./annotation.ts";
 import { unsupportedModules } from "./generate/target.ts";
 
 /** @internal */
@@ -46,6 +47,26 @@ const withLocation = (diagnostic: Diagnostic, location: Location): Diagnostic =>
 };
 
 /**
+ * Runs every extension's `expand` pre-pass in list order, each over the previous one's declarations;
+ * diagnostics keep the same order. With no `expand` the declarations are the collected ones.
+ */
+const expandAll = (collected: Collected, extensions: ReadonlyArray<Extension>): Expansion => {
+  let declarations = collected.declarations;
+  const diagnostics: Array<Diagnostic> = [];
+
+  for (const extension of extensions) {
+    if (extension.expand === undefined) continue;
+
+    const expansion = extension.expand({ ...collected, declarations });
+
+    declarations = expansion.declarations;
+    diagnostics.push(...expansion.diagnostics);
+  }
+
+  return { declarations, diagnostics };
+};
+
+/**
  * interpret → merge → normalize. Pure. Unknown annotations are `EFFX1101`.
  *
  * @internal
@@ -55,7 +76,8 @@ export const interpret = (
   extensions: ReadonlyArray<Extension>,
 ): StageResult<ApplicationIR> => {
   const contributions: Array<Contribution> = [];
-  const expanded = expandGroupDefaults(collected);
+  const expanded = expandAll(collected, extensions);
+  contributions.push(Contribution.diagnostics(...definitionDiagnostics(extensions)));
   contributions.push(Contribution.diagnostics(...expanded.diagnostics));
 
   for (const declaration of expanded.declarations) {
@@ -115,7 +137,8 @@ export const analyze = (
   );
 
 /**
- * Runs every generator; output is sorted by path so the file set is deterministic.
+ * Runs every generator; output is sorted by path so the file set is deterministic. The extensions' endpoint
+ * fragments reach the generators through `GenerationContext.fragments`, in extension-list order (spec 0020 §6).
  *
  * @internal
  */
@@ -125,9 +148,14 @@ export const generate = Effect.fn("generate")(function* (
   extensions: ReadonlyArray<Extension>,
   context: GenerationContext = defaultGenerationContext,
 ) {
+  const withFragments: GenerationContext = {
+    ...context,
+    fragments: extensions.flatMap((extension) => extension.fragments ?? []),
+  };
+
   const generated = yield* Effect.forEach(
     extensions.flatMap((extension) => extension.generators),
-    (generator) => generator(ir, index, context),
+    (generator) => generator(ir, index, withFragments),
   );
 
   return generated.flat().toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -192,7 +220,7 @@ export const compile = Effect.fn("compile")(function* (
   extensions: ReadonlyArray<Extension>,
 ): Effect.fn.Return<CompileResult, CompilerFault, SourceFrontend> {
   const frontend = yield* SourceFrontend;
-  const collected = yield* frontend.analyze(project);
+  const collected = yield* frontend.analyze(project, { definitions: definitionsOf(extensions) });
 
   return yield* compileCollected(collected, extensions, {
     strictAccess: project.strictAccess ?? collected.project?.strictAccess ?? false,

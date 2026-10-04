@@ -71,6 +71,29 @@ const ConfigFields = Schema.Struct({
   ),
 });
 
+/** A definition an extension declares (spec 0020), as `Extension.annotations` carries it. */
+type Definition = NonNullable<Extension["annotations"]>[number];
+
+/**
+ * What the pipeline reads of a definition an extension declares: its name, target, plan, recorded
+ * diagnostics and effect key id. A definition is callable, so the plain-object guards do not apply to it.
+ */
+const validDefinition = (definition: unknown): definition is Definition =>
+  Predicate.hasProperty(definition, "name") &&
+  Predicate.isString(definition.name) &&
+  Predicate.hasProperty(definition, "target") &&
+  Predicate.isString(definition.target) &&
+  Predicate.hasProperty(definition, "plan") &&
+  Predicate.isObject(definition.plan) &&
+  Array.isArray(definition.plan.items) &&
+  Predicate.hasProperty(definition, "diagnostics") &&
+  Array.isArray(definition.diagnostics) &&
+  (!Predicate.hasProperty(definition, "effect") ||
+    definition.effect === undefined ||
+    (Predicate.hasProperty(definition.effect, "key") &&
+      Predicate.hasProperty(definition.effect.key, "key") &&
+      Predicate.isString(definition.effect.key.key)));
+
 const validExtensions = (value: unknown): value is ReadonlyArray<Extension> =>
   Array.isArray(value) &&
   value.every(
@@ -82,7 +105,12 @@ const validExtensions = (value: unknown): value is ReadonlyArray<Extension> =>
       Array.isArray(entry.analyses) &&
       entry.analyses.every(Predicate.isFunction) &&
       Array.isArray(entry.generators) &&
-      entry.generators.every(Predicate.isFunction),
+      entry.generators.every(Predicate.isFunction) &&
+      (entry.annotations === undefined ||
+        (Array.isArray(entry.annotations) && entry.annotations.every(validDefinition))) &&
+      (entry.expand === undefined || Predicate.isFunction(entry.expand)) &&
+      (entry.fragments === undefined ||
+        (Array.isArray(entry.fragments) && entry.fragments.every(Predicate.isFunction))),
   );
 
 const invalidConfig = (file: string, message: string, cause?: unknown): CompilerFault => {

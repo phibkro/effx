@@ -1,50 +1,57 @@
-import { Option, Result, Schema } from "effect";
+import { Option } from "effect";
+import { Builtins } from "@effx/runtime";
 import { type HttpMethod, StableId, type Transport } from "@effx/ir";
-import { Contribution, type Interpreter } from "../Extension.ts";
-import { decodeArgs } from "../args.ts";
+import { Contribution } from "../Extension.ts";
+import { type Implementation, implement } from "../annotation.ts";
 import { notAnOperation } from "./core.ts";
 
-const StringArg = Schema.Tuple([Schema.String]);
+/** The seven annotations whose single argument is one string (a path, a name, a command line). */
+type StringExposure =
+  | typeof Builtins.HttpGet
+  | typeof Builtins.HttpPost
+  | typeof Builtins.HttpPut
+  | typeof Builtins.HttpPatch
+  | typeof Builtins.HttpDelete
+  | typeof Builtins.Rpc
+  | typeof Builtins.Cli;
 
 /** One `Exposure` node plus its `ExposedAs` edge; transport-specific parsing is injected. */
-const exposure =
-  (tag: Transport["_tag"], transport: (arg: string) => Transport): Interpreter =>
-  (annotation, declaration, ctx) => {
-    if (Option.isNone(ctx.operationId))
-      return Contribution.diagnostics(notAnOperation(annotation, declaration));
-    const operationId = ctx.operationId.value;
+const exposure = (
+  definition: StringExposure,
+  tag: Transport["_tag"],
+  transport: (arg: string) => Transport,
+): Implementation =>
+  implement(definition, {
+    notOperation: notAnOperation,
+    read: ([arg], { ctx }) => {
+      const operationId = Option.getOrThrow(ctx.operationId);
+      const id = StableId.make("exposure", `${tag}:${StableId.nameOf(operationId)}`);
 
-    return Result.match(decodeArgs(StringArg, annotation, declaration), {
-      onFailure: (diagnostic) => Contribution.diagnostics(diagnostic),
-      onSuccess: ([arg]) => {
-        const id = StableId.make("exposure", `${tag}:${StableId.nameOf(operationId)}`);
+      return Contribution.make(
+        [{ _tag: "Exposure", id, operation: operationId, transport: transport(arg) }],
+        [{ kind: "ExposedAs", from: operationId, to: id, qualifier: tag }],
+      );
+    },
+  });
 
-        return Contribution.make(
-          [{ _tag: "Exposure", id, operation: operationId, transport: transport(arg) }],
-          [{ kind: "ExposedAs", from: operationId, to: id, qualifier: tag }],
-        );
-      },
-    });
-  };
+const http = (definition: StringExposure, method: HttpMethod): Implementation =>
+  exposure(definition, "http", (path) => ({ _tag: "http", method, path }));
 
-const http = (method: HttpMethod): Interpreter =>
-  exposure("http", (path) => ({ _tag: "http", method, path }));
+export const httpImplementations: ReadonlyArray<Implementation> = [
+  http(Builtins.HttpGet, "GET"),
+  http(Builtins.HttpPost, "POST"),
+  http(Builtins.HttpPut, "PUT"),
+  http(Builtins.HttpPatch, "PATCH"),
+  http(Builtins.HttpDelete, "DELETE"),
+];
 
-export const httpInterpreters = {
-  "Http.Get": http("GET"),
-  "Http.Post": http("POST"),
-  "Http.Put": http("PUT"),
-  "Http.Patch": http("PATCH"),
-  "Http.Delete": http("DELETE"),
-} satisfies Readonly<Record<string, Interpreter>>;
+export const rpcImplementations: ReadonlyArray<Implementation> = [
+  exposure(Builtins.Rpc, "rpc", (name) => ({ _tag: "rpc", name })),
+];
 
-export const rpcInterpreters = {
-  Rpc: exposure("rpc", (name) => ({ _tag: "rpc", name })),
-} satisfies Readonly<Record<string, Interpreter>>;
-
-export const cliInterpreters = {
-  Cli: exposure("cli", (command) => ({
+export const cliImplementations: ReadonlyArray<Implementation> = [
+  exposure(Builtins.Cli, "cli", (command) => ({
     _tag: "cli",
     command: command.split(/\s+/).filter((w) => w.length > 0),
   })),
-} satisfies Readonly<Record<string, Interpreter>>;
+];

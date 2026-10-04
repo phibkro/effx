@@ -25,6 +25,9 @@ This is the real `Extension.ts`, included from the repository:
 | `interpreters` | `Readonly<Record<string, Interpreter>>` | annotation name to interpreter. The key is the annotation name, such as `Http.Get`. |
 | `analyses` | `ReadonlyArray<Analysis>` | checks over the finished IR |
 | `generators` | `ReadonlyArray<Generator>` | file producers |
+| `annotations` | `ReadonlyArray<DefinitionData>?` | typed definitions the extension implements; their lowering plans drive the frontend (spec 0020). `extension(...)` fills it. |
+| `expand` | `Expand?` | a pre-pass over the collected declarations, run before any interpreter (spec 0020, group defaults use it) |
+| `fragments` | `ReadonlyArray<EndpointFragment>?` | method-call suffixes appended to a generated HTTP endpoint (spec 0020). `extension(...)` derives one per definition with an `effect` clause. |
 
 ### Interpreter and Contribution
 
@@ -145,5 +148,5 @@ A new concept does not need a core schema change. It uses an `Extension` node (`
 | `Extension` contract and the ten built-ins | implemented. `STATE.md`: kernel plus built-in extensions and generators landed. |
 | Registering an extension from `effx.config.ts` | implemented (spec 0015); tested by `examples/extension-openapi-tags` |
 | Authoring guide for third-party extensions | [Writing an extension](/docs/extensions/guide) |
-| Typed annotation definitions | spec 0020, frozen, not implemented |
+| Typed annotation definitions (`Annotation.define`, `implement`, `extension`) | implemented (spec 0020); registered through the same `effx.config.ts`. See [Writing an extension](/docs/extensions/guide#typed-definitions) |
 | SQL persistence projection | proposed only, parked (`docs/specs/0008-sql-projection-extension.md`) |
