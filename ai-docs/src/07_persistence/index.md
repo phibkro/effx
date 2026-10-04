@@ -24,6 +24,10 @@ repeatability (G2), command rollback (G3), and shared transactions between pairs
 of commands (G4). Domain scenarios supply seed data, expected results, declared
 error examples and a commit observer; the IR cannot infer those. The harness
 owns fresh-store isolation and the common transaction owner (spec 0022 §4).
+Each test owns a fresh physical store. Its harness `reset` runs between samples;
+the generated assertion compares the resulting snapshot to the empty-store
+baseline captured before the first seed, then installs domain fixtures. A reset
+that leaves prior rows fails conformance (spec 0022 §4 amendment).
 
 G1 validates every typed failure reason: several declared failures are valid,
 but defects, interruptions and undeclared failures reject conformance. G2 uses

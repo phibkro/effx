@@ -55,6 +55,12 @@ domain scenarios for seed data, expected successes, which inputs raise declared
 errors, and the commit observer. The harness owns isolation and the common
 transaction owner; the compiler cannot derive domain expectations (spec 0022 §4).
 
+One physical store belongs to each test. Between arbitrary samples, the harness
+resets it and the generated assertion requires its snapshot to equal the empty
+baseline captured before first seeding. Only then are domain fixtures restored;
+an incomplete reset fails conformance rather than leaking state into later
+samples (spec 0022 §4 implementation amendment).
+
 G1 checks all failure reasons against the declared schemas; several typed
 failures are valid, but defects, interruptions and undeclared failures reject
 conformance. G2 compares Type-side values and failure multisets, preserving
