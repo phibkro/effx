@@ -207,6 +207,15 @@ export const SuccessQuery = Operation.query({
 export const ErrorQuery = Operation.query({
   name: "Equality.failure", input: EmptyInput, success: CollapsedSuccess,
 }).errors(CollapsedError).with(Persist.Port({ port: "Equality" })).declare();
+
+export const CompoundInput = Schema.Struct({});
+export const ProbeError = Schema.Struct({ _tag: Schema.Literal("ProbeError"), value: Schema.Int });
+export const CompoundQuery = Operation.query({
+  name: "Compound.probe", input: CompoundInput, success: Schema.Int,
+}).errors(ProbeError).with(Persist.Port({ port: "Compound" })).declare();
+export const CompoundCommand = Operation.command({
+  name: "Compound.write", input: CompoundInput, success: Schema.Int,
+}).with(Persist.Port({ port: "Compound" })).declare();
 `;
 
 export const equalityProgram = `
@@ -236,18 +245,20 @@ const scenarios: EqualityScenarios = {
   },
   sharedTransactions: {},
 };
-for (const changing of [false, true]) {
+for (const mode of ["stable", "changing", "wrong-expected"] as const) {
+  const changing = mode === "changing";
+  const expected = mode === "wrong-expected" ? 2 : 1;
   const harness: EqualityHarness<never, never> = {
-    name: changing ? "changing" : "stable",
+    name: mode,
     layer: Layer.effect(EqualityPort, Effect.sync(() => {
       let successes = 0;
       let failures = 0;
       let alternateSuccesses = 0;
       return EqualityPort.of({
-        success: () => Effect.sync(() => changing ? ++successes : 1),
+        success: () => Effect.sync(() => changing ? ++successes : expected),
         failure: (input) => input.fail
-          ? Effect.fail({ _tag: "CollapsedError" as const, value: changing ? ++failures : 1 })
-          : Effect.sync(() => changing ? ++alternateSuccesses : 1),
+          ? Effect.fail({ _tag: "CollapsedError" as const, value: changing ? ++failures : expected })
+          : Effect.sync(() => changing ? ++alternateSuccesses : expected),
       });
     })),
     transact: (effect) => effect,
@@ -256,4 +267,71 @@ for (const changing of [false, true]) {
   };
   equalityConformance(harness, scenarios);
 }
+`;
+
+export const compoundProgram = `
+
+import { Cause, Context, Effect, Layer, Ref } from "effect";
+import { CompoundPort } from "./.effx/generated/compound-port.ts";
+import { compoundConformance, type CompoundHarness, type CompoundScenarios } from "./.effx/generated/compound-conformance.ts";
+
+class ProbeState extends Context.Service<ProbeState, Ref.Ref<"compound" | "success" | "single">>()("test/compound/ProbeState") {}
+const select = (mode: "success" | "single") => Effect.flatMap(ProbeState, (state) => Ref.set(state, mode));
+const scenarios: CompoundScenarios<never, ProbeState> = {
+  seed: Effect.void,
+  methods: {
+    probe: {
+      success: [{ name: "one success", input: {}, expected: 1, seed: select("success") }],
+      errors: { ProbeError: [{
+        name: "one domain error", input: {}, expected: { _tag: "ProbeError", value: 1 }, seed: select("single"),
+      }] },
+    },
+    write: { success: [{ name: "one command", input: {}, expected: 1 }], errors: {} },
+  },
+  sharedTransactions: {},
+};
+for (const mode of [
+  "reversed", "changed-member", "changed-multiplicity", "changed-length",
+  "mixed-defect", "mixed-interrupt", "undeclared", "compound-domain", "compound-rollback",
+] as const) {
+  const state = Layer.effect(ProbeState, Ref.make<"compound" | "success" | "single">("compound"));
+  const layer = Layer.effect(CompoundPort, Effect.gen(function* () {
+    const state = yield* ProbeState;
+    let calls = 0;
+    const error = (value: number) => Cause.makeFailReason({ _tag: "ProbeError" as const, value });
+    return CompoundPort.of({
+      write: () => Effect.succeed(1),
+      probe: () => Effect.gen(function* () {
+        const selected = yield* Ref.get(state);
+        if (selected === "success") return 1;
+        if (selected === "single" && mode !== "compound-domain")
+          return yield* Effect.fail({ _tag: "ProbeError" as const, value: 1 });
+        const second = ++calls % 2 === 0;
+        let reasons: ReadonlyArray<Cause.Reason<unknown>> = second
+          ? [error(2), error(1), error(1)]
+          : [error(1), error(2), error(1)];
+        if (mode === "changed-member" && second) reasons = [error(2), error(1), error(3)];
+        if (mode === "changed-multiplicity" && second) reasons = [error(2), error(1), error(2)];
+        if (mode === "changed-length" && second) reasons = [error(2), error(1)];
+        if (mode === "mixed-defect") reasons = [error(1), Cause.makeDieReason("probe defect")];
+        if (mode === "mixed-interrupt") reasons = [error(1), Cause.makeInterruptReason(123)];
+        if (mode === "undeclared") reasons = [error(1), Cause.makeFailReason({ _tag: "Undeclared", value: 1 })];
+        return yield* Effect.failCause(Cause.fromReasons(reasons));
+      }),
+    });
+  })).pipe(Layer.provideMerge(state));
+  const harness: CompoundHarness<never, ProbeState> = {
+    name: mode,
+    layer,
+    transact: (effect) => mode === "compound-rollback"
+      ? effect.pipe(Effect.catchCause((cause) => Effect.failCause(Cause.fromReasons([
+          ...cause.reasons, Cause.makeFailReason({ _tag: "ExtraRollbackFailure" }),
+        ]))))
+      : effect,
+    snapshot: Effect.succeed([]),
+    supportsConcurrentConnections: false,
+  };
+  compoundConformance(harness, scenarios);
+}
+
 `;

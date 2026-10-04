@@ -182,7 +182,11 @@ describe("persistence compiler", () => {
         assert.include(suite!.contents, "G2 query purity: find");
         assert.include(suite!.contents, "Schema.toEquivalence(Schema.toType(User.Public))");
         assert.include(suite!.contents, "Schema.toEquivalence(Schema.toType(m0Errors))");
-        assert.notInclude(suite!.contents, "m0EncodeError");
+        assert.notInclude(suite!.contents, "encodeUnknownEffect");
+        assert.include(suite!.contents, "reasons.every((reason): reason is Cause.Fail<E>");
+        assert.include(suite!.contents, "equalFailures(firstValue, secondValue, m0EqualError)");
+        assert.include(suite!.contents, "balance !== 0");
+        assert.include(suite!.contents, "m2Member0Equal(actual, scenario.expected)");
         assert.include(suite!.contents, "G3 rollback successful command: setEmail");
         assert.include(suite!.contents, "G4 shared transaction rollback: setDisplayName+setEmail");
         assert.include(
@@ -318,7 +322,17 @@ describe("persistence compiler", () => {
 
   it.effect("port class and conformance helper names are reserved before schema imports", () =>
     Effect.gen(function* () {
-      for (const name of ["UsersPort", "assertClosed", "m0Input", "port"]) {
+      for (const name of [
+        "UsersPort",
+        "assertClosed",
+        "failureReasons",
+        "equalFailures",
+        "candidate",
+        "balance",
+        "m0Input",
+        "m0Member0Equal",
+        "port",
+      ]) {
         const item = declaration("Users.find", "Query", []);
 
         const result = yield* compileCollected(
@@ -332,6 +346,7 @@ describe("persistence compiler", () => {
                     { name: "Users.find", input: schema(name), success: schema("User.Public") },
                   ],
                 },
+                { name: "Errors", args: [schema("UserNotFound")] },
                 { name: "persistence.Port", args: [{ port: "Users" }] },
               ],
             },

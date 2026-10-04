@@ -6,6 +6,7 @@ import { TsSourceFrontend } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
 import { persistenceExtension } from "@effx/persistence/compiler";
 import {
+  compoundProgram,
   conformanceProgram,
   equalityDeclarations,
   equalityProgram,
@@ -570,7 +571,7 @@ export class LocalUsers {
   );
 
   it.live(
-    "G2 rejects unequal success and error Type values hidden by identical encodings",
+    "G2 and domain scenarios reject unequal Type values hidden by identical encodings",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -585,7 +586,7 @@ export class LocalUsers {
         assert.notStrictEqual(result.code, 0, result.text);
         const tests = result.report.testResults.flatMap((file) => file.assertionResults);
         const failures = tests.filter((test) => test.status === "failed");
-        assert.strictEqual(failures.length, 2, result.text);
+        assert.strictEqual(failures.length, 5, result.text);
 
         for (const method of ["success", "failure"]) {
           assert.isTrue(
@@ -597,6 +598,13 @@ export class LocalUsers {
             result.text,
           );
         }
+
+        const wrongExpected = failures.filter((test) => test.fullName.includes("wrong-expected"));
+        assert.strictEqual(wrongExpected.length, 3, result.text);
+        assert.isTrue(
+          wrongExpected.every((test) => test.fullName.includes("G1 domain")),
+          result.text,
+        );
 
         const stable = tests.filter((test) => test.fullName.includes("stable"));
         assert.isAbove(stable.length, 0);
@@ -611,6 +619,63 @@ export class LocalUsers {
           ),
           result.text,
         );
+      }).pipe(Effect.provide(Services)),
+    180_000,
+  );
+
+  it.live(
+    "generated G1 accepts every declared Fail and G2 compares unordered failure multisets",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fixture = yield* workspace();
+        yield* fs.writeFileString(
+          path.join(fixture.project, "src/equality.ts"),
+          equalityDeclarations,
+        );
+        yield* generate(fixture, ["src/ports.ts", "src/equality.ts"]);
+        const result = yield* suite(fixture, "compound", compoundProgram);
+        assert.notStrictEqual(result.code, 0, result.text);
+        const tests = result.report.testResults.flatMap((file) => file.assertionResults);
+        const failures = tests.filter((test) => test.status === "failed");
+        const valid = tests.filter((test) => test.fullName.includes(" / reversed "));
+        assert.isAbove(valid.length, 0);
+        assert.isTrue(
+          valid.every((test) => test.status === "passed"),
+          result.text,
+        );
+
+        for (const mode of ["changed-member", "changed-multiplicity", "changed-length"]) {
+          const named = tests.filter((test) => test.fullName.includes(" / " + mode + " "));
+          const rejected = named.filter((test) => test.status === "failed");
+          assert.strictEqual(rejected.length, 1, result.text);
+          assert.include(rejected[0]!.fullName, "G2 query purity: probe");
+        }
+
+        for (const mode of ["mixed-defect", "mixed-interrupt", "undeclared"]) {
+          const rejected = failures.filter((test) => test.fullName.includes(" / " + mode + " "));
+          assert.strictEqual(rejected.length, 2, result.text);
+          assert.isTrue(
+            rejected.some((test) => test.fullName.includes("G1 closed error channel: probe")),
+            result.text,
+          );
+          assert.isTrue(
+            rejected.some((test) => test.fullName.includes("G2 query purity: probe")),
+            result.text,
+          );
+        }
+
+        const domain = failures.filter((test) => test.fullName.includes(" / compound-domain "));
+        assert.strictEqual(domain.length, 1, result.text);
+        assert.include(domain[0]!.fullName, "G1 domain error: probe.ProbeError");
+        const rollback = failures.filter((test) => test.fullName.includes(" / compound-rollback "));
+        assert.strictEqual(rollback.length, 2, result.text);
+        assert.isTrue(
+          rollback.every((test) => test.fullName.includes("G3 rollback")),
+          result.text,
+        );
+        assert.strictEqual(failures.length, 12, result.text);
       }).pipe(Effect.provide(Services)),
     180_000,
   );

@@ -36,6 +36,12 @@ export const conformanceBody = (
     "DomainCase",
     "TransactionCase",
     "failureValue",
+    "failureReasons",
+    "equalFailures",
+    "reasons",
+    "candidate",
+    "balance",
+    "equivalent",
     "assertClosed",
     "rollback",
     "assertRollback",
@@ -56,7 +62,6 @@ export const conformanceBody = (
     "scenario",
     "test",
     "actual",
-    "encode",
     "pair",
     "a",
     "b",
@@ -65,25 +70,33 @@ export const conformanceBody = (
     "success",
     "error",
     "value",
-    ...port.methods.flatMap((_, index) => [
+    ...port.methods.flatMap((method, index) => [
       `m${index}Input`,
       `m${index}Success`,
       `m${index}Errors`,
       `m${index}Error`,
-      `m${index}EncodeSuccess`,
       `m${index}EqualSuccess`,
       `m${index}EqualError`,
+      ...method.operation.errors.values.flatMap((_, member) => [
+        `m${index}Member${member}Error`,
+        `m${index}Member${member}Equal`,
+      ]),
     ]),
   );
 
   const methodSchemas = port.methods.map(({ name, operation }, index) => {
     const counts = new Map<string, number>();
 
-    const members = operation.errors.values.map((ref) => {
+    const members = operation.errors.values.map((ref, member) => {
       const key = schemaName(ref);
       counts.set(key, (counts.get(key) ?? 0) + 1);
 
-      return { key, symbolId: ref.symbolId, expression: schemaExpr(imports, ref) };
+      return {
+        key,
+        symbolId: ref.symbolId,
+        expression: schemaExpr(imports, ref),
+        local: `m${index}Member${member}`,
+      };
     });
 
     for (const member of members) {
@@ -125,13 +138,16 @@ export const conformanceBody = (
     `const ${method.local}Success = Schema.is(Schema.toType(${method.success}));`,
     `const ${method.local}Errors = ${method.errors};`,
     `const ${method.local}Error = Schema.is(Schema.toType(${method.local}Errors));`,
-    `const ${method.local}EncodeSuccess = Schema.encodeUnknownEffect(${method.success});`,
+    `const ${method.local}EqualSuccess = Schema.toEquivalence(Schema.toType(${method.success}));`,
     ...(method.operation.kind === "Query"
       ? [
-          `const ${method.local}EqualSuccess = Schema.toEquivalence(Schema.toType(${method.success}));`,
           `const ${method.local}EqualError = Schema.toEquivalence(Schema.toType(${method.local}Errors));`,
         ]
       : []),
+    ...method.members.flatMap((member) => [
+      `const ${member.local}Error = Schema.is(Schema.toType(${member.expression}));`,
+      `const ${member.local}Equal = Schema.toEquivalence(Schema.toType(${member.expression}));`,
+    ]),
     "",
   ]);
 
@@ -169,10 +185,9 @@ export const conformanceBody = (
         "        if (Exit.isSuccess(first) && Exit.isSuccess(second)) {",
         `          assert.isTrue(${method.local}EqualSuccess(first.value, second.value), "Identical Queries returned unequal success values");`,
         "        } else {",
-        "          const firstValue = failureValue(first);",
-        "          const secondValue = failureValue(second);",
-        `          if (!${method.local}Error(firstValue) || !${method.local}Error(secondValue)) assert.fail("Undeclared error escaped the port");`,
-        `          assert.isTrue(${method.local}EqualError(firstValue, secondValue), "Identical Queries returned unequal errors");`,
+        `          const firstValue = failureReasons(first, ${method.local}Error);`,
+        `          const secondValue = failureReasons(second, ${method.local}Error);`,
+        `          assert.isTrue(equalFailures(firstValue, secondValue, ${method.local}EqualError), "Identical Queries returned unequal error multisets");`,
         "        }",
         "      })),",
         "      { arbitrary: { runs: 10 } },",
@@ -209,7 +224,7 @@ export const conformanceBody = (
       `          const port = yield* ${service};`,
       `          const actual = yield* port[${key}](scenario.input);`,
       `          assert.isTrue(${method.local}Success(actual));`,
-      `          assert.deepStrictEqual(yield* ${method.local}EncodeSuccess(actual), yield* ${method.local}EncodeSuccess(scenario.expected));`,
+      `          assert.isTrue(${method.local}EqualSuccess(actual, scenario.expected), "Success differs from the expected Type value");`,
       "        })),",
       "      );",
     );
@@ -247,9 +262,8 @@ export const conformanceBody = (
         `          const result = yield* Effect.exit(port[${key}](scenario.input));`,
         `          ${closed}`,
         "          const actual = failureValue(result);",
-        `          assert.isTrue(Schema.is(Schema.toType(${member.expression}))(actual));`,
-        `          const encode = Schema.encodeUnknownEffect(${member.expression});`,
-        "          assert.deepStrictEqual(yield* encode(actual), yield* encode(scenario.expected));",
+        `          if (!${member.local}Error(actual)) assert.fail("Failure does not satisfy the expected error Schema");`,
+        `          assert.isTrue(${member.local}Equal(actual, scenario.expected), "Error differs from the expected Type value");`,
         "        })),",
         "      );",
         "    }",
@@ -354,17 +368,45 @@ export const conformanceBody = (
     "}",
     "",
     ...constants,
-    "const failureValue = (exit: Exit.Exit<unknown, unknown>): unknown => {",
-    '  if (Exit.isSuccess(exit)) assert.fail("Expected a declared failure, not success");',
-    '  assert.strictEqual(exit.cause.reasons.length, 1, "Expected one typed failure, never a defect or interruption");',
-    "  const reason = exit.cause.reasons[0];",
-    '  if (reason === undefined || !Cause.isFailReason(reason)) assert.fail("Defect or interruption escaped the port");',
-    "  return reason.error;",
+    ...(commands.length === 0 && methodSchemas.every((method) => method.members.length === 0)
+      ? []
+      : [
+          "const failureValue = (exit: Exit.Exit<unknown, unknown>): unknown => {",
+          '  if (Exit.isSuccess(exit)) assert.fail("Expected a declared failure, not success");',
+          '  assert.strictEqual(exit.cause.reasons.length, 1, "Expected one typed failure, never a defect or interruption");',
+          "  const reason = exit.cause.reasons[0];",
+          '  if (reason === undefined || !Cause.isFailReason(reason)) assert.fail("Defect or interruption escaped the port");',
+          "  return reason.error;",
+          "};",
+          "",
+        ]),
+    "const failureReasons = <E>(exit: Exit.Exit<unknown, unknown>, error: (value: unknown) => value is E): ReadonlyArray<Cause.Fail<E>> => {",
+    '  if (Exit.isSuccess(exit)) assert.fail("Expected declared failures, not success");',
+    "  const reasons = exit.cause.reasons;",
+    '  assert.isAbove(reasons.length, 0, "Expected at least one typed failure");',
+    "  if (!reasons.every((reason): reason is Cause.Fail<E> => Cause.isFailReason(reason) && error(reason.error)))",
+    '    assert.fail("Defect, interruption or undeclared error escaped the port");',
+    "  return reasons;",
     "};",
     "",
-    "const assertClosed = (exit: Exit.Exit<unknown, unknown>, success: (value: unknown) => boolean, error: (value: unknown) => boolean): void => {",
+    ...(methodSchemas.some((method) => method.operation.kind === "Query")
+      ? [
+          "const equalFailures = <E>(first: ReadonlyArray<Cause.Fail<E>>, second: ReadonlyArray<Cause.Fail<E>>, equivalent: (a: E, b: E) => boolean): boolean => {",
+          "  if (first.length !== second.length) return false;",
+          "  for (const reason of first) {",
+          "    let balance = 0;",
+          "    for (const candidate of first) if (equivalent(reason.error, candidate.error)) balance++;",
+          "    for (const candidate of second) if (equivalent(reason.error, candidate.error)) balance--;",
+          "    if (balance !== 0) return false;",
+          "  }",
+          "  return true;",
+          "};",
+          "",
+        ]
+      : []),
+    "const assertClosed = <E>(exit: Exit.Exit<unknown, unknown>, success: (value: unknown) => boolean, error: (value: unknown) => value is E): void => {",
     '  if (Exit.isSuccess(exit)) assert.isTrue(success(exit.value), "Value does not satisfy the declared success Schema");',
-    '  else assert.isTrue(error(failureValue(exit)), "Undeclared error escaped the port");',
+    "  else failureReasons(exit, error);",
     "};",
     ...(commands.length === 0
       ? []
