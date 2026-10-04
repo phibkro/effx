@@ -15,9 +15,11 @@ import { canonical, semanticHash } from "@effx/ir";
 import { readTsconfigEffx } from "@effx/frontend-ts";
 import { graph } from "./graph.ts";
 import { inspect } from "./inspect.ts";
-import { ManifestJson, PreviousManifestJson, locationsOf } from "./manifest.ts";
+import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "./manifest.ts";
 import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
+
+type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 
 /*
  * The four commands as portable Effects over FileSystem/Path/Crypto/SourceFrontend and the
@@ -345,7 +347,7 @@ export const build = Effect.fn("build")(function* (project: Project, versions: V
   yield* fs.writeFileString(path.join(project.effxDir, "ir.json"), irText);
   yield* writeSurface(project.effxDir, ir, Option.getOrThrow(result.index));
 
-  const manifest = yield* Schema.encodeEffect(ManifestJson)({
+  const manifestData: ManifestDraft = {
     format: "effx-manifest",
     version: 1,
     compiler: versions,
@@ -361,7 +363,16 @@ export const build = Effect.fn("build")(function* (project: Project, versions: V
         file,
       ),
     ),
-  });
+  };
+
+  if (collected.spreads !== undefined) {
+    manifestData.spreads = collected.spreads.map((spread) => ({
+      ...spread,
+      location: { ...spread.location, file: path.relative(project.rootDir, spread.location.file) },
+    }));
+  }
+
+  const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
 
   yield* fs.writeFileString(manifestPath, manifest + "\n");
   yield* Console.log(

@@ -6,6 +6,7 @@ import {
   Extensions,
   Location,
   SchemaArg,
+  SpreadSource,
   findAnnotation,
 } from "@effx/compiler";
 
@@ -25,6 +26,7 @@ export const Manifest = Schema.Struct({
   generated: Schema.Array(Schema.String),
   diagnostics: Schema.Array(Diagnostic),
   locations: Schema.Record(StableId.StableId, Location),
+  spreads: Schema.optionalKey(Schema.Array(SpreadSource)),
 });
 
 export type Manifest = typeof Manifest.Type;

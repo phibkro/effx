@@ -145,10 +145,22 @@ export const ProjectResolution = Schema.Struct({
 export type ProjectResolution = typeof ProjectResolution.Type;
 
 /** @internal */
+export const SpreadSource = Schema.Struct({
+  declarationId: Schema.String,
+  operand: Schema.String,
+  location: Location,
+});
+
+/** @internal */
+export type SpreadSource = typeof SpreadSource.Type;
+
+/** @internal */
 export const Collected = Schema.Struct({
   declarations: Schema.Array(Declaration),
   /** Frontend diagnostics travel as data (spec 0002); the pipeline merges them. */
   diagnostics: Schema.Array(Diagnostic),
+  /** Resolved source spreads are provenance, never semantic IR data. */
+  spreads: Schema.optionalKey(Schema.Array(SpreadSource)),
   /** Project settings are compiler context, not nodes in the semantic IR. */
   project: Schema.optionalKey(ProjectResolution),
 });

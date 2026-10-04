@@ -931,6 +931,10 @@ import {
   settingsProblems,
 } from "./fixtures/settings.ts";
 
+const SharedProblems = ["request.malformed"] as const;
+
+const SettingsProblems = ["settings.not-found"] as const;
+
 export class SettingsReads {
   @Query({ name: "settings.read", input: ReadSettingsInput, success: SettingsResponse })
   @Http.Get("/api/settings")
@@ -942,7 +946,7 @@ export class SettingsReads {
     registry: settingsProblems,
     // The single source of the code list. Nonempty and unique. It may list
     // codes no handler raises (for example request-decoding failures).
-    codes: ["settings.not-found", "request.malformed"],
+    codes: [...SettingsProblems, ...SharedProblems] as const,
     // `map` links domain errors (by their `_tag`) to codes. An error with no
     // map entry and no HTTP status annotation is EFFX2205; a mapped code
     // missing from `codes` is EFFX2206.

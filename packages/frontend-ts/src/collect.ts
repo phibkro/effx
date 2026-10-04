@@ -40,6 +40,8 @@ interface Sink {
   readonly diagnostics: Array<Diagnostic>;
 }
 
+type CollectedDraft = { -readonly [K in keyof Collected]: Collected[K] };
+
 const unsupported = (sink: Sink, node: ts.Node, message: string): void => {
   sink.diagnostics.push(error("EFFX1104", message, positionOf(node)));
 };
@@ -705,11 +707,12 @@ export const collect = (
   definitions?: ReadonlyMap<string, DefinitionEntry>,
 ): Collected => {
   const appliedUses: Array<AppliedUse> = [];
+  const spreads: NonNullable<Collected["spreads"]>[number][] = [];
 
   const resolver: Resolver =
     definitions === undefined
-      ? { ...baseResolver, appliedUses }
-      : { ...baseResolver, definitions, appliedUses };
+      ? { ...baseResolver, appliedUses, spreads }
+      : { ...baseResolver, definitions, appliedUses, spreads };
 
   const sink: Sink = { declarations: [], diagnostics: [] };
   const rootDir = resolver.project.rootDir;
@@ -779,5 +782,12 @@ export const collect = (
 
   sink.diagnostics.push(...leafViolations(resolver, appliedUses, declarationFiles));
 
-  return { declarations: sink.declarations, diagnostics: sink.diagnostics };
+  const result: CollectedDraft = {
+    declarations: sink.declarations,
+    diagnostics: sink.diagnostics,
+  };
+
+  if (spreads.length > 0) result.spreads = spreads;
+
+  return result;
 };

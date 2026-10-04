@@ -14,6 +14,7 @@ import {
   schemaRefOf,
 } from "./resolve.ts";
 import { isExported, positionOf, ts } from "./ts.ts";
+import { resolveStringSpread } from "./string-tuple.ts";
 
 /** Top-level exported functions are valid application symbols, not Schema or service values. */
 const exportedAccessFunction = (resolver: Resolver, symbol: ts.Symbol) => {
@@ -539,6 +540,15 @@ export const lowerExpression = (
     const itemPlan = inner?._tag === "Array" ? inner.item : undefined;
 
     for (const element of node.elements) {
+      if (ts.isSpreadElement(element) && annotationName === "Http.Problems") {
+        const resolved = resolveStringSpread(resolver, declarationId, element);
+
+        if ("reason" in resolved) return reject(declarationId, resolved.spread, resolved.reason);
+        items.push(...resolved.codes);
+        resolver.spreads?.push(...resolved.spreads);
+        continue;
+      }
+
       const lowered = lowerExpression(resolver, declarationId, element, itemPlan, annotationName);
 
       diagnostics.push(...lowered.diagnostics);
@@ -704,7 +714,13 @@ export const lowerExpression = (
       ts.isVariableDeclaration(found.declaration) &&
       found.declaration.initializer !== undefined
     ) {
-      return lowerExpression(resolver, declarationId, found.declaration.initializer, undefined);
+      return lowerExpression(
+        resolver,
+        declarationId,
+        found.declaration.initializer,
+        plan,
+        annotationName,
+      );
     }
 
     return reject(

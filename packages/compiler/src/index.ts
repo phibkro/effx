@@ -72,6 +72,7 @@ export {
   Declaration,
   ProjectResolution,
   Collected,
+  SpreadSource,
   symbolOf,
 } from "./Collected.ts";
 

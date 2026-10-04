@@ -1,5 +1,5 @@
 import { type SchemaRef, StableId, type SymbolRef } from "@effx/ir";
-import type { DefinitionEntry } from "@effx/compiler";
+import type { DefinitionEntry, SpreadSource } from "@effx/compiler";
 import type { AppliedUse } from "./leaf.ts";
 import type { Project } from "./project.ts";
 import {
@@ -24,6 +24,7 @@ export interface Resolver {
   readonly definitions?: ReadonlyMap<string, DefinitionEntry>;
   /** Applications of extension-declared annotations seen while collecting (spec 0020 EFFX1306). */
   readonly appliedUses?: Array<AppliedUse>;
+  readonly spreads?: Array<SpreadSource>;
 }
 
 /** Where a symbol is declared, after following import aliases. */

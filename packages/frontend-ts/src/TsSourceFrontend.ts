@@ -78,6 +78,8 @@ export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (
     diagnostics: [...project.diagnostics, ...collected.diagnostics],
   };
 
+  if (collected.spreads !== undefined) result.spreads = collected.spreads;
+
   if (project.resolution !== undefined) result.project = project.resolution;
 
   if (project.resolveEffectModule !== undefined) {

@@ -105,6 +105,13 @@ Model identity is the _schema's_ export (`model:User` for both `@PersistentModel
 | `Focus.key(Root, "a", "b")` or array literal of strings                                                 | `["a","b"]` (inside `focus`)                                                |
 | anything else                                                                                           | `EFFX1102` error with `location`; the annotation is dropped                 |
 
+`Http.Problems.codes` array spreads resolve through const initializers, imports and re-exports
+to readonly string-literal tuples (including nested spreads). The initializer walk owns the
+values; the checker tuple must agree in elements and order. Dynamic operands, mutable arrays,
+cycles and contradictory assertions are `EFFX1102` at the spread, naming its operand. The
+expanded array preserves order and the existing duplicate-code diagnostic. Spread provenance
+is optional `Collected.spreads` / manifest `spreads` data, never part of canonical IR or its hash.
+
 ### `E`/`R` inference (technique that works, verified against effect 4.0.0 with ts 6.0.3)
 
 1. `signature = checker.getSignatureFromDeclaration(method)` (or the call signature of
