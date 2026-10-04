@@ -64,7 +64,7 @@ Two kinds, both static text, both with a stable `@id`:
 
 1. **Grant template**, one per capability: the _shape_ of a grant, left unlinked.
 
-   ```cedar
+   ```text
    @id("effx:grant:profile.read-self")
    permit (principal == ?principal, action in Effx::Action::"capability/profile.read-self", resource == ?resource);
    ```
@@ -74,7 +74,7 @@ Two kinds, both static text, both with a stable `@id`:
 2. **Requirement forbid**, one per (operation, requirement id): default deny plus `forbid` overriding
    `permit` makes "this fact must hold" exact, whatever grants exist.
 
-   ```cedar
+   ```text
    @id("effx:require:Profile.Read:profile.owner")
    forbid (principal, action == Effx::Action::"operation/Profile.Read", resource)
    unless { context["profile.owner"] };
@@ -103,7 +103,7 @@ attribute (`profile.ownr`) was rejected with exit 3 and
 
 `examples/users` (`@Authorize` only, no `AccessContract`):
 
-```cedar
+```text
 namespace Effx {
   entity Principal;
   entity User;
@@ -124,7 +124,7 @@ namespace Effx {
 
 Profile-like fixture (`Profile.Read` `SnapshotRead`, `Profile.Update` `Transaction`):
 
-```cedar
+```text
 namespace Effx {
   entity Person;
   entity ProfileCurrentPerson;
