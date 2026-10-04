@@ -21,6 +21,18 @@ Run these from the repository root:
 
 Before `bun run check`, install the rc.116 fixture dependencies first with `bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116`. CI installs these before running checks.
 
+### CI action pins
+
+Workflow actions are pinned to full commit SHAs with release-version comments. Check each action's
+release and its `action.yml` runtime when updating a pin; composite actions need their nested
+actions checked too. The pins use Node 24 action runtimes. This is separate from `node-version: 22`,
+which selects the Node used by application build and publish commands.
+
+Runner labels remain `ubuntu-latest`. GitHub [announced the move from Ubuntu 24.04 to 26.04](https://github.com/actions/runner-images/issues/14748)
+for October 19 through November 19, 2026, including OS, kernel and installed-tool changes. Pinning
+`ubuntu-24.04` is recommended until Check, Docs and packaging have been exercised on `ubuntu-26.04`.
+A named Ubuntu label still receives runner-image updates; it is not an immutable OS image.
+
 ## Specs and decisions
 
 For a non-trivial compiler slice, write or update a frozen `docs/specs/NNNN-*.md` contract before implementation. Define observable behavior and the checks that can falsify it; keep the implementation choice open until the contract is settled. Record an architectural trade-off that affects an invariant in a numbered `docs/decisions/NNNN-*.md` ADR. Update [`STATE.md`](STATE.md) when the mission state, evidence, or open questions change. Do not silently change an accepted contract: revise the spec explicitly when evidence requires it.
