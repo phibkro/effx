@@ -12,7 +12,12 @@ export type AnnotationArg =
   | string
   | number
   | boolean
-  | { readonly _tag: "Schema"; readonly ref: SchemaRef; readonly fields?: ReadonlyArray<string> }
+  | {
+      readonly _tag: "Schema";
+      readonly ref: SchemaRef;
+      readonly fields?: ReadonlyArray<string>;
+      readonly marker?: "headers";
+    }
   | {
       readonly _tag: "Symbol";
       readonly ref: SymbolRef;
@@ -31,6 +36,7 @@ export const AnnotationArg: Schema.Codec<AnnotationArg> = Schema.Union([
   Schema.TaggedStruct("Schema", {
     ref: SchemaRef,
     fields: Schema.optionalKey(Schema.Array(Schema.String)),
+    marker: Schema.optionalKey(Schema.Literal("headers")),
   }),
   Schema.TaggedStruct("Symbol", {
     ref: SymbolRef,

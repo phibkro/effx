@@ -486,19 +486,51 @@ Source: `packages/runtime/src/Annotation.ts` (`HttpGroupOptions`).
   is exactly `<group>.<safe key>`, that name is the operation id. An explicit
   id wins.
 - `Http.Contract.success` defaults to the declared `success`.
-  `query: true` on a GET `Query` means the declared `input`. For POST/PATCH
-  `Command`, an omitted `payload` defaults to `input` unless `input` is
-  already assigned to params, query or headers. Incompatible use is a
-  diagnostic, never a guessed route shape.
+  `query: true` on a GET `Query` means the declared `input`. The other request
+  channels come from `input` too (next section). Incompatible use of
+  `query: true` is a diagnostic, never a guessed route shape.
 - A group never mixes local and external operations (`EFFX2403`).
+
+### Request channels derived from `input`
+
+Dense or not, an operation's `input` implies which `Http.Contract` channel it
+fills. Before interpretation the compiler writes that channel into the contract
+arguments (group or no group), so the result equals the spelled-out contract:
+same IR, `paramsKeys`/`headersKeys`, hash and generated files. Spec:
+`docs/specs/0024-declaration-density.md` §2; implementation:
+`packages/compiler/src/request-channels.ts`.
+
+| Step | The input …                                                               | Becomes                                                    |
+| ---- | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 0    | already is the Schema of an explicit channel                              | nothing derived (`input: X` with `headers: X` stays valid) |
+| 1    | is wrapped by `Http.headers(schema)`                                      | `headers` (`EFFX2410` if `headers` is another Schema)      |
+| 2    | has no path parameters                                                    | GET/DELETE `query`; POST/PUT/PATCH `payload`               |
+| 3    | has exactly the route's path parameters as keys                           | `params`                                                   |
+| 4    | has keys, none of them a path parameter                                   | as step 2 (the explicit `params` stay)                     |
+| 5    | mixes path parameters and other keys                                      | `EFFX2410`: write `params` and the body channel            |
+| 6    | has unknown keys (union, brand, `Void`) and the route has path parameters | POST/PUT/PATCH `payload`; GET/DELETE `EFFX2411`            |
+
+- An explicit channel always wins: a derived channel never replaces one, and an
+  ambiguity (5, 6) is a diagnostic only while nothing resolves it (`payload` or
+  `query` written for step 5; `params` or `query` for step 6).
+- A path parameter name ends before an action suffix: `/items/:id:cancel` has
+  one parameter, `id`, when `id` is an input key.
+- A GET/DELETE input without keys derives no `query`; a body is still a body.
+  A Query over POST keeps its explicit `payload` (ADR 0010).
+- `Http.headers` is the identity function at runtime. The compiler recognises
+  the wrapper by the brand on the Schema's static type, never by its name or by
+  header-looking keys. A marked Schema needs static keys; they are its required
+  keys, exactly what `headers:` records.
 
 ### Diagnostics
 
 | Code       | Condition                                                                                                               |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `EFFX2404` | group reference is unresolved, not exported, not a group, repeated or multiple                                          |
-| `EFFX2405` | explicit `root`/`group` conflicts with the group; bad `query: true`; ambiguous request mapping; missing `Http.Contract` |
+| `EFFX2405` | explicit `root`/`group` conflicts with the group; bad `query: true`; missing `Http.Contract`                            |
 | `EFFX2406` | two distinct raw group ids normalize to the same generated export name in one root                                      |
+| `EFFX2410` | `input` mixes path parameters and other keys, or is a header schema next to a different `headers`                       |
+| `EFFX2411` | GET/DELETE with path parameters and an `input` whose keys are not static, while neither `params` nor `query` is written |
 
 An operation with both a class-level `@Http.Group` and `.in(...)` fails with
 `EFFX2404`. The reference must resolve statically to one exported group in the
@@ -586,8 +618,8 @@ export const updateSettings = Operation.command({
 })
   .in(SettingsGroup)
   .http.patch("/api/settings")
-  // `payload` is omitted: for a PATCH/POST Command it defaults to the declared
-  // `input` when `input` is not already used for params, query or headers.
+  // `payload` is omitted: the declared `input` is the body of a PATCH, POST or PUT Command unless
+  // it is the params or headers schema (request channels are derived from `input`, see below).
   .http.contract({ headers: WriteHeaders, status: 200 })
   .http.problems({ codes: ["authority.denied", "precondition.failed"] })
   .http.access({
@@ -678,6 +710,100 @@ export class SettingsOperations {
     });
   }
 }
+```
+
+### Request channels derived from `input`
+
+The operation `input` says which request channel it fills; `Http.Contract` only spells what the
+input cannot imply. The compiler writes the derived channel into the contract before
+interpretation, so the dense and the spelled-out declaration share IR, hash and generated files.
+
+```ts
+import { Capability, Operation } from "@effx/runtime";
+import {
+  AnonymousScope,
+  SearchSettingsInput,
+  SettingsById,
+  SettingsList,
+  SettingsRename,
+  SettingsResponse,
+  VersionHeaders,
+} from "./fixtures/settings.ts";
+import { SettingsGroup } from "./01_group-builder.ts";
+
+// GET without path parameters: the input is the `query`. No `query: true`, no `query:`.
+export const searchSettings = Operation.query({
+  name: "settings.search",
+  input: SearchSettingsInput,
+  success: SettingsList,
+})
+  .in(SettingsGroup)
+  .http.get("/api/settings/search")
+  .http.contract({ status: 200 })
+  .http.problems({ codes: ["request.malformed"] })
+  .http.access({
+    capabilities: Capability.one("settings.search"),
+    requirements: [],
+    canonicalScopeResolver: AnonymousScope,
+    decisionTime: "SnapshotRead",
+  })
+  .declare();
+
+// An input wrapped by `Http.headers(...)` is the `headers` channel (never a body). The compiler
+// detects the wrapper by the static type of the schema, not by its name or its keys.
+export const readVersion = Operation.query({
+  name: "settings.readVersion",
+  input: VersionHeaders,
+  success: SettingsResponse,
+})
+  .in(SettingsGroup)
+  .http.get("/api/settings/version")
+  .http.contract({ status: 200 })
+  .http.problems({ codes: ["request.malformed"] })
+  .http.access({
+    capabilities: Capability.one("settings.read-version"),
+    requirements: [],
+    canonicalScopeResolver: AnonymousScope,
+    decisionTime: "SnapshotRead",
+  })
+  .declare();
+
+// Every input field is a path parameter: the input is the `params` (its keys must be the route's).
+export const readById = Operation.query({
+  name: "settings.readById",
+  input: SettingsById,
+  success: SettingsResponse,
+})
+  .in(SettingsGroup)
+  .http.get("/api/settings/:settingsId")
+  .http.contract({ status: 200 })
+  .http.problems({ codes: ["settings.not-found"] })
+  .http.access({
+    capabilities: Capability.one("settings.read"),
+    requirements: [],
+    canonicalScopeResolver: AnonymousScope,
+    decisionTime: "SnapshotRead",
+  })
+  .declare();
+
+// No input field is a path parameter: the `params` stay explicit (the input does not carry them) and
+// the input is the body of a PATCH. An input mixing both kinds is `EFFX2410`: write the channels.
+export const renameSettings = Operation.command({
+  name: "settings.rename",
+  input: SettingsRename,
+  success: SettingsResponse,
+})
+  .in(SettingsGroup)
+  .http.patch("/api/settings/:settingsId")
+  .http.contract({ params: SettingsById, status: 200 })
+  .http.problems({ codes: ["settings.not-found"] })
+  .http.access({
+    capabilities: Capability.one("settings.rename"),
+    requirements: [],
+    canonicalScopeResolver: AnonymousScope,
+    decisionTime: "Transaction",
+  })
+  .declare();
 ```
 
 ### More examples

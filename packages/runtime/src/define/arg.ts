@@ -140,6 +140,8 @@ export interface SymbolOptions {
 
 export interface SchemaOptions {
   readonly fieldKeys?: FieldKeys;
+  /** With `fieldKeys`: a Schema without static `fields` lowers without them instead of being rejected. */
+  readonly fieldsOptional?: true;
   readonly taggedMessage?: true;
 }
 
@@ -250,6 +252,8 @@ export const A = {
     const plan: Draft<PlanOf<"Schema">> = { _tag: "Schema" };
 
     if (options?.fieldKeys !== undefined) plan.fieldKeys = options.fieldKeys;
+
+    if (options?.fieldsOptional) plan.fieldsOptional = true;
 
     if (options?.taggedMessage) plan.taggedMessage = true;
 

@@ -1,10 +1,12 @@
 import { Schema } from "effect";
+import type { SchemaRef } from "@effx/ir";
 import type { Plan } from "@effx/runtime";
 import { type AnnotationArg, type Diagnostic, SchemaArg, error } from "@effx/compiler";
 import {
   type Resolver,
   exportedSymbol,
   isFromRuntime,
+  isHeadersMarked,
   isSchemaValueType,
   isServiceValueType,
   origin,
@@ -418,6 +420,75 @@ export const lowerAnnotationName = (declarationId: string, call: ts.CallExpressi
       : reject(declarationId, node, "annotation name must be a string literal");
 };
 
+/** A lowered Schema reference: `fields` when the position records them, `marker` when wrapped by `Http.headers`. */
+const schemaValue = (
+  ref: SchemaRef,
+  fields: ReadonlyArray<string> | undefined,
+  marked: boolean,
+): AnnotationArg => {
+  if (fields === undefined)
+    return marked ? { _tag: "Schema", ref, marker: "headers" } : { _tag: "Schema", ref };
+
+  return marked
+    ? { _tag: "Schema", ref, fields, marker: "headers" }
+    : { _tag: "Schema", ref, fields };
+};
+
+/**
+ * A Schema value at a `Schema` plan position (spec 0020 `A.schema`, spec 0024 §2.2). `fieldKeys` records the
+ * static field keys of a struct-like Schema (the `header-fields` enrichment). A position without
+ * `fieldsOptional` rejects a Schema that exposes none; with it the keys are simply absent ("unknown"). A
+ * Schema wrapped by `Http.headers` is a headers-channel Schema: it always records its required keys (what
+ * `Http.Contract.headers` records) and, like a headers position, needs static keys.
+ */
+const lowerSchema = (
+  resolver: Resolver,
+  declarationId: string,
+  node: ts.Expression,
+  type: ts.Type,
+  ref: SchemaRef,
+  plan: Extract<Plan, { readonly _tag: "Schema" }> | undefined,
+): Lowered => {
+  const checker = resolver.project.checker;
+  const marked = isHeadersMarked(type);
+
+  const fieldKeys =
+    plan?.fieldKeys === undefined ? undefined : marked ? "required" : plan.fieldKeys;
+
+  if (fieldKeys === undefined) return ok(schemaValue(ref, undefined, marked));
+
+  const optional = plan?.fieldsOptional === true && !marked;
+  const fieldsSymbol = type.getProperty("fields");
+
+  if (fieldsSymbol === undefined)
+    return optional
+      ? ok(schemaValue(ref, undefined, marked))
+      : reject(declarationId, node, "schema must expose static fields");
+
+  const fieldsType = checker.getTypeOfSymbolAtLocation(fieldsSymbol, node);
+
+  // A struct typed with the generic `Schema.Struct.Fields` has an index signature, not static keys.
+  if (optional && checker.getIndexInfosOfType(fieldsType).length > 0)
+    return ok(schemaValue(ref, undefined, marked));
+
+  const fields = checker
+    .getPropertiesOfType(fieldsType)
+    .filter((field) => {
+      if (fieldKeys !== "required") return true;
+      const fieldType = checker.getTypeOfSymbolAtLocation(field, node);
+      const marker = fieldType.getProperty("~type.optionality");
+
+      if (marker === undefined) return false;
+      const optionality = checker.getTypeOfSymbolAtLocation(marker, node);
+
+      return optionality.isStringLiteral() && optionality.value === "required";
+    })
+    .map((field) => field.name)
+    .toSorted();
+
+  return ok(schemaValue(ref, fields, marked));
+};
+
 /** Spec 0002 §Argument lowering, directed by the annotation's lowering plan (spec 0020 §2.2). */
 export const lowerExpression = (
   resolver: Resolver,
@@ -589,31 +660,15 @@ export const lowerExpression = (
       }
 
       const ref = schemaRefOf(exported);
-      const fieldKeys = leaf?._tag === "Schema" ? leaf.fieldKeys : undefined;
 
-      if (fieldKeys === undefined) return ok({ _tag: "Schema", ref });
-      const fieldsSymbol = type.getProperty("fields");
-
-      if (fieldsSymbol === undefined)
-        return reject(declarationId, node, "schema must expose static fields");
-      const fieldsType = checker.getTypeOfSymbolAtLocation(fieldsSymbol, node);
-
-      const fields = checker
-        .getPropertiesOfType(fieldsType)
-        .filter((field) => {
-          if (fieldKeys !== "required") return true;
-          const fieldType = checker.getTypeOfSymbolAtLocation(field, node);
-          const marker = fieldType.getProperty("~type.optionality");
-
-          if (marker === undefined) return false;
-          const optionality = checker.getTypeOfSymbolAtLocation(marker, node);
-
-          return optionality.isStringLiteral() && optionality.value === "required";
-        })
-        .map((field) => field.name)
-        .toSorted();
-
-      return ok({ _tag: "Schema", ref, fields });
+      return lowerSchema(
+        resolver,
+        declarationId,
+        node,
+        type,
+        ref,
+        leaf?._tag === "Schema" ? leaf : undefined,
+      );
     }
 
     if (isServiceValueType(type)) {

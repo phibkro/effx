@@ -110,7 +110,8 @@ const operation = (
     },
   };
 
-  if (method === "Get" && (withQuery || override)) verboseContract.query = input;
+  // The dense twin writes `query: true` or leaves the query to the derivation (spec 0024 §2): both mean `input`.
+  if (method === "Get") verboseContract.query = input;
 
   if (method !== "Get") verboseContract.payload = input;
 
@@ -481,22 +482,6 @@ describe("group defaults expansion", () => {
       }),
     ],
     [
-      "ambiguous POST input",
-      "EFFX2405",
-      (s: Collected): Collected => ({
-        ...s,
-        declarations: [
-          s.declarations[0]!,
-          {
-            ...s.declarations[3]!,
-            annotations: s.declarations[3]!.annotations.map((a) =>
-              a.name === "Http.Contract" ? { ...a, args: [{ headers: schema("createInput") }] } : a,
-            ),
-          },
-        ],
-      }),
-    ],
-    [
       "malformed group reference",
       "EFFX2404",
       (s: Collected): Collected => ({
@@ -636,7 +621,8 @@ describe("group defaults expansion", () => {
     );
   }
 
-  it.effect("PUT Commands and POST Queries keep explicit request-shape rules", () =>
+  // Spec 0024 §2.1 extends the 0013 payload default to PUT; ADR 0010 keeps a Query over POST explicit.
+  it.effect("PUT Commands derive their payload; POST Queries keep an explicit payload", () =>
     Effect.sync(() => {
       const s = source(true);
 
@@ -666,8 +652,33 @@ describe("group defaults expansion", () => {
         ).value,
       );
 
-      assert.isFalse(canonical(irPut).includes('"payload":'));
+      assert.isTrue(canonical(irPut).includes('"payload":'));
       assert.isFalse(canonical(irPost).includes('"payload":'));
+    }),
+  );
+
+  // Spec 0024 §2.1 step 0 replaces the 0013 EFFX2405 "Command input assigned elsewhere": an input that is
+  // already an explicit channel derives nothing, so the explicit twin of a derived channel stays valid.
+  it.effect("a Command input that is already its headers schema needs no payload", () =>
+    Effect.gen(function* () {
+      const s = source(true);
+
+      const headersOnly: Collected = {
+        ...s,
+        declarations: [
+          s.declarations[0]!,
+          {
+            ...s.declarations[3]!,
+            annotations: s.declarations[3]!.annotations.map((a) =>
+              a.name === "Http.Contract" ? { ...a, args: [{ headers: schema("createInput") }] } : a,
+            ),
+          },
+        ],
+      };
+
+      const result = yield* compileCollected(headersOnly, Extensions.builtin);
+      assert.deepStrictEqual(errors(result), []);
+      assert.isFalse(canonical(Option.getOrThrow(result.ir.value)).includes('"payload":'));
     }),
   );
 });

@@ -3,6 +3,7 @@ import type { DefinitionEntry } from "@effx/compiler";
 import type { AppliedUse } from "./leaf.ts";
 import type { Project } from "./project.ts";
 import {
+  HEADERS_TYPE_ID,
   KEY_TYPE_ID,
   SCHEMA_TYPE_ID,
   SERVICE_TYPE_ID,
@@ -120,6 +121,9 @@ export const staticTypeOf = (resolver: Resolver, symbol: ts.Symbol): ts.Type | u
 };
 
 export const isSchemaValueType = (type: ts.Type): boolean => typeHasProperty(type, SCHEMA_TYPE_ID);
+
+/** A Schema value wrapped by `Http.headers(...)`: its static type carries the `~effx/Http/Headers` brand. */
+export const isHeadersMarked = (type: ts.Type): boolean => typeHasProperty(type, HEADERS_TYPE_ID);
 
 export const isServiceValueType = (type: ts.Type): boolean =>
   typeHasProperty(type, SERVICE_TYPE_ID) ||

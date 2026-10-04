@@ -3,10 +3,17 @@ import { SchemaRef, SymbolRef } from "@effx/ir";
 import type { Annotation, Declaration } from "./Collected.ts";
 import { type Diagnostic, error } from "./Diagnostic.ts";
 
-/** @internal */
+/**
+ * A lowered Schema reference. `fields` are its static field keys where the position records them;
+ * `marker: "headers"` says its static type was wrapped by `Http.headers` (spec 0024 §2.2). Neither enters
+ * the IR's `SchemaRef`.
+ *
+ * @internal
+ */
 export const SchemaArg = Schema.TaggedStruct("Schema", {
   ref: SchemaRef,
   fields: Schema.optionalKey(Schema.Array(Schema.String)),
+  marker: Schema.optionalKey(Schema.Literal("headers")),
 });
 
 /** @internal */

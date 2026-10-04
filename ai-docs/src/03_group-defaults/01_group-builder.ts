@@ -74,8 +74,8 @@ export const updateSettings = Operation.command({
 })
   .in(SettingsGroup)
   .http.patch("/api/settings")
-  // `payload` is omitted: for a PATCH/POST Command it defaults to the declared
-  // `input` when `input` is not already used for params, query or headers.
+  // `payload` is omitted: the declared `input` is the body of a PATCH, POST or PUT Command unless
+  // it is the params or headers schema (request channels are derived from `input`, see below).
   .http.contract({ headers: WriteHeaders, status: 200 })
   .http.problems({ codes: ["authority.denied", "precondition.failed"] })
   .http.access({

@@ -1,35 +1,20 @@
-import { Option, Predicate, Schema } from "effect";
+import { Option, Schema } from "effect";
 import { Builtins } from "@effx/runtime";
 import { AnnotationArg, type Annotation, type Declaration } from "./Collected.ts";
 import { type Diagnostic, error } from "./Diagnostic.ts";
 import type { Expand } from "./Extension.ts";
-import { SchemaArg, SymbolArg } from "./args.ts";
+import { SymbolArg } from "./args.ts";
 import { decodeSchemaOf } from "./annotation.ts";
 import { OperationArgs } from "./extensions/core.ts";
+import { deriveRequestChannels, isAnnotationOptions, mapsInput } from "./request-channels.ts";
 
 const GroupOptions = decodeSchemaOf(Builtins.HttpGroup);
 
 const InArgs = Schema.Tuple([SymbolArg]);
 
-const isAnnotationOptions = (
-  value: AnnotationArg | undefined,
-): value is Readonly<Record<string, AnnotationArg>> =>
-  Predicate.isObject(value) &&
-  !Predicate.isTagged("Schema")(value) &&
-  !Predicate.isTagged("Symbol")(value) &&
-  !Predicate.isTagged("Lambda")(value);
-
 const safeKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
-const isSchemaArg = Schema.is(SchemaArg);
-
 const isString = Schema.is(Schema.String);
-
-const mapsInput = (candidate: AnnotationArg | undefined, input: typeof SchemaArg.Type): boolean =>
-  isSchemaArg(candidate) &&
-  candidate.ref.module === input.ref.module &&
-  candidate.ref.export === input.ref.export &&
-  candidate.ref.symbolId === input.ref.symbolId;
 
 const symbolKey = (module: string, name: string): string => `${module}\0${name}`;
 
@@ -59,7 +44,7 @@ export const expandGroupDefaults: Expand = (collected) => {
     symbols.set(key, candidates);
   }
 
-  const declarations = collected.declarations.map((declaration): Declaration => {
+  const associate = (declaration: Declaration): Declaration => {
     const explicit = declaration.annotations.filter((annotation) => annotation.name === "Http.In");
 
     const enclosing =
@@ -196,35 +181,21 @@ export const expandGroupDefaults: Expand = (collected) => {
     if (updated.success === undefined && operationArgs !== undefined)
       updated.success = operationArgs.success;
 
+    // `query: true` means the declared input; the remaining channels (a Command's payload included) are
+    // derived from it by `deriveRequestChannels`, after the group's defaults.
     if (current.query === true) {
       if (
         method !== "Http.Get" ||
         operation?.name !== "Query" ||
         operationArgs === undefined ||
+        operationArgs.input.marker === "headers" ||
         mapsInput(current.params, operationArgs.input) ||
         mapsInput(current.headers, operationArgs.input) ||
         current.payload !== undefined
       ) {
         invalid("EFFX2405", "query: true requires a GET Query input not assigned elsewhere");
       } else {
-        updated.query = operationArgs.input;
-      }
-    }
-
-    if (
-      updated.payload === undefined &&
-      (method === "Http.Post" || method === "Http.Patch") &&
-      operation?.name === "Command" &&
-      operationArgs !== undefined
-    ) {
-      if (
-        mapsInput(current.params, operationArgs.input) ||
-        mapsInput(current.query, operationArgs.input) ||
-        mapsInput(current.headers, operationArgs.input)
-      ) {
-        invalid("EFFX2405", "Command input assigned elsewhere requires an explicit payload");
-      } else {
-        updated.payload = operationArgs.input;
+        updated.query = { _tag: "Schema", ref: operationArgs.input.ref };
       }
     }
 
@@ -274,6 +245,20 @@ export const expandGroupDefaults: Expand = (collected) => {
     };
 
     return { ...declaration, annotations: annotations.map(merge) };
+  };
+
+  // Request channels are derived after the group's defaults, for associated and bare operations alike.
+  const declarations = collected.declarations.map((declaration): Declaration => {
+    const reported = diagnostics.length;
+    const associated = associate(declaration);
+
+    // An association that already failed is reported once; deriving from it would only add noise.
+    if (diagnostics.length !== reported) return associated;
+    const derived = deriveRequestChannels(associated);
+
+    diagnostics.push(...derived.diagnostics);
+
+    return derived.declaration;
   });
 
   return { declarations, diagnostics };

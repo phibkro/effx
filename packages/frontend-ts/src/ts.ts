@@ -30,6 +30,9 @@ export const SERVICE_TYPE_ID = "~effect/Context/Service";
 
 export const KEY_TYPE_ID = "~effect/Context/Key";
 
+/** The brand `Http.headers(schema)` stamps on a Schema's static type (spec 0024 §2.2); detected by shape. */
+export const HEADERS_TYPE_ID = "~effx/Http/Headers";
+
 export const aliased = (checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol =>
   symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 

@@ -30,7 +30,10 @@ export type SymbolCheck =
   /** An exported `Http.group` value or `@Http.Group` class (`Http.In`). */
   | "exported-group";
 
-/** What `fields` a Schema position records statically (the `header-fields` enrichment). */
+/**
+ * What `fields` a Schema position records statically (the `header-fields` enrichment): every key of a
+ * struct (`"all"`) or only its required keys (`"required"`).
+ */
 export type FieldKeys = "all" | "required";
 
 export type Plan =
@@ -64,6 +67,11 @@ export type Plan =
   | {
       readonly _tag: "Schema";
       readonly fieldKeys?: FieldKeys;
+      /**
+       * With `fieldKeys`: a Schema without static `fields` lowers without them instead of being rejected
+       * (`Query.input`: the 0024 pre-pass classifies such an input as "keys unknown").
+       */
+      readonly fieldsOptional?: true;
       /** The Schema's `Type` must have a literal-union `_tag` (`Foldkit.Command` Messages, EFFX2601). */
       readonly taggedMessage?: true;
     }

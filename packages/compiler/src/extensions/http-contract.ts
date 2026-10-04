@@ -5,6 +5,7 @@ import { type Analysis, Contribution, type Extension } from "../Extension.ts";
 import { type Diagnostic, error } from "../Diagnostic.ts";
 import { SchemaArg, SymbolArg } from "../args.ts";
 import { extension, implement } from "../annotation.ts";
+import { routeParamNames } from "../route-params.ts";
 import { notAnOperation } from "./not-an-operation.ts";
 
 const ContractMetadata = Schema.Struct({
@@ -118,51 +119,6 @@ const endpointIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 const diagnostic = (node: ExtensionNode, message: string): Diagnostic =>
   error("EFFX2402", `${node.id}: ${message}`);
-
-/**
- * HttpApiBuilder passes paths through HttpApiPath.toRouterPath before FindMyWay
- * registers them. A declared name ends before a literal colon (including an
- * action suffix); undeclared colons become escaped literals, not parameters.
- * See effect/src/http-api/internal/path.ts:20-61 and
- * effect/src/http/FindMyWay/internal/router.ts:128-235 (Effect 4.0.0).
- */
-const routeParamNames = (path: string, declared?: ReadonlySet<string>): Array<string> => {
-  const names: Array<string> = [];
-
-  for (let i = 0; i < path.length; i++) {
-    if (path[i] !== ":") continue;
-
-    if (path[i + 1] === ":") {
-      i++;
-      continue;
-    }
-
-    const param = /^:(\w+)/u.exec(path.slice(i));
-
-    if (param === null || (declared !== undefined && !declared.has(param[1]!))) continue;
-
-    names.push(param[1]!);
-    i += param[0].length - 1;
-
-    // FindMyWay treats a parenthesized regex as part of this parameter, not
-    // as another source of colon-prefixed names. Nested and escaped parens count.
-    if (path[i + 1] === "(") {
-      let depth = 0;
-
-      for (i++; i < path.length; i++) {
-        if (path[i] === "\\") {
-          i++;
-        } else if (path[i] === "(") {
-          depth++;
-        } else if (path[i] === ")" && --depth === 0) {
-          break;
-        }
-      }
-    }
-  }
-
-  return names;
-};
 
 const validate: Analysis = (ir, index) => {
   const diagnostics: Array<Diagnostic> = [];

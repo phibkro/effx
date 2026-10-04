@@ -7,7 +7,7 @@ import {
   HttpApiSecurity,
   OpenApi,
 } from "effect/http-api";
-import type { HttpAccessAnnotationSpec, HttpOperationMetadata } from "@effx/runtime";
+import { Http, type HttpAccessAnnotationSpec, type HttpOperationMetadata } from "@effx/runtime";
 
 // ---------------------------------------------------------------------------
 // Wire schemas
@@ -27,6 +27,25 @@ export const WriteHeaders = Schema.Struct({
   "idempotency-key": Schema.String,
   "if-match": Schema.String,
 });
+
+export const SearchSettingsInput = Schema.Struct({
+  query: Schema.String,
+  page: Schema.optionalKey(Schema.Finite),
+});
+
+export const SettingsList = Schema.Struct({ names: Schema.Array(Schema.String) });
+
+/** `Http.headers` marks a Schema as a headers schema; it is the identity at runtime. */
+export const VersionHeaders = Http.headers(
+  Schema.Struct({
+    "if-none-match": Schema.optionalKey(Schema.String),
+    "x-client-version": Schema.String,
+  }),
+);
+
+export const SettingsById = Schema.Struct({ settingsId: Schema.String });
+
+export const SettingsRename = Schema.Struct({ name: Schema.String });
 
 // ---------------------------------------------------------------------------
 // Application-owned pieces that a group's defaults refer to by symbol.

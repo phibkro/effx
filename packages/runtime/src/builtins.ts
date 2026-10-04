@@ -48,18 +48,24 @@ const exportedValue = A.symbol<(spec: HttpAccessAnnotationSpec) => Context.Conte
   message: "access symbol must be an exported value",
 });
 
+/**
+ * `input` records its static field keys (`fields`) when it has them: the 0013 pre-pass derives the
+ * request channels from them (spec 0024 §2). A schema without static keys still lowers, without `fields`.
+ */
+const operationInput = A.schema({ fieldKeys: "all", fieldsOptional: true });
+
 export const Query = defineBuiltin({
   builder: "query",
   name: "Query",
   target: "operation",
-  args: { name: A.optional(A.string), input: A.schema(), success: A.schema() },
+  args: { name: A.optional(A.string), input: operationInput, success: A.schema() },
 });
 
 export const Command = defineBuiltin({
   builder: "command",
   name: "Command",
   target: "operation",
-  args: { name: A.optional(A.string), input: A.schema(), success: A.schema() },
+  args: { name: A.optional(A.string), input: operationInput, success: A.schema() },
 });
 
 export const Errors = defineBuiltin({

@@ -102,12 +102,19 @@ This is an opt-in declaration of intent. It is not permission to write, not an a
 not a purity guarantee. The handler stays responsible for read-only semantics (ADR 0010,
 `docs/decisions/0010-query-over-post.md`; ADR 0006).
 
-## `query: true`
+## Request channels and `query: true`
 
-`query: true` resolves only through a group association. It means the operation's declared `input` on a GET
-Query, and is `EFFX2405` when the method or kind is wrong, `input` is already assigned to `params` or
-`headers`, or a `payload` is declared. The IR option schema accepts a schema for `query`, so without an
-association `true` is not rewritten (`group-defaults.ts`, `http-contract.ts`).
+`params`, `query`, `headers` and `payload` are derived from the operation's `input` when you omit them, and an
+explicit channel always wins ([How group defaults merge](/docs/authoring/http#request-channels-derived-from-input)).
+An input wrapped by `Http.headers(schema)` is the `headers` channel. The derived channel is written into this
+contract before interpretation, so the IR, `paramsKeys`/`headersKeys` and generated files equal the explicit
+spelling.
+
+`query: true` still means "the operation's declared `input` is the query". It is redundant for a GET whose
+route has no path parameters, and resolves only through a group association: it is `EFFX2405` when the method
+or kind is wrong, `input` is already assigned to `params` or `headers` (or is a header schema), or a `payload`
+is declared. The IR option schema accepts a schema for `query`, so without an association `true` is not
+rewritten (`group-defaults.ts`, `http-contract.ts`).
 
 ## Middleware and security markers
 
@@ -132,8 +139,11 @@ cannot. The compiler checks presence and identity only, not that a Layer impleme
 | `EFFX2402` | `commandIdentity` on a non-Command, or `headers` missing `idempotency-key` or `if-match`               |
 | `EFFX2402` | external group without `@Http.Group`, or without a concrete `HttpApi` root                             |
 | `EFFX2403` | `operationId` not `<group>.<identifier-safe key>`; duplicate endpoint key; missing for an external binding; mixed local and external bindings in a group |
+| `EFFX2410` | `input` mixes path parameters and other keys, or is a header schema next to a different `headers` (see [derived channels](/docs/authoring/http#request-channels-derived-from-input)) |
+| `EFFX2411` | GET/DELETE with path parameters and an `input` whose keys are not static, while neither `params` nor `query` is written |
 
-Source: `packages/compiler/src/extensions/http-contract.ts` (`validate`). A property is never silently
+Source: `packages/compiler/src/extensions/http-contract.ts` (`validate`); `EFFX2410` and `EFFX2411` come from the
+pre-pass `packages/compiler/src/request-channels.ts`. A property is never silently
 dropped: a bad combination is a diagnostic before generation.
 
 ## Generated shape

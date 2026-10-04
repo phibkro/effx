@@ -101,6 +101,7 @@ describe("TsSourceFrontend", () => {
             name: "User.ChangeEmail",
             input: {
               _tag: "Schema",
+              fields: ["email", "id"],
               ref: {
                 module: "../../src/schemas",
                 export: "ChangeEmailInput",

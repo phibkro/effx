@@ -1,3 +1,4 @@
+import type { Schema } from "effect";
 import { type Annotation, record } from "./Annotation.js";
 import * as Builtins from "./builtins.js";
 import { group, problems } from "./builder.js";
@@ -47,9 +48,21 @@ export const Rpc = Builtins.Rpc;
 
 export const Cli = Builtins.Cli;
 
+/**
+ * Marks a Schema as a request-headers schema (spec 0024 §2.2). It is the identity function at runtime
+ * (ADR 0001): the compiler frontend reads the brand `~effx/Http/Headers` off the static type of the
+ * expression, never off a name, and records `marker: "headers"` on every lowered reference to it. An
+ * operation whose `input` is such a schema gets `Http.Contract.headers` from it.
+ */
+const headers = <S extends Schema.Top>(schema: S): S & { readonly "~effx/Http/Headers": true } =>
+  // SAFETY: the brand is a phantom property; only the compiler reads it, from the static type, so the
+  // value itself is returned unchanged.
+  schema as S & { readonly "~effx/Http/Headers": true };
+
 export const Http = {
   Group: Builtins.HttpGroup,
   group,
+  headers,
   Access: Builtins.HttpAccess,
   Contract: Builtins.HttpContract,
   Problems: problems,

@@ -106,7 +106,7 @@ interpreters run, and calls no application function.
 | `Http.Contract.root`, `.group`            | Filled from the group when absent. A different explicit value is `EFFX2405`.                                                                                          |
 | `Http.Contract.success`                   | Defaults to the operation's declared `success`.                                                                                                                       |
 | `Http.Contract.query: true`               | On a GET Query only, means the operation's declared `input` schema. Otherwise `EFFX2405`.                                                                             |
-| `Http.Contract.payload`                   | For a POST or PATCH Command, defaults to `input` unless `input` is already assigned to `params`, `query` or `headers` (`EFFX2405`). An explicit `payload` always wins. |
+| `Http.Contract.params`, `query`, `headers`, `payload` | Derived from the operation's `input` when omitted; see [Request channels derived from `input`](#request-channels-derived-from-input). An explicit channel always wins. |
 | `Http.Contract.middleware`                | Filled from `defaults.middleware` when absent.                                                                                                                        |
 | `Http.Contract.metadata.annotator`        | Filled from `defaults.metadata.annotator` when absent. Other explicit metadata fields are kept.                                                                       |
 | `Http.Contract.metadata.operationId`      | When absent and the operation `name` is exactly `<group>.<key>` with an identifier-safe `key`, the name is the ID. An explicit ID wins.                              |
@@ -118,11 +118,35 @@ semantic hash and generated files (spec 0013 §Diagnostics and safety).
 
 Source: `packages/compiler/src/group-defaults.ts`, `docs/specs/0013-group-defaults.md`.
 
+### Request channels derived from `input`
+
+The operation's `input` implies the `Http.Contract` channel it fills (spec 0024 §2). The pre-pass writes that
+channel into the contract arguments, with or without a group, so IR, `paramsKeys`/`headersKeys`, hash and
+generated files equal the spelled-out contract. `Http.headers(schema)` marks a Schema as a headers schema; it is
+the identity function at runtime and is recognised by the brand on its static type, never by name or key
+pattern.
+
+| Step | The `input` …                                                                | Becomes                                                                  |
+| ---- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 0    | already is the Schema of an explicit channel                                 | nothing derived (`input: X` with `headers: X` stays valid)               |
+| 1    | is wrapped by `Http.headers(schema)`                                         | `headers`; `EFFX2410` when `headers` names another Schema                |
+| 2    | has no path parameters                                                       | GET/DELETE `query`; POST/PUT/PATCH `payload`                             |
+| 3    | has exactly the route's path parameters as keys                              | `params`                                                                 |
+| 4    | has keys, none of them a path parameter                                      | as step 2; the explicit `params` stay                                    |
+| 5    | mixes path parameters and other keys                                         | `EFFX2410`: write `params` and the body channel                          |
+| 6    | has unknown keys (union, brand, `Void`) and the route has path parameters    | POST/PUT/PATCH `payload`; GET/DELETE `EFFX2411`                          |
+
+A derived channel never replaces an explicit one, and steps 5 and 6 are diagnostics only while nothing
+resolves them. A GET or DELETE input without keys derives no `query`; a Query over POST keeps its explicit
+`payload` (ADR 0010). Source: `packages/compiler/src/request-channels.ts`.
+
 | Code       | Severity | Condition                                                                                                                                  |
 | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `EFFX2404` | error    | association is unresolved, not exported, not a group, repeated, multiple (class group plus `.in`), or the declaration has no operation.   |
-| `EFFX2405` | error    | explicit `root` or `group` conflicts with the group; incompatible `query: true`; ambiguous Command input; associated HTTP operation without `Http.Contract`. |
+| `EFFX2405` | error    | explicit `root` or `group` conflicts with the group; incompatible `query: true`; associated HTTP operation without `Http.Contract`.        |
 | `EFFX2406` | error    | two distinct raw group IDs in one root normalize to the same generated export name (spec 0013 addendum; `http-group.ts`).                  |
+| `EFFX2410` | error    | `input` mixes path parameters and other keys, or is a header schema next to a different `headers`.                                         |
+| `EFFX2411` | error    | GET/DELETE with path parameters and an `input` whose keys are not static, while neither `params` nor `query` is written.                   |
 | `EFFX2402` | error    | duplicate `@Http.Group`, unsafe root or group identifier, group on something other than an exported class or builder, conflicting definitions. |
 
 ### Example: dense builder declarations

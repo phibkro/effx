@@ -18,6 +18,7 @@ const operation = (
   path: string,
   fields?: ReadonlyArray<string>,
   method: "Get" | "Post" = "Post",
+  inputFields?: ReadonlyArray<string>,
 ): Declaration => {
   const contractOptions = {
     group: "articles",
@@ -39,7 +40,13 @@ const operation = (
     annotations: [
       {
         name: method === "Get" ? "Query" : "Command",
-        args: [{ name: `Article.${name}`, input: schema("Input"), success: schema("Success") }],
+        args: [
+          {
+            name: `Article.${name}`,
+            input: schema("Input", inputFields),
+            success: schema("Success"),
+          },
+        ],
       },
       { name: `Http.${method}`, args: [path] },
       { name: "Http.Contract", args: [options] },
@@ -186,9 +193,10 @@ describe("schema-informed HTTP route parameter names", () => {
     "still requires a schema for a dynamic GET route, and rejects a schema on a static route",
     () =>
       Effect.gen(function* () {
+        // The input has known fields that are no route parameter: it derives a query, never a params schema.
         for (const declaration of [
-          operation("read", "/api/:articleId", undefined, "Get"),
-          operation("read", "/api/articles", ["articleId"], "Get"),
+          operation("read", "/api/:articleId", undefined, "Get", ["note"]),
+          operation("read", "/api/articles", ["articleId"], "Get", ["note"]),
         ]) {
           const result = yield* compileCollected(collected([declaration]), Extensions.builtin);
           assert.deepStrictEqual(

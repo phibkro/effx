@@ -460,6 +460,9 @@ const collectBuilder = (
 
   if (chain === undefined) return;
 
+  // `Http.headers(schema)` marks a Schema value (spec 0024 §2.2); it is no builder chain and declares nothing.
+  if (chain.root === "Http" && chain.steps[0]?.names.join(".") === "headers") return;
+
   if (!collectOperations && chain.root !== "Model" && chain.root !== "Http") return;
 
   if (chain.root === "Http" && !collectGroup) return;
