@@ -1,6 +1,17 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Schema,
+} from "effect";
 import { Extensions, compile, type TargetProfile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
@@ -16,6 +27,7 @@ import {
   mixedTransactionsProgram,
   nonAtomicProgram,
 } from "./acceptance-programs.ts";
+import { subprocess } from "./process.ts";
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
@@ -73,7 +85,7 @@ const Observation = Schema.fromJsonString(
 
 const decodeObservation = Schema.decodeEffect(Observation);
 
-// Reuse the repository's Bun subprocess boundary and FileSystem scoped-temp pattern, but never
+// Reuse the native scoped-process adapter and FileSystem scoped-temp pattern, but never
 // use examples/* or packages/*/test/fixtures as an output directory. The scope owns every copy,
 // child config, generated file and reporter artifact on success, failure and interruption.
 const workspace = Effect.fnUntraced(function* () {
@@ -87,6 +99,13 @@ const workspace = Effect.fnUntraced(function* () {
 
   const users = path.join(directory, "examples/users");
   const project = path.join(directory, "examples/persistence");
+
+  const paths = {
+    "@effx/runtime": [path.join(repoRoot, "packages/runtime/src/index.ts")],
+    "@effx-examples/users/*": [path.join(users, "src/*.ts")],
+    "@effx/persistence/syntax": [path.join(repoRoot, "packages/persistence/src/syntax.ts")],
+  };
+
   yield* fs.makeDirectory(users, { recursive: true });
   yield* fs.makeDirectory(project, { recursive: true });
   yield* fs.copy(path.join(repoRoot, "examples/users/src"), path.join(users, "src"));
@@ -100,26 +119,17 @@ const workspace = Effect.fnUntraced(function* () {
     yield* encodeJson({
       extends: path.join(repoRoot, "tsconfig.json"),
       compilerOptions: {
-        paths: {
-          "@effx/runtime": [path.join(repoRoot, "packages/runtime/src/index.ts")],
-          "@effx-examples/users/*": [path.join(users, "src/*.ts")],
-          "@effx/persistence/syntax": [path.join(repoRoot, "packages/persistence/src/syntax.ts")],
-        },
+        paths,
       },
       include: ["src/**/*.ts", "../users/src/**/*.ts", ".effx/generated/**/*.ts"],
       exclude: ["src/*-main.ts", "../users/src/*-main.ts", "../users/src/server.ts"],
     }),
   );
 
-  return { directory, project, users, tsconfigPath: path.join(project, "tsconfig.json") };
+  return { directory, project, users, paths, tsconfigPath: path.join(project, "tsconfig.json") };
 });
 
-interface Workspace {
-  readonly directory: string;
-  readonly project: string;
-  readonly users: string;
-  readonly tsconfigPath: string;
-}
+type Workspace = Effect.Success<ReturnType<typeof workspace>>;
 
 const generate = Effect.fnUntraced(function* (
   fixture: Workspace,
@@ -157,26 +167,6 @@ const generate = Effect.fnUntraced(function* (
   return { files, hash: yield* semanticHash(Option.getOrThrow(result.ir.value)) };
 });
 
-const subprocess = Effect.fnUntraced(function* (command: ReadonlyArray<string>, cwd: string) {
-  const result = yield* Effect.sync(() => {
-    const result = Bun.spawnSync([...command], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 180_000,
-    });
-
-    return {
-      code: result.exitCode,
-      text: new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr),
-    };
-  });
-
-  yield* Effect.log("spec 0022 subprocess evidence", { command, cwd, exitCode: result.code });
-
-  return result;
-});
-
 const typecheck = Effect.fnUntraced(function* (fixture: Workspace, config = fixture.tsconfigPath) {
   return yield* subprocess(
     ["bun", "--bun", `${repoRoot}node_modules/.bin/tsc`, "--noEmit", "-p", config],
@@ -201,6 +191,7 @@ export default defineConfig({
   root: ${yield* quote(fixture.project)},
   cacheDir: ${yield* quote(path.join(fixture.directory, "vite-cache"))},
   test: {
+    silent: false,
     alias: {
       ...base.test.alias,
       "@effx-examples/users/schemas": ${yield* quote(path.join(fixture.users, "src/schemas.ts"))},
@@ -212,7 +203,7 @@ export default defineConfig({
     fileParallelism: false,
     maxWorkers: 1,
     testTimeout: 120000,
-    reporters: ["json"],
+    reporters: ["verbose", "json"],
     outputFile: ${yield* quote(reportFile)},
   },
 });\n`,
@@ -227,18 +218,21 @@ export default defineConfig({
   const report = yield* fs.readFileString(reportFile).pipe(Effect.flatMap(decodeReport));
   // A loading error or an empty collection is never evidence that a property rejected an adapter.
   assert.isAbove(report.numTotalTests, 0, result.text);
-  yield* Effect.log("spec 0022 generated suite evidence", {
-    mode: name,
-    exitCode: result.code,
-    tests: report.numTotalTests,
-    failures: report.testResults.flatMap((file) =>
-      file.assertionResults.flatMap((test) =>
-        test.status === "failed"
-          ? [{ property: test.fullName, messages: test.failureMessages }]
-          : [],
+  yield* Effect.log(
+    "spec 0022 generated suite evidence",
+    yield* encodeJson({
+      mode: name,
+      exitCode: result.code,
+      tests: report.numTotalTests,
+      failures: report.testResults.flatMap((file) =>
+        file.assertionResults.flatMap((test) =>
+          test.status === "failed"
+            ? [{ property: test.fullName, messages: test.failureMessages }]
+            : [],
+        ),
       ),
-    ),
-  });
+    }),
+  );
 
   return { ...result, report };
 });
@@ -299,6 +293,102 @@ const invalid: UsersScenarios<SqlError.SqlError, SqlClient.SqlClient> = {
 };
 export { invalid };
 `;
+
+describe("spec 0022 subprocess custody", () => {
+  it.live("retains real child success, nonzero exit and typed spawn failure", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+
+      const directory = yield* fs.makeTempDirectoryScoped({
+        directory: repoRoot,
+        prefix: ".persistence-process-",
+      });
+
+      const success = yield* subprocess(
+        [
+          "bun",
+          "-e",
+          'import { Effect } from "effect"; Effect.runSync(Effect.log("child-success"));',
+        ],
+        directory,
+      );
+
+      assert.strictEqual(success.code, 0, success.text);
+      assert.include(success.text, "child-success");
+
+      const failure = yield* subprocess(
+        [
+          "bun",
+          "-e",
+          'import { BunRuntime } from "@effect/platform-bun"; import { Effect } from "effect"; BunRuntime.runMain(Effect.die("child-defect"));',
+        ],
+        directory,
+      );
+
+      assert.notStrictEqual(failure.code, 0, failure.text);
+      assert.include(failure.text, "child-defect");
+
+      const unavailable = yield* Effect.flip(
+        subprocess([path.join(directory, "missing-executable")], directory),
+      );
+
+      assert.strictEqual(unavailable._tag, "PlatformError");
+
+      if (unavailable._tag === "PlatformError")
+        assert.strictEqual(unavailable.reason._tag, "NotFound");
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it.live("streams readiness and awaits real child cleanup on caller interruption", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+
+      const directory = yield* fs.makeTempDirectoryScoped({
+        directory: repoRoot,
+        prefix: ".persistence-process-",
+      });
+
+      const script = path.join(directory, "child.ts");
+      const released = path.join(directory, "released.txt");
+      yield* fs.writeFileString(
+        script,
+        `
+import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { Effect, FileSystem } from "effect";
+BunRuntime.runMain(Effect.scoped(Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  yield* Effect.acquireRelease(
+    Effect.log("child-resource-ready"),
+    () => fs.writeFileString(${yield* quote(released)}, "released-once").pipe(Effect.orDie),
+  );
+  yield* Effect.never;
+})).pipe(Effect.provide(BunServices.layer)));
+`,
+      );
+      const ready = yield* Deferred.make<void>();
+
+      const fiber = yield* Effect.forkChild(
+        subprocess(["bun", script], directory, (line) =>
+          line.includes("child-resource-ready")
+            ? Deferred.succeed(ready, undefined).pipe(Effect.asVoid)
+            : Effect.void,
+        ),
+      );
+
+      // Without streaming output this milestone cannot arrive while the child is still running.
+      yield* Deferred.await(ready);
+      yield* Fiber.interrupt(fiber);
+      const exit = yield* Fiber.await(fiber);
+      assert.isTrue(Exit.isFailure(exit));
+
+      if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause));
+      // Without scoped process ownership the signal never reaches the real child finalizer.
+      assert.strictEqual(yield* fs.readFileString(released), "released-once");
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
+});
 
 // Every test below defends a frozen §6 falsifier, using the generated suite itself for properties.
 describe("spec 0022 executable acceptance", () => {
@@ -418,7 +508,7 @@ export class LocalUsers {
             .readFileString(path.join(fixture.project, `interruption-${adapter}.json`))
             .pipe(Effect.flatMap(decodeObservation));
 
-          yield* Effect.log("spec 0022 interruption evidence", record);
+          yield* Effect.log("spec 0022 interruption evidence", yield* encodeJson(record));
         }
       }).pipe(Effect.provide(Services)),
     120_000,
@@ -711,14 +801,6 @@ export class LocalUsers {
         for (const target of ["effect-4.0", "effect-4.0-rc"] as const) {
           const fixture = yield* workspace();
 
-          if (target === "effect-4.0-rc") {
-            yield* fs.makeDirectory(path.join(fixture.directory, "node_modules"));
-            yield* fs.symlink(
-              path.join(rc116Root, "node_modules/effect"),
-              path.join(fixture.directory, "node_modules/effect"),
-            );
-          }
-
           const generated = yield* generate(fixture, ["src/ports.ts"], target);
           const port = generated.files.find((file) => file.path === "users-port.ts");
           assert.isDefined(port);
@@ -727,6 +809,25 @@ export class LocalUsers {
             config,
             yield* encodeJson({
               extends: "./tsconfig.json",
+              compilerOptions: {
+                paths: {
+                  ...fixture.paths,
+                  // Apply one installed family to app schemas and parent-root runtime sources alike.
+                  // A temp node_modules symlink cannot redirect imports beside the runtime sources.
+                  effect: [
+                    path.join(
+                      target === "effect-4.0-rc" ? rc116Root : repoRoot,
+                      "node_modules/effect/dist/index.d.ts",
+                    ),
+                  ],
+                  "effect/*": [
+                    path.join(
+                      target === "effect-4.0-rc" ? rc116Root : repoRoot,
+                      "node_modules/effect/dist/*.d.ts",
+                    ),
+                  ],
+                },
+              },
               include: [".effx/generated/users-port.ts"],
             }),
           );
