@@ -43,6 +43,12 @@ Schema references. Method requirements are `never`; adapter requirements belong
 to the Layer selected at the composition root. Core packages do not import the
 optional persistence package (spec 0022 §§2–3, 7; ADR 0004/0008).
 
+Use builder `.declare()` for declaration-only ports. Decorators contribute the
+same annotation data, but a decorated local-bodied method remains a handler and
+diagnoses `EFFX3401`. Decorator declaration-only ports are a non-goal: TypeScript
+cannot decorate abstract or `declare` members (spec 0022 §2 and the dated
+implementation amendment).
+
 The generated suite checks closed success/error channels, query purity and
 repeatability, command rollback, and shared transaction rollback/commit. Supply
 domain scenarios for seed data, expected successes, which inputs raise declared

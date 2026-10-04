@@ -12,6 +12,12 @@ to exported Schema values, not copied DTOs (ADR 0004). The generated
 with `R = never`. Adapters capture dependencies in their Layer, and the
 composition root selects an implementation (spec 0022 §3, ADR 0008).
 
+Builder `.declare()` is the supported declaration-only spelling. A decorator
+records equivalent annotation data, but a local-bodied decorated method is a
+handler and diagnoses `EFFX3401`. Decorator declaration-only ports are a non-goal:
+TypeScript decorators cannot attach to abstract or `declare` members
+(spec 0022 §2 and the dated implementation amendment).
+
 The generated `<port>-conformance.ts` suite uses `@effect/vitest` and inputs from
 the original Schema. It checks the closed error channel (G1), query purity and
 repeatability (G2), command rollback (G3), and shared transactions between pairs
