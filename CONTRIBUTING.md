@@ -28,10 +28,13 @@ release and its `action.yml` runtime when updating a pin; composite actions need
 actions checked too. The pins use Node 24 action runtimes. This is separate from `node-version: 22`,
 which selects the Node used by application build and publish commands.
 
-Runner labels remain `ubuntu-latest`. GitHub [announced the move from Ubuntu 24.04 to 26.04](https://github.com/actions/runner-images/issues/14748)
-for October 19 through November 19, 2026, including OS, kernel and installed-tool changes. Pinning
-`ubuntu-24.04` is recommended until Check, Docs and packaging have been exercised on `ubuntu-26.04`.
-A named Ubuntu label still receives runner-image updates; it is not an immutable OS image.
+Check, Docs (build and deploy), and Release explicitly use `ubuntu-24.04`. GitHub
+[announced that `ubuntu-latest` moves to Ubuntu 26.04](https://github.com/actions/runner-images/issues/14748)
+between October 19 and November 19, 2026, including OS, kernel and installed-tool changes. We will
+move to `ubuntu-26.04` deliberately, after a separate trial run exercises Check, Docs and packaging
+on that image. The first hosted runs after an action-pin or runner change are the real integration
+proof; local checks and actionlint do not execute the GitHub actions. A named Ubuntu label still
+receives runner-image updates; it is not an immutable OS image.
 
 ## Specs and decisions
 
