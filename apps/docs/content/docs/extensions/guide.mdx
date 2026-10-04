@@ -1,0 +1,165 @@
+---
+title: Writing an extension
+description: Add a custom annotation to effx. Register an Extension in effx.config.ts, interpret the annotation into IR, check it, and generate files from it.
+---
+
+An extension gives a custom annotation meaning. It adds IR and generated files; it never adds
+behaviour ([The invariant](/docs/introduction/invariant)). This guide follows the tested reference
+example `examples/extension-openapi-tags` (spec 0015), end to end:
+
+```
+ @Annotate("example.deprecated", {...})  ──┐
+ .annotate("example.deprecated", {...})  ──┼─► frontend ─► Annotation ─► interpreter ─► IR node + ExtensionOf edge
+                                           │                                              │
+ effx.config.ts ── extensions: [ext] ──────┘                       analysis ◄─────────────┤
+                                                                   generator ◄────────────┘
+```
+
+Sources: `docs/specs/0015-config-and-extensions.md`, `packages/cli/src/config.ts`,
+`packages/runtime/src/{decorators,builder}.ts`, `packages/compiler/src/Extension.ts`, and the example
+files included below. For the contract's fields, read [Extensions](/docs/extensions).
+
+<Callout type="info">
+  Third-party extensions run through the CLI with a config. There is no public way to run the
+  pipeline over source from your own program: the TypeScript frontend (`@effx/frontend-ts`) is
+  private and bundled into the CLI (spec 0015).
+</Callout>
+
+## What you depend on
+
+| Package | You use it for |
+| --- | --- |
+| `@effx/compiler` | `Extension`, `Interpreter`, `Analysis`, `Generator`, `Contribution`, `error`, `warning`, `decodeArgs`, `GeneratedFile`, `CompilerFault`, `Extensions.builtin` |
+| `@effx/ir` | `Node`, `StableId`, `IRGraph` to build and read IR |
+| `@effx/runtime` | `@Annotate` and `.annotate` in application source |
+| `@effx/cli/config` | `defineConfig` (importing it does not start the CLI) |
+
+Anything else exported from `@effx/compiler` is marked internal (spec 0015). The example's manifest:
+
+<include cwd lang="json" meta='title="examples/extension-openapi-tags/package.json"'>../../examples/extension-openapi-tags/package.json</include>
+
+## 1. Annotate in source
+
+`@Annotate(name, ...args)` and `.annotate(name, ...args)` are the one generic way to attach a custom
+annotation. The runtime only records the call (`packages/runtime/src/decorators.ts`:
+"an extension, not the runtime, gives it meaning").
+
+<Tabs items={['Decorator', 'Builder']}>
+  <Tab value="Decorator">
+    <include cwd lang="ts" meta='title="examples/extension-openapi-tags/src/operations.ts"'>../../examples/extension-openapi-tags/src/operations.ts</include>
+  </Tab>
+  <Tab value="Builder">
+    <include cwd lang="ts" meta='title="examples/extension-openapi-tags/src/operations.builder.ts"'>../../examples/extension-openapi-tags/src/operations.builder.ts</include>
+  </Tab>
+</Tabs>
+
+| Rule | Source |
+| --- | --- |
+| The frontend finds `Annotate` by its `@effx/runtime` symbol, lowers a literal annotation name and static arguments, and never runs application code | spec 0015, "Proof of extension authoring" |
+| A name no registered extension owns is `EFFX1101` | spec 0015; `packages/compiler/src/pipeline.ts` |
+| Decorator and builder give the same extension node and owner edge. The full IR hashes can differ in the authored handler's `SymbolRef`, so compare a handler-neutral projection, not the hash | spec 0015 |
+
+(The example's `failOnApplicationImport` calls exist only to prove the compiler never evaluates these
+modules. Do not copy them.)
+
+## 2. Write the extension
+
+An `Extension` is a name, an interpreter per annotation name, a list of analyses and a list of
+generators.
+
+<include cwd lang="ts" meta='title="examples/extension-openapi-tags/deprecated-extension.ts"'>../../examples/extension-openapi-tags/deprecated-extension.ts</include>
+
+What each part does, in this file:
+
+| Part | In the example | Rules |
+| --- | --- | --- |
+| Interpreter | decodes `[{ reason }]` with a Schema, builds an `Extension` node `ext:<operation>/deprecated` and an `ExtensionOf` edge to the operation | pure; returns a `Contribution`; a malformed call is a diagnostic, not a throw (`decodeArgs` gives `EFFX1102` for you) |
+| Analysis | one warning per deprecated operation | pure; reads `ir` and the graph `index`; an `error` diagnostic stops generation, a warning does not (`packages/compiler/src/pipeline.ts`) |
+| Generator | `deprecated.ts` with a JSDoc `@deprecated` and a constant per operation | returns `Effect<ReadonlyArray<GeneratedFile>, CompilerFault>`; a pure projection of IR and index, deterministic, never reads application modules; output is sorted by path |
+
+Rules that are easy to miss:
+
+- Every `Extension` node needs an `ExtensionOf` edge to its owner (`EFFX1003` otherwise,
+  `packages/compiler/src/extensions/core.ts`). `qualifier` is optional; the built-ins set it to the
+  node's `tag` so their analyses can find their own links.
+- A node's `data` is `Schema.Json`. Decode it with a Schema in analyses and generators instead of casting.
+- Return no file for no data. An empty placeholder file is a bug.
+- Diagnostic codes: no range is reserved for third parties. The example picks `EFFX2901` and
+  `EFFX2902` and says external extensions must choose their own namespace.
+- No `ts.*` object in the IR; locations live in the manifest (spec 0001).
+
+## 3. Register it in `effx.config.ts`
+
+<include cwd lang="ts" meta='title="examples/extension-openapi-tags/effx.config.ts"'>../../examples/extension-openapi-tags/effx.config.ts</include>
+
+The CLI discovers `effx.config.ts` beside the selected tsconfig for `check`, `build`, `inspect` and
+`graph`, or loads the file named by `--config`. It evaluates that one module and nothing from your
+application. An explicit file that is missing or invalid fails before compilation (spec 0015).
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `project` | `string?` | tsconfig to compile; relative to the config file |
+| `outDir` | `string?` | generated-file directory; relative to the config file |
+| `emit` | `EmitMode?` | `contract`, `handlers` or `all` |
+| `target` | `TargetProfile?` | `effect-4.0` or `effect-4.0-rc` |
+| `strictAccess` | `boolean?` | promote missing-access warnings to errors |
+| `extensions` | `Extension[]` or `(builtin) => Extension[]` | an array **appends** to the built-ins; the callback receives them and returns the complete ordered list |
+| `generators` | `{ http?, rpc?, cli?, client?, foldkit? }` | `false` turns off one built-in file generator. Omitted means on |
+
+Source: `packages/cli/src/config.ts`. Config values rank below CLI flags and above the tsconfig `effx`
+block ([Project config](/docs/cli#project-config)).
+
+A generator toggle only stops files. It never changes interpretation, analyses, the IR or the
+semantic hash, and it never turns off a custom extension's generator. `http: false` turns off both
+the HTTP and the guard file generators, not HTTP validation (spec 0015). The example turns all five
+built-in generators off so only `deprecated.ts` is written.
+
+The config module and everything it imports must stay free of application code that declares
+operations. The example's extension imports only `@effx/compiler`, `@effx/ir` and `effect`.
+
+## 4. Run it
+
+```
+cd examples/extension-openapi-tags
+bun ../../packages/cli/src/main.ts check --project tsconfig.json
+```
+
+Output of that command when this page was written (`EFFX0001` and `EFFX2204` are built-in warnings; the TypeScript versions depend on your install):
+
+```
+  EFFX0001 warning  effx analyses with TypeScript 6.0.3 but the project pins typescript 7.0.2; tsc/tsgo remains the authoritative type gate
+  EFFX2204 warning  Example.Lookup: no schema-addressable errors inferred; boundary will expose none
+  EFFX2901 warning  Example.Lookup is deprecated: Use Example.Find instead
+0 error(s), 3 warning(s), 0 info
+```
+
+`effx build` then writes the IR with the extension node and its `ExtensionOf` edge, and
+`.effx/generated/deprecated.ts`. The example's test asserts the exact generated text:
+
+```ts
+/** @deprecated Use Example.Find instead */
+export const deprecated_0 = "Example.Lookup" as const;
+```
+
+Without the config the same project fails with `EFFX1101`: "no extension interprets this annotation" on
+the custom annotation. The example's test asserts that.
+
+Source: `examples/extension-openapi-tags/test/extension.test.ts`.
+
+## What the example proves
+
+| Claim | How it is tested (`extension.test.ts`) |
+| --- | --- |
+| The CLI reports the warning and writes IR and JSDoc without evaluating the application | runs the real CLI in an isolated copy; the application modules call `failOnApplicationImport` |
+| An unregistered custom annotation stays `EFFX1101` | `compile` with `Extensions.builtin` only |
+| Decorator and builder collect the same extension node, edge and generated file | compares node, edges, file, and a handler-neutral canonical form and hash |
+| The generator is lazy and a change to the IR alone changes the emitted JSDoc | calls the generator on a modified IR |
+
+## Not available yet
+
+| Item | Status |
+| --- | --- |
+| Typed annotation definitions (`Annotation.define`) | frozen as spec 0020 (`docs/specs/0020-annotation-definitions.md`); no `define` exists in `@effx/runtime` yet |
+| Running a custom extension without the CLI | not offered; the frontend is private |
+| A reserved diagnostic-code range for third parties | none |
+| A generated diagnostic catalogue | the diagnostic registry has not landed ([Diagnostics](/docs/diagnostics)) |

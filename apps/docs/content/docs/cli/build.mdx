@@ -1,0 +1,104 @@
+---
+title: effx build
+description: Check the project, then write the canonical IR, the manifest and the generated Effect files. Obsolete generated files are removed only if the previous manifest owned them.
+---
+
+```bash
+effx build [--project <tsconfig>] [--config <file>] [--out-dir <dir>] [--strict-access | --no-strict-access] [--target <profile>] [--emit <mode>]
+```
+
+From the example package: `bun run --cwd examples/users effx:build`.
+
+Source: `build` in `packages/cli/src/commands.ts`, `packages/cli/src/manifest.ts`, `packages/cli/src/main.ts`.
+
+## Flags
+
+Same shared flags as [effx check](/docs/cli/check). The [CLI overview](/docs/cli#flags) has the full table, and [Project config](/docs/cli#project-config) gives the precedence of flag, `effx.config.ts`, tsconfig `effx` block and default.
+
+| Flag | Values | Default |
+| --- | --- | --- |
+| `--project` | path to a tsconfig | `tsconfig.json`, or the config `project` |
+| `--config` | path to an `effx.config.ts` module | `effx.config.ts` beside the selected tsconfig, if present |
+| `--out-dir` | path, resolved from the working directory | `<tsconfig dir>/.effx/generated` |
+| `--strict-access`, `--no-strict-access` | boolean flag | `false` |
+| `--target` | `effect-4.0`, `effect-4.0-rc` | resolved from the project's installed Effect |
+| `--emit` | `contract`, `handlers`, `all` | `all` |
+
+`--emit` selects which projection is written. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets). `--out-dir` (or config `outDir`, or tsconfig `effx.outDir`) moves only the generated files. `ir.json`, `manifest.json` and `surface.json` stay in `<tsconfig dir>/.effx`. A `generators` toggle in `effx.config.ts` drops the matching built-in's files from the build without changing the IR or the semantic hash (spec 0015). See [Extensions](/docs/extensions).
+
+## Steps
+
+```
+ check (same output and exit code as `effx check`)
+   │  errors? → nothing is written, exit 1
+   ▼
+ read previous .effx/manifest.json (if any)
+   ▼
+ work out obsolete files: listed by the previous manifest,
+   inside this generated dir, ending in .ts, not in this build
+   ▼
+ write generated files       <generated dir>/<file>
+ remove obsolete files
+ write .effx/ir.json         canonical IR + "\n"
+ write .effx/surface.json    surface manifest (spec 0021, `writeSurface`)
+ write .effx/manifest.json   pretty JSON + "\n"
+   ▼
+ print: wrote .effx/{ir.json, manifest.json, surface.json}; generated: <files>
+```
+
+Warnings and info do not block a build. Only a diagnostic with severity `error` does.
+
+## Files written
+
+| File | Content |
+| --- | --- |
+| `.effx/generated/*.ts` | generated Effect files, sorted by path. The directory is the project's resolved output directory (`--out-dir`, config `outDir`, tsconfig `effx.outDir`), default `.effx/generated`. |
+| `.effx/ir.json` | canonical JSON of the normalized IR ([Semantic hash](/docs/concepts/semantic-hash)), with a trailing newline |
+| `.effx/surface.json` | the surface manifest written by `writeSurface` (spec 0021). Its format is not described on this page. |
+| `.effx/manifest.json` | the manifest below, pretty-printed with two spaces, with a trailing newline |
+
+The success line lists the generated files relative to `.effx/`, for example `generated/http.ts`. With an output directory outside `.effx`, the listed paths start with `../` because they are computed with `path.relative` from the `.effx` directory (`build` in `commands.ts`).
+
+Builds are deterministic. Spec 0003 requires two builds to produce a byte-identical `ir.json`, and the CLI test checks it.
+
+## Manifest
+
+`.effx/manifest.json` holds what the IR deliberately omits: source locations, compiler versions, the file list and diagnostics. It is a Schema-defined value (`Manifest` in `packages/cli/src/manifest.ts`).
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `format` | `"effx-manifest"` | literal |
+| `version` | `1` | literal |
+| `compiler.effx` | string | `@effx/cli` package version |
+| `compiler.effect` | string | Effect package version bundled with the CLI |
+| `compiler.typescript` | string | version of the TypeScript the frontend used |
+| `semanticHash` | string | sha-256 of the canonical IR ([Semantic hash](/docs/concepts/semantic-hash)) |
+| `emit` | `contract`, `handlers` or `all` | the emit mode of this build |
+| `generated` | string array | generated file paths relative to `.effx/` |
+| `diagnostics` | `Diagnostic` array | every diagnostic from every stage, in stage order |
+| `locations` | record of StableId to `{ file, line, col }` | where each operation and model is declared |
+
+`locations` keys are operation ids and model ids. The `file` is relative to the project root: the tsconfig directory, or the directory set by `effx.projectRoot` in the tsconfig. This is the only place declaration locations are kept. They never enter the IR ([The invariant](/docs/introduction/invariant)).
+
+`generated` follows the generator output order, which `generate` sorts by path.
+
+## Obsolete files
+
+The previous manifest is the ownership record. When the emit mode or the set of operations changes, files the previous build wrote and this build does not are removed. The rules:
+
+| Rule | Detail |
+| --- | --- |
+| Only listed files | A file is removed only if the previous `manifest.json` listed it. Unrelated files in the output directory are never swept. |
+| Only inside the output dir | The listed file must be under the current generated directory. |
+| Only `.ts` | Files with another extension are kept. |
+| Only inside `.effx` | If any file would be removed and the real path of the generated directory has no `.effx` segment, the build fails before writing with a `CompilerFault` (`cannot remove obsolete generated files outside .effx`). |
+| Corrupt manifest | An existing manifest that does not decode fails the build with a `CompilerFault` (`invalid prior effx manifest`). |
+
+Source: `build` in `packages/cli/src/commands.ts`, `docs/specs/0010-target-profiles-and-emit-modes.md` ("obsolete artifacts ... must not masquerade as this build's output").
+
+## Exit code
+
+| Condition | Exit |
+| --- | --- |
+| At least one `error` diagnostic | 1. Nothing is written. |
+| Success | 0 |

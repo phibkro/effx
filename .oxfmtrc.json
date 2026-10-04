@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "**/.effx/**",
+    "**/build/**",
+    "docs/research/**",
+    "tools/oxlint/anti-slop/**",
+    "apps/docs/**",
+    "LLMS.md",
+    "packages/*/AGENTS.md",
+    "packages/*/ai-docs/**"
+  ]
+}

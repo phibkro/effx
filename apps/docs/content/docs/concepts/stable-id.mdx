@@ -1,0 +1,69 @@
+---
+title: StableId
+description: StableId is the branded string identity of every IR node. Grammar, kinds, and how ids are derived from source.
+---
+
+A `StableId` is the identity of a node. Edges, sort order, the graph index and the CLI all use it.
+
+Source: `packages/ir/src/StableId.ts`, `docs/specs/0001-compiler-kernel.md`.
+
+## Grammar
+
+```
+StableId := kind ":" name
+kind     := [a-z][a-z0-9-]*
+name     := [A-Za-z0-9_$] [A-Za-z0-9_$./:-]*
+```
+
+The whole id matches one regular expression, `/^[a-z][a-z0-9-]*:[A-Za-z0-9_$][A-Za-z0-9_$./:-]*$/` (`pattern` in `StableId.ts`). There are no spaces. `StableId` is a branded string (`effx/StableId`), so a plain string does not type-check as an id.
+
+## Kinds
+
+`Kind` in `StableId.ts` is a closed list:
+
+| Kind | Example | Meaning |
+| --- | --- | --- |
+| `schema` | `schema:src/user/User.Self` | a runtime Effect Schema symbol |
+| `model` | `model:User` | a persistent model |
+| `service` | `service:Users` | an Effect `Context` service |
+| `operation` | `operation:User.Get` | a Query or Command |
+| `group` | `group:<root>/<group>` | an HTTP group (`HttpGroup` node) |
+| `capability` | `capability:User.ChangeEmail` | an authority capability |
+| `focus` | `focus:User.email` | a model root plus a path |
+| `exposure` | `exposure:http:User.Get` | one transport exposure. The name may contain a `:` sub-kind. |
+| `ext` | `ext:<extension>/<name>` | an extension-owned node |
+
+The examples for `schema` and `exposure` come from the code that builds them. The others follow spec 0001 and `http-group.ts`.
+
+## Helpers
+
+| Function | Result |
+| --- | --- |
+| `StableId.make(kind, name)` | builds `kind:name`. Throws only on malformed input, which is a programmer error. |
+| `StableId.kindOf(id)` | the part before the first `:` |
+| `StableId.nameOf(id)` | the part after the first `:` |
+| `StableId.isStableId(value)` | schema guard |
+
+## How ids come from source
+
+| Id | Derived from | Source |
+| --- | --- | --- |
+| `operation:<name>` | the `name` in `@Query` or `@Command`. Without a `name` it is `<export>.<member>`, or `<export>` for a builder value. | `operationName` in `packages/compiler/src/extensions/core.ts` |
+| `service:<export>` | the exported name of the service class | `serviceIdOf` in `core.ts` and `resolve.ts` |
+| `model:<export>` | the export of the model's schema | spec 0001 |
+| `schema:<idPath>/<export>[.<member>]` | the symbol's path relative to the project root, plus its export and optional member | `schemaRefOf` in `packages/frontend-ts/src/resolve.ts` |
+| `exposure:<transport>:<operation name>` | the transport tag and the operation name | `packages/compiler/src/extensions/transports.ts` |
+| `group:<root>/<group>` | the `root` and `group` of `Http.Group` | `packages/compiler/src/extensions/http-group.ts` |
+
+Schema identity is relative to the project root, never to the output directory. That keeps the same source producing the same ids in different output directories (spec 0010).
+
+## Why ids matter
+
+| Use | Detail |
+| --- | --- |
+| Node identity | two nodes with one id and different content are reported as a duplicate |
+| Ordering | normalization sorts nodes by id ([The IR](/docs/concepts/ir)) |
+| Hashing | the ids are part of the canonical JSON ([Semantic hash](/docs/concepts/semantic-hash)) |
+| CLI lookup | `effx inspect` and `effx graph` resolve names to ids ([effx inspect](/docs/cli/inspect#name-resolution)) |
+
+Renaming an exported symbol or an operation `name` changes its id, and so changes the IR and the hash. Moving a declaration to another line does not.

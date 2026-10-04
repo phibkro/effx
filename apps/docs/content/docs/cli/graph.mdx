@@ -1,0 +1,73 @@
+---
+title: effx graph
+description: Print the IR as a Mermaid flowchart, or one node with everything reachable from it.
+---
+
+```bash
+effx graph [name] [--project <tsconfig>] [--config <file>] [--out-dir <dir>] [--strict-access | --no-strict-access] [--target <profile>] [--emit <mode>]
+```
+
+From the monorepo root: `bun run effx graph User.Get --project examples/users/tsconfig.json`.
+
+Source: `graphCommand` in `packages/cli/src/commands.ts`, `packages/cli/src/graph.ts`, spec 0003 "graph format".
+
+## Arguments and flags
+
+| Item | Detail |
+| --- | --- |
+| `name` | optional positional argument |
+| `--project` | path to a tsconfig, default `tsconfig.json` |
+| `--config` | path to an `effx.config.ts` module, default discovery beside the selected tsconfig |
+| `--out-dir` | output directory for generated files. Accepted, but `graph` writes nothing. |
+| `--strict-access`, `--no-strict-access` | boolean flag, default `false` |
+| `--target` | `effect-4.0` or `effect-4.0-rc`, default resolved from the installed Effect |
+| `--emit` | `contract`, `handlers` or `all`, default `all` |
+
+These are the six shared flags that the root command defines, so `graph` accepts the same flags as `check` and `build`. See the [CLI overview](/docs/cli#flags) for the table and [Project config](/docs/cli#project-config) for precedence. `graph --emit contract` exits 0 on `examples/users` (observed by running `bun packages/cli/src/main.ts`).
+
+Like `inspect`, `graph` compiles with the resolved settings and extension list, writes nothing and prints no diagnostics. A missing or invalid explicit `--config` still fails before compilation.
+
+## What it prints
+
+Without a name, the whole IR. With a name, a subgraph of that node.
+
+| Part | Rule |
+| --- | --- |
+| First line | `flowchart LR` |
+| Node line | `  <id>["<StableId>"]`. The Mermaid id is the StableId with every character outside `A-Za-z0-9_` replaced by `_`. |
+| Edge line | `  <from> -->\|<kind>[ <qualifier>]\| <to>`. The label is the edge kind, plus a space and the qualifier when there is one. |
+| Order | normalized IR order for nodes and for edges |
+
+```text
+flowchart LR
+  operation_User_Get["operation:User.Get"]
+  …
+  operation_User_Get -->|ExposedAs http| exposure_http_User_Get
+```
+
+The example is the one in spec 0003. Edge kinds are listed in [The IR](/docs/concepts/ir).
+
+## With a name
+
+`graph <name>` keeps these nodes and only the edges between them:
+
+| Kept | Why |
+| --- | --- |
+| the named node | the root |
+| every node reachable by following edge direction | its forward closure |
+| the source nodes of edges that point directly at the named node | one hop of incoming edges, not recursive |
+
+The one-hop rule includes an operation's `InputOf`, `SuccessOf` and `ErrorOf` sources without pulling in unrelated operations. The CLI test checks that `graph User.Get` omits `User.ChangeEmail`.
+
+Name resolution is the same as for [inspect](/docs/cli/inspect#name-resolution), except any node kind is accepted, not only operations.
+
+## Exit code
+
+| Condition | Exit |
+| --- | --- |
+| Graph printed | 0 |
+| Name resolves to nothing | 1. Prints `error: no node named <name>` first. |
+
+## Render it
+
+The output is Mermaid source. Paste it into a Mermaid renderer or a Markdown file with a `mermaid` fence.

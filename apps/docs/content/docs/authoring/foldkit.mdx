@@ -1,0 +1,97 @@
+---
+title: Foldkit.Command
+description: Opt an HTTP operation into a generated Foldkit Command definition.
+---
+
+`Foldkit.Command` opts one HTTP operation into a generated Foldkit `Command.define`. The annotation names
+two application-owned Message schemas. effx does not generate Model, update, view or retry policy.
+
+```ts
+// decorator
+@Foldkit.Command({ success: ProfileUpdated, failure: ProfileUpdateFailed })
+
+// builder
+.foldkit.command({ success: ProfileUpdated, failure: ProfileUpdateFailed })
+```
+
+## `FoldkitCommandOptions`
+
+| Field     | Type         | Optional | Meaning                                                                                       |
+| --------- | ------------ | -------- | --------------------------------------------------------------------------------------------- |
+| `success` | `Schema.Top` | no       | Exported Schema Message value (a tagged Message or an application union) for a success result. |
+| `failure` | `Schema.Top` | no       | Exported Schema Message value for an expected typed failure.                                  |
+
+Source: `packages/runtime/src/Annotation.ts` (`FoldkitCommandOptions`); IR decoding in
+`packages/compiler/src/extensions/foldkit.ts`; contract in `docs/specs/0007-client-and-foldkit.md`.
+
+The frontend records both as references. It imports and invokes no application code. One annotation
+contributes `Extension { extension: "foldkit", tag: "UiCommand", data: { success, failure } }` plus an
+`ExtensionOf` edge to its operation. No generic UI IR node exists.
+
+## Rules
+
+| Code       | Condition                                                                       |
+| ---------- | ------------------------------------------------------------------------------- |
+| `EFFX2601` | more than one `Foldkit.Command` on an operation                                 |
+| `EFFX2601` | the operation does not have exactly one HTTP exposure                           |
+| `EFFX2601` | the operation's `Http.Access.exposure` is `Internal`; a Command needs an external root |
+| `EFFX1107` | the operation is an external (`.declare()`) HTTP binding: it cannot implement `Foldkit.Command` |
+
+An invalid or unexported Message symbol is also diagnosed before generation (spec 0007; negative fixture
+`operations.client-foldkit.invalid-message.ts`).
+
+Source: `packages/compiler/src/extensions/foldkit.ts` (`analyzeCommands`),
+`packages/compiler/src/extensions/core.ts` (`externalExecutableProjection`).
+
+## What is generated
+
+`foldkit.ts` is emitted only for opted-in operations. Per `(root, group)` a typed
+`commandsFor(client, messageAdapters)` defines one Command per annotated operation.
+
+| Piece              | Content                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Command args       | `requestId: Schema.Int`, and a `request` Schema composed from the operation's path, query, headers and payload schemas.       |
+| `messages`         | exactly the annotated success and failure schemas.                                                                            |
+| `execute`          | calls the matching generated client operation once; maps success; catches the typed expected failure into a Message.          |
+| adapters (you supply) | `success({ requestId, result })` returns the annotated success Message; `failure({ requestId, failure })` returns either annotated Message. |
+
+Message field shape is the application's. The adapter is where, for example, a typed
+`idempotency.response-expired` problem becomes a `ConfirmedEarlier` success Message. Nothing in
+`Http.Contract` implies that mapping.
+
+Guarantees from spec 0007 §"Foldkit projection": nothing runs when `update` constructs a Command; an
+interruption or defect is never turned into a Message; no implicit retry.
+
+Source: `packages/compiler/src/generate/foldkit.ts`, `docs/specs/0007-client-and-foldkit.md`.
+
+## Stable command identity (related)
+
+`Http.Contract.metadata.commandIdentity` supplies an application function that returns
+`{ key, input, precondition }` for a Command with `idempotency-key` and `if-match` headers. The client
+generator exposes a typed helper. The application owns key issuance and retry. See
+[HTTP contract](/docs/authoring/http-contract#metadata).
+
+## Example
+
+Shape from the compiler fixture `packages/frontend-ts/test/fixtures/users/src/operations.client-foldkit.ts`
+(both syntaxes are in the fixtures; the builder twin is `operations.client-foldkit.builder.ts`):
+
+```ts
+@Command({ name: "Profile.Update", input: ProfileUpdateInput, success: ProfileResponse })
+@Http.Patch("/api/profile")
+@Http.Contract({ /* group, headers with idempotency-key and if-match, payload, success, ... */ })
+@Http.Access({ /* ... */ })
+@Http.Problems({ /* ... */ })
+@Foldkit.Command({ success: ProfileUpdated, failure: ProfileUpdateFailed })
+static update(input: typeof ProfileUpdateInput.Type, authorize: () => Effect.Effect<ProfilePrincipal, CredentialMissing>) {
+  /* ordinary Effect handler */
+}
+```
+
+## Dependencies and status
+
+- Only generated output imports Foldkit. Neither `@effx/compiler` nor `@effx/runtime` depends on it. The
+  fixture-only root devDependency is `foldkit@0.165.0` (spec 0007).
+- Status: Gate 2A, DoD met locally with generated-file typechecks and an in-process Bun HTTP fixture
+  (STATE.md). The real Profile browser and PostgreSQL journey is **not** claimed by this gate; it belongs to
+  the later parity gates (spec 0007, spec 0009).

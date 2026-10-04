@@ -1,0 +1,11 @@
+# Upstream provenance
+
+Vendored into effx from the local source path mw/tools/oxlint/anti-slop at repository revision f433ea906c9f9af5134c7316d54c78d8c859038f. Its recorded provenance chain is rat-stack commit 5d99b80c9a19ab0c51a23a1e3ffc8fb101f78b61, derived from dmmulroy/anti-slop commit c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b (2026-09-10), using that revision's install-anti-slop skill assets. The generic plugin is MIT licensed; see LICENSE. The rat-stack notice is retained in LICENSE.rat-stack. The separately vendored ESLint Stylistic padding-line rule retains its own license and UPSTREAM.txt.
+
+## Local deviations
+
+- Removed the mono-web-domain rules and their tests: no-leadership-reach, no-raw-advisory-lock-sql, no-hand-rolled-postgres, no-literal-window-instant, no-git-history, no-port-probe, no-dev-server, no-unkeyed-command-row, no-zoneless-calendar-interval, and no-json-text-parameter.
+- Retained all generic anti-slop rules and the anti-slop-effect sub-plugin.
+- The RuleTester suite runs with Node's test runner through tools/oxlint/package.json, matching mono-web. The root test command runs that package script after Vitest.
+
+These vendored files are maintained locally. Update them from an explicit upstream revision, compare before merging, and preserve each upstream license.

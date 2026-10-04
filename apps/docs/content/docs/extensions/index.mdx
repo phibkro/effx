@@ -1,0 +1,149 @@
+---
+title: Extensions
+description: The Extension contract in @effx/compiler, how the pipeline runs interpreters, analyses and generators, and the built-in extensions.
+---
+
+<Callout type="info">
+  To add your own extension, read [Writing an extension](/docs/extensions/guide). This page is the contract and the built-in list.
+</Callout>
+
+An extension is a plain value with a name, a map of interpreters, a list of analyses and a list of generators. It adds meaning to the IR and output to the build without touching the core.
+
+Source: `packages/compiler/src/Extension.ts`, `packages/compiler/src/pipeline.ts`, `packages/compiler/src/extensions/index.ts`.
+
+## The contract
+
+This is the real `Extension.ts`, included from the repository:
+
+<include cwd lang="ts" meta='title="packages/compiler/src/Extension.ts"'>../../packages/compiler/src/Extension.ts</include>
+
+### Extension
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | `string` | the extension name |
+| `interpreters` | `Readonly<Record<string, Interpreter>>` | annotation name to interpreter. The key is the annotation name, such as `Http.Get`. |
+| `analyses` | `ReadonlyArray<Analysis>` | checks over the finished IR |
+| `generators` | `ReadonlyArray<Generator>` | file producers |
+
+### Interpreter and Contribution
+
+`Interpreter = (annotation, declaration, ctx: InterpretContext) => Contribution`. An interpreter is a pure function.
+
+| Type | Field | Type | Meaning |
+| --- | --- | --- | --- |
+| `Contribution` | `nodes` | `ReadonlyArray<Node>` | IR nodes to add |
+| | `edges` | `ReadonlyArray<Edge>` | IR edges to add |
+| | `diagnostics` | `ReadonlyArray<Diagnostic>` | problems found while interpreting |
+| `InterpretContext` | `operationId` | `Option<StableId>` | the operation this declaration defines, from its `Query` or `Command` annotation, if any |
+
+The `Contribution` doc comment: "What one annotation on one declaration contributes to the IR. Never behaviour." ([The invariant](/docs/introduction/invariant)).
+
+`Contribution` also exports helpers:
+
+| Helper | Result |
+| --- | --- |
+| `Contribution.empty` | no nodes, edges or diagnostics |
+| `Contribution.make(nodes?, edges?, diagnostics?)` | a contribution |
+| `Contribution.diagnostics(...diagnostics)` | diagnostics only |
+| `Contribution.concat(contributions)` | one merged contribution |
+
+### Analysis
+
+`Analysis = (ir, index, context: AnalysisContext) => ReadonlyArray<Diagnostic>`. It reads the normalized IR and its `GraphIndex` ([The IR](/docs/concepts/ir)).
+
+| Type | Field | Type | Meaning |
+| --- | --- | --- | --- |
+| `AnalysisContext` | `strictAccess` | `boolean` | set by `--strict-access` ([effx check](/docs/cli/check)) |
+
+### Generator
+
+`Generator = (ir, index, context?: GenerationContext) => Effect<ReadonlyArray<GeneratedFile>, CompilerFault>`. If `context` is omitted, `defaultGenerationContext` applies.
+
+| Type | Field | Type | Meaning |
+| --- | --- | --- | --- |
+| `GeneratedFile` | `path` | `string` | path relative to the output directory |
+| | `contents` | `string` | file text |
+| `GenerationContext` | `target` | `TargetProfile` | `effect-4.0` or `effect-4.0-rc` |
+| | `emit` | `EmitMode` | `contract`, `handlers` or `all` |
+| | `allowImportingTsExtensions` | `boolean` | `.ts` instead of `.js` in relative imports |
+| | `canonicalImportBase` | `string?` | output-independent base for local symbols |
+| | `outputDir` | `string?` | where this pass writes |
+| | `resolveEffectModule` | `((specifier: string) => boolean)?` | runtime-only resolver of the target project's Effect modules. It is never part of serialized IR or project settings. |
+
+`defaultGenerationContext` is `{ target: "effect-4.0", emit: "all", allowImportingTsExtensions: false }`. Output policy never enters the IR ([Emit modes and targets](/docs/concepts/emit-modes-and-targets)).
+
+## How the pipeline uses extensions
+
+`compile(project, extensions)` takes the extension list as an argument. Source: `packages/compiler/src/pipeline.ts`.
+
+```
+Collected ──expandGroupDefaults──▶ interpret ──▶ analyze ──▶ generate
+              (spec 0013)          each annotation   each analysis    each generator
+                                   → its owners      of each ext      of each ext
+```
+
+| Stage | Rule |
+| --- | --- |
+| Interpret | For each declaration and annotation, every extension whose `interpreters` has that annotation name runs. Contributions merge, then `normalize` runs. |
+| Unknown annotation | No owner at all yields error `EFFX1101`: "no extension interprets this annotation". |
+| Several owners | All owners run. Their contributions merge. |
+| Location | A diagnostic from an interpreter that has no location gets the declaration's location. |
+| Analyze | Every analysis of every extension runs over the normalized IR and its graph index. |
+| Generate | Skipped if any diagnostic has severity `error`. Otherwise every generator runs. Files are sorted by path. |
+
+Before interpretation, `expandGroupDefaults` (spec 0013) applies group defaults and consumes `Http.In`. `Http.In` is never interpreted or persisted (`packages/compiler/src/group-defaults.ts`).
+
+### Where extensions are registered
+
+`compile(project, extensions)` takes the list as an argument. The CLI builds that list from `Extensions.builtin` (`packages/compiler/src/extensions/index.ts`) plus the `extensions` field of the selected `effx.config.ts`: an array appends, a callback receives the built-ins and returns the full ordered list (spec 0015, `packages/cli/src/config.ts`). See [Writing an extension](/docs/extensions/guide).
+
+`Extensions` is re-exported from `@effx/compiler`, with `operationIdOf` and each built-in extension value.
+
+## Built-in extensions
+
+`Extensions.builtin` lists them in this order. Files are in `packages/compiler/src/extensions/`.
+
+| # | `name` | Interprets | Analyses | Generators |
+| --- | --- | --- | --- | --- |
+| 1 | `core` | `Query`, `Command`, `Errors`, `Requirements`, `PersistentModel`, `Authorize` | `duplicateIds`, `missingTargets`, `orphanExtensions`, `invalidOperationBinding`, `externalExecutableProjection`, `queryOverNonGet`, `inferredOpaqueWarning` | none |
+| 2 | `http` | `Http.Get`, `Http.Post`, `Http.Put`, `Http.Patch`, `Http.Delete` | none | `httpGenerator`, `guardsGenerator` |
+| 3 | `foldkit` | `Foldkit.Command` | `analyzeCommands` | `foldkitGenerator` |
+| 4 | `http-contract` | `Http.Contract` | `validate` | none |
+| 5 | `http-group` | `Http.Group` | `validate`, `validateExportNames` | none |
+| 6 | `access-contract` | `Http.Access` | `analyzeAccess` | none |
+| 7 | `problem-contract` | `Http.Problems` | `analyzeProblems` | none |
+| 8 | `rpc` | `Rpc` | none | `rpcGenerator` |
+| 9 | `cli` | `Cli` | none | `cliGenerator` |
+| 10 | `client` | none | `analyzeRootVisibility` | `clientGenerator` |
+
+Source: the `Extension` value at the end of each file, and `packages/compiler/src/extensions/{core,transports}.ts`. The `http`, `rpc` and `cli` extensions share one transport interpreter that adds an `Exposure` node and an `ExposedAs` edge.
+
+The `core` extension owns the `Operation` node. Its `Errors` and `Requirements` interpreters compare declared and inferred sets, so those diagnostics appear during interpretation, not analysis (spec 0001, ADR 0005).
+
+### How the pieces become files
+
+| Generator | File written |
+| --- | --- |
+| `httpGenerator` | `http.ts`, and `<group>-contract.ts` and `<group>-handlers.ts` for HTTP groups |
+| `guardsGenerator` | `guards.ts` |
+| `rpcGenerator` | `rpc.ts` |
+| `cliGenerator` | `cli.ts` |
+| `clientGenerator` | `client.ts` |
+| `foldkitGenerator` | `foldkit.ts` |
+
+See [Generated code](/docs/introduction/generated-code) for when each is written.
+
+## Third-party concepts in the IR
+
+A new concept does not need a core schema change. It uses an `Extension` node (`ext:<extension>/<name>`) with `data: Json`, connected to its owner by an `ExtensionOf` edge. The built-in contract, access and problem extensions store their data this way. See [The IR](/docs/concepts/ir).
+
+## Status
+
+| Item | Status |
+| --- | --- |
+| `Extension` contract and the ten built-ins | implemented. `STATE.md`: kernel plus built-in extensions and generators landed. |
+| Registering an extension from `effx.config.ts` | implemented (spec 0015); tested by `examples/extension-openapi-tags` |
+| Authoring guide for third-party extensions | [Writing an extension](/docs/extensions/guide) |
+| Typed annotation definitions | spec 0020, frozen, not implemented |
+| SQL persistence projection | proposed only, parked (`docs/specs/0008-sql-projection-extension.md`) |

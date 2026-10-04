@@ -1,0 +1,23 @@
+{
+  "name": "@effx-examples/extension-openapi-tags",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "effx:check": "bun ../../packages/cli/src/main.ts check",
+    "effx:build": "bun ../../packages/cli/src/main.ts build"
+  },
+  "dependencies": {
+    "@effx/cli": "workspace:*",
+    "@effx/compiler": "workspace:*",
+    "@effx/ir": "workspace:*",
+    "@effx/runtime": "workspace:*",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@effect/platform-bun": "4.0.0",
+    "@effect/vitest": "4.0.0",
+    "@effx/frontend-ts": "workspace:*",
+    "vitest": "5.0.3"
+  }
+}

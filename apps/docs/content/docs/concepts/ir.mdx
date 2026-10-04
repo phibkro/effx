@@ -1,0 +1,114 @@
+---
+title: The IR
+description: The semantic IR is a graph of nodes and edges defined with Effect Schema. Node kinds, edge kinds, normalization and the graph index.
+---
+
+The IR is the durable data model of effx. It is graph-shaped and defined with Effect `Schema` (ADR 0002). Analyses and generators read it. Nothing else is the source of truth.
+
+Source: `packages/ir/src/{ApplicationIR,Node,Edge,normalize,graph,migrate}.ts`, `docs/decisions/0002-ir-is-graph-shaped-and-schema-defined.md`, `docs/specs/0001-compiler-kernel.md`.
+
+```
+ApplicationIR (Effect Schema: nodes + edges)       the durable data model
+      │  toGraph / fromGraph
+      ▼         law: fromGraph(toGraph(x)) == normalize(x)
+GraphIndex { graph, byId, indices, ids (Trie), dangling, duplicates }   working indexes only
+```
+
+## Envelope
+
+| Field | Value |
+| --- | --- |
+| `format` | `"effx-ir"` |
+| `version` | `2` |
+| `nodes` | array of `Node` |
+| `edges` | array of `Edge` |
+
+The current version is 2 (`VERSION` in `ApplicationIR.ts`). `decode` and `decodeString` accept version 1 and version 2 input and migrate version 1 to 2 without normalizing or dropping nodes (`migrate.ts`). ADR 0003 describes the envelope as version 1. That text predates the v2 migration (spec 0005).
+
+## Nodes
+
+`Node` is a closed tagged union on `_tag`. Every node has an `id` (a [StableId](/docs/concepts/stable-id)).
+
+| `_tag` | Fields besides `id` |
+| --- | --- |
+| `Schema` | `ref: SchemaRef` |
+| `Model` | `name`, `schema: SchemaRef`, `table?`, `views: { name, schema: SchemaRef }[]` |
+| `Service` | `name`, `symbol: SymbolRef` |
+| `Operation` | `name`, `kind` (`Query` or `Command`), `input`, `success`, `errors: { values: SchemaRef[], inferred }`, `requirements: { values: StableId[], inferred }`, `binding?: "external"`, `handler?: SymbolRef` |
+| `HttpGroup` | `root`, `rootSymbol?: SymbolRef`, `group`, `title?`, `description?`, `displayName?` |
+| `Capability` | `name`, `resource: StableId`, `focus?: StableId` |
+| `Focus` | `root: StableId`, `path: string[]` |
+| `Exposure` | `operation: StableId`, `transport` |
+| `Extension` | `extension: string`, `tag: string`, `data: Json` |
+
+`Exposure.transport` is a closed union:
+
+| `_tag` | Fields |
+| --- | --- |
+| `http` | `method` (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`), `path` |
+| `rpc` | `name` |
+| `cli` | `command: string[]` |
+
+An `Operation` is either local or external. An external operation has `binding: "external"` and no `handler`. A local operation has a `handler`. The node schema rejects any other combination. See [External bindings](/docs/concepts/external-bindings).
+
+### Why transports are closed and extensions are open
+
+Core analyses must pattern-match transports exhaustively. A third-party transport or any new concept uses an `Extension` node (`ext:<extension>/<name>` ids). Extension nodes survive normalization, canonical JSON and graph projection without changing the core schema. Promoting a concept into the core union is a versioned IR migration (spec 0001).
+
+## Edges
+
+An `Edge` is `{ kind, from, to, qualifier? }`.
+
+| Kind | From to | Qualifier |
+| --- | --- | --- |
+| `InputOf`, `SuccessOf`, `ErrorOf` | `schema:` to `operation:` | none |
+| `Requires` | `operation:` to `service:` | none |
+| `AuthorizedBy` | `operation:` to `capability:` | none |
+| `Focuses` | `capability:` to `focus:` | none |
+| `ExposedAs` | `operation:` to `exposure:` | transport tag |
+| `PersistsAs` | `model:` to `schema:` | table name |
+| `ViewOf` | `schema:` to `model:` | view name |
+| `ExtensionOf` | extension node to the node it extends | owner-defined (the access contract uses `AccessContract`) |
+
+The first nine rows are the spec 0001 table. `ExtensionOf` is in `Edge.ts` and is used by the HTTP contract, access, problem, Foldkit and client extensions (`packages/compiler/src/extensions/`). An `Extension` node with no `ExtensionOf` owner edge is reported by a core analysis.
+
+An edge may point at a node that does not exist. That is data, not a decode failure. The graph index keeps such edges as `dangling`, and a core analysis reports missing targets.
+
+## Normalization
+
+`normalize` puts the IR in one order so equal programs produce equal bytes.
+
+| What | Rule |
+| --- | --- |
+| Nodes | sorted by `id`, then by canonical encoding. Exact duplicates removed. |
+| Edges | sorted by `(kind, from, to, qualifier or "")`, then by canonical encoding. Exact duplicates removed. |
+| Set fields | `Model.views`, `Operation.errors.values`, `Operation.requirements.values` sorted and deduplicated |
+| Ordered fields | `Focus.path` and `Exposure.transport.command` are left as written |
+| Idempotent | `normalize(normalize(x))` equals `normalize(x)` |
+
+Two nodes with the same id but different content are both kept, and an analysis reports the duplicate id.
+
+## Graph index
+
+`IRGraph.toGraph` builds a `GraphIndex` from a normalized IR. It is never written to disk.
+
+| Function | Result |
+| --- | --- |
+| `nodeOf(index, id)` | the node, if present |
+| `outgoing(index, id, kind?)`, `incoming(index, id, kind?)` | edges, including dangling ones |
+| `reachable(index, id)` | ids reachable by following edge direction, excluding `id` |
+| `cycles(index)` | strongly connected components of size above one, plus self-loops |
+| `missingTargets(index)` | edges that point at absent nodes |
+| `withPrefix(index, prefix)` | ids with a given prefix |
+| `fromGraph(index)` | the normalized IR back |
+
+`effx graph` and `effx inspect` are built on these functions. See [effx graph](/docs/cli/graph).
+
+## What is not in the IR
+
+| Not in the IR | Where it lives |
+| --- | --- |
+| `ts.*` objects | nowhere. Nothing from the TypeScript API crosses `SourceFrontend`. |
+| Source locations | the manifest ([effx build](/docs/cli/build)) |
+| Emit mode, target profile, output directory | `GenerationContext` ([Emit modes and targets](/docs/concepts/emit-modes-and-targets)) |
+| Schema values | referenced by `SchemaRef` ([Schema refs](/docs/concepts/schema-refs)) |

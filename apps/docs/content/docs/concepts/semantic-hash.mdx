@@ -1,0 +1,71 @@
+---
+title: Semantic hash
+description: Canonical JSON per RFC 8785 over the normalized IR, and the sha-256 hash taken from it. Same meaning gives the same bytes.
+---
+
+The same application graph must give the same cache key, diff, snapshot and agent input. effx gets that from three steps: normalize, canonicalize, hash (ADR 0003).
+
+Source: `packages/ir/src/{normalize,canonical,jcs}.ts`, `docs/decisions/0003-canonical-json-is-a-projection.md`, `docs/specs/0001-compiler-kernel.md`.
+
+```
+IR ──normalize──▶ IR₀ ──encode (Schema)──▶ JSON ──JCS──▶ canonical text ──sha-256──▶ semanticHash
+                                                          (ir.json)                  (manifest.json)
+```
+
+## The steps
+
+| Step | Rule | Function |
+| --- | --- | --- |
+| normalize | nodes sorted by `id`, edges by `(kind, from, to, qualifier)`, set-valued fields sorted and deduplicated. Idempotent. | `normalize` |
+| canonical | RFC 8785 over the Schema-encoded JSON of the normalized IR | `canonical`, `canonicalJson` |
+| semanticHash | lowercase hex sha-256 of the canonical UTF-8 bytes | `semanticHash` |
+
+## Canonical JSON
+
+`canonicalJson` implements RFC 8785 (JCS):
+
+| Rule | Detail |
+| --- | --- |
+| Object keys | sorted by UTF-16 code unit |
+| Whitespace | none |
+| Primitives | ES6 `JSON.stringify` formatting for strings, numbers, booleans and null |
+| Arrays | order is kept. Order is meaningful in JSON, so normalization fixes it first. |
+
+Encoding is derived from the IR Schema (`Schema.toCodecJson`), so no hand-written serializer defines the wire shape.
+
+## Hash
+
+`semanticHash(ir)` is an Effect that needs the `Crypto` service. It takes the SHA-256 digest of the UTF-8 bytes of `canonical(ir)` and hex-encodes it. The CLI provides `Crypto` from the Bun platform layer.
+
+`effx build` writes the canonical text to `.effx/ir.json` and the hash to `semanticHash` in `.effx/manifest.json` ([effx build](/docs/cli/build)).
+
+## What changes the hash, and what does not
+
+| Change | Hash |
+| --- | --- |
+| Moving a declaration between lines or files without changing its ids | unchanged. Locations are in the manifest, not the IR. |
+| Reordering declarations in a file | unchanged. Normalization sorts. |
+| Changing emit mode (`contract`, `handlers`, `all`) | unchanged |
+| Changing target profile (`effect-4.0`, `effect-4.0-rc`) | unchanged |
+| Changing the output directory, the absolute checkout path, or a `.js` versus `.ts` import suffix | unchanged |
+| Changing a declaration (an operation, a path, a schema reference, a declared error) | changed |
+
+Spec 0010 states the output-policy rows as a requirement: two passes of one source with different emit modes, tsconfigs and output directories must produce byte-identical canonical IR and the same `semanticHash`. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets).
+
+## Laws
+
+These are tested properties, listed in ADR 0003 and spec 0001.
+
+| Law | Meaning |
+| --- | --- |
+| `decode(encode(normalize(x))) == normalize(x)` | round trip |
+| `canonical(canonical(x)) == canonical(x)` | canonicalization is idempotent |
+| `normalize(normalize(x)) == normalize(x)` | normalization is idempotent |
+| `fromGraph(toGraph(x)) == normalize(x)` | the graph index loses nothing |
+
+## Two files, two jobs
+
+| File | Holds |
+| --- | --- |
+| `.effx/ir.json` | semantics only |
+| `.effx/manifest.json` | locations, compiler versions, generated files, diagnostics and the hash |

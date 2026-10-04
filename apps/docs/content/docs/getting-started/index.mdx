@@ -1,0 +1,176 @@
+---
+title: Getting started
+description: Walk the examples/users slice end to end, from declarations to check, build, inspect, graph, and a running server, client and CLI.
+---
+
+This page follows the `examples/users` slice. Every code block below is included from the real file, so it cannot drift from the repository.
+
+<Callout type="warn">
+  effx is not published. `@effx/cli` and `@effx/runtime` are workspace packages at version `0.1.0` (`packages/cli/package.json`) and no npm install flow exists yet. Every command here runs from a checkout of the monorepo. `STATE.md` records that mono-web consumes a locally packed, vendored distribution. The root script `bun run pack` builds the local tarballs (`package.json`, `scripts/pack.ts`).
+</Callout>
+
+## Two ways to call the CLI today
+
+| Where | Command | Notes |
+| --- | --- | --- |
+| Monorepo root | `bun run effx <command> --project examples/users/tsconfig.json` | Root script `effx` is `bun packages/cli/src/main.ts`. `--project` is resolved against the working directory. |
+| Example package | `bun run --cwd examples/users effx:build` | The script `effx:build` in `examples/users/package.json` is `bun ../../packages/cli/src/main.ts build`. `--project` defaults to `tsconfig.json` in that directory. |
+| Published package | not available | Nothing is published. Do not rely on a `bunx effx` or `npm install` flow. |
+
+Install the workspace dependencies first with `bun install` at the repository root. `AGENTS.md` notes that the Oxlint plugin dependency is a local path pin to a sibling checkout.
+
+## What you build
+
+```
+examples/users/src/
+  schemas.ts        Effect Schemas: ids, inputs, views, tagged errors
+  user.ts           @PersistentModel User with Public and Self views
+  services.ts       Users service + in-memory layer
+  capabilities.ts   Read, ChangeEmail capabilities
+  operations.ts     the two annotated operations
+        │ effx build
+        ▼
+examples/users/.effx/
+  ir.json   manifest.json   generated/{http,rpc,cli,client}.ts
+```
+
+Source: `docs/specs/0003-cli-and-vertical-slice.md` "Journey" and "examples/users".
+
+## 1. Declare
+
+Schemas are plain Effect `Schema` values. The compiler keeps them as references and never serializes them ([Schema refs](/docs/concepts/schema-refs)).
+
+<include cwd lang="ts" meta='title="examples/users/src/schemas.ts"'>../../examples/users/src/schemas.ts</include>
+
+The model ties a table and two views to the `User` class.
+
+<include cwd lang="ts" meta='title="examples/users/src/user.ts"'>../../examples/users/src/user.ts</include>
+
+The service is an ordinary `Context.Service`. The layer is an in-memory store, not durable across restarts.
+
+<include cwd lang="ts" meta='title="examples/users/src/services.ts"'>../../examples/users/src/services.ts</include>
+
+Capabilities name what an operation is allowed to do, against a model and an optional focus path.
+
+<include cwd lang="ts" meta='title="examples/users/src/capabilities.ts"'>../../examples/users/src/capabilities.ts</include>
+
+The operations carry the annotations. Each decorator contributes to the IR. None of them changes how the method runs ([The invariant](/docs/introduction/invariant)).
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+| Annotation | What it contributes |
+| --- | --- |
+| `@Query`, `@Command` | An `Operation` node with input and success schema references |
+| `@Http.Get`, `@Http.Patch` | An `Exposure` node with an `ExposedAs` edge |
+| `@Rpc`, `@Cli` | The same, for RPC and CLI exposure |
+| `@Authorize` | An `AuthorizedBy` edge to a capability |
+| `@Errors`, `@Requirements` | Declared error and requirement sets, checked against what the handler infers |
+
+Source: `docs/specs/0001-compiler-kernel.md` annotation argument shapes. The authoring surface is documented under `/docs/authoring/http`.
+
+## 2. Check
+
+`check` runs collect, interpret and analyze. It prints diagnostics and writes nothing.
+
+```bash
+bun run effx check --project examples/users/tsconfig.json
+```
+
+The output ends with a summary line, `N error(s), M warning(s), K info`. The exit code is 1 if any diagnostic has severity `error`, otherwise 0. See [effx check](/docs/cli/check).
+
+## 3. Build
+
+```bash
+bun run --cwd examples/users effx:build
+```
+
+`build` runs `check`, then writes `.effx/ir.json`, `.effx/manifest.json` and the generated files. `STATE.md` records this build as zero errors, four generated files, and TypeScript-version skew reported as `EFFX0001` (later entries add two unprotected-User `EFFX2504` warnings). See [effx build](/docs/cli/build).
+
+<Callout type="info">
+  `.effx/` is gitignored. The example `tsconfig.json` includes `.effx/generated/**/*.ts`, so run the build before typechecking or running the example (spec 0003).
+</Callout>
+
+## 4. Inspect
+
+```bash
+bun run effx inspect User.ChangeEmail --project examples/users/tsconfig.json
+```
+
+`inspect` prints one operation's contract and exposures. The format is defined in spec 0003. This block is the spec's format example, not captured from a run for this page.
+
+```text
+Operation User.ChangeEmail
+
+Kind
+  Command
+
+Contract
+  ChangeEmailInput → User.Self
+
+Errors
+  EmailTaken
+  UserNotFound
+
+Requirements
+  Users
+
+Authority
+  User.ChangeEmail
+  resource: User
+  focus: User.email
+
+Exposed
+  PATCH /users/:id/email
+  RPC User.ChangeEmail
+  CLI users change-email
+```
+
+See [effx inspect](/docs/cli/inspect).
+
+## 5. Graph
+
+```bash
+bun run effx graph User.Get --project examples/users/tsconfig.json
+```
+
+`graph` prints a Mermaid `flowchart LR` of the whole IR, or of one node plus everything reachable from it. See [effx graph](/docs/cli/graph).
+
+## 6. Run it
+
+The generated `http.ts` exports `AppRoutes`. `server.ts` re-exports it and `server-main.ts` is the composition root. You provide the layers. effx adds no runtime of its own.
+
+<include cwd lang="ts" meta='title="examples/users/src/server-main.ts"'>../../examples/users/src/server-main.ts</include>
+
+The `examples/users/package.json` scripts:
+
+| Script | Command it runs | Needs |
+| --- | --- | --- |
+| `effx:build` | `bun ../../packages/cli/src/main.ts build` | nothing |
+| `serve` | `bun src/server-main.ts` | a prior build. Reads `PORT` (default 3000). |
+| `client` | `bun src/client-main.ts` | a prior build and a running server. Reads `EFFX_URL` (default `http://localhost:3000`). |
+| `cli` | `bun src/cli-main.ts` | a prior build |
+
+Run each with `bun run --cwd examples/users <script>`. `STATE.md` records these runs from the CLI/users evidence:
+
+```bash
+PORT=31063 bun run --cwd examples/users serve
+EFFX_URL=http://127.0.0.1:31063 bun run --cwd examples/users client
+bun run --cwd examples/users cli users get --input '{"id":"1"}'
+bun run --cwd examples/users cli users change-email --input '{"id":"1","email":"alice+cli@example.com"}'
+```
+
+The recorded results: `GET /users/1` and `PATCH /users/1/email` returned HTTP 200, the client logged the public and self views, and each generated CLI command printed one JSON success line.
+
+## Next
+
+<Cards>
+  <Card title="CLI reference" href="/docs/cli">
+    Every command and flag.
+  </Card>
+  <Card title="Concepts" href="/docs/concepts">
+    IR, StableId, semantic hash, emit modes.
+  </Card>
+  <Card title="Authoring HTTP" href="/docs/authoring/http">
+    Declare HTTP contracts and groups.
+  </Card>
+</Cards>

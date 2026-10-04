@@ -1,0 +1,146 @@
+---
+title: CLI overview
+description: The effx command line. Four compile commands and one wiring check, six shared flags, and an optional effx.config.ts that sits below the flags in the precedence order.
+---
+
+`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same six shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`). A fifth command, `effx surface check`, is described in the table below.
+
+Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
+
+<Callout type="warn">
+  The CLI is not published. Run it from the monorepo: `bun run effx <command>` at the repository root (root script `effx` is `bun packages/cli/src/main.ts`). See [Getting started](/docs/getting-started).
+</Callout>
+
+## Commands
+
+| Command | Description (from `main.ts`) | Writes files | Page |
+| --- | --- | --- | --- |
+| `effx check` | Diagnose without writing | no | [check](/docs/cli/check) |
+| `effx build` | Write selected projections (default: all) | `.effx/ir.json`, `.effx/manifest.json`, `.effx/surface.json`, generated files | [build](/docs/cli/build) |
+| `effx inspect <name>` | Show one operation's contract and exposures | no | [inspect](/docs/cli/inspect) |
+| `effx graph [name]` | Print a Mermaid graph, optionally from one node | no | [graph](/docs/cli/graph) |
+| `effx surface check --against <file>` | Verify an Alchemy Worker program wires exactly the generated handlers the surface requires (spec 0021). Compiles the project first and exits 1 on errors. | no | none yet |
+
+The root command is described as "AOT application compiler for Effect".
+
+Source for the `surface check` row: `main.ts` description and `packages/cli/src/surface.ts` (`surfaceCheck`, `wiringDiagnostics`). The comment there states that it never executes the program. Its diagnostic codes and the wiring rules are not described on this page.
+
+## Flags
+
+`main.ts` defines these flags once, as shared flags on the root command (`Command.withSharedFlags`). Every subcommand, including `check`, `build`, `inspect` and `graph`, receives the same set and resolves them with the same function (`resolveProject` in `packages/cli/src/commands.ts`). Every flag is optional.
+
+| Flag | Type | Applies to | Precedence | Default when nothing sets it |
+| --- | --- | --- | --- | --- |
+| `--project` | string (path to a tsconfig) | `check`, `build`, `inspect`, `graph` | Highest. Beats the config `project`. | `tsconfig.json` |
+| `--config` | string (path to a config module) | all four | Highest. Beats discovery. | `effx.config.ts` beside the selected tsconfig, if it exists; otherwise no config |
+| `--out-dir` | string (path) | all four | Highest. Beats config `outDir` and the tsconfig `effx.outDir`. | `<tsconfig dir>/.effx/generated` |
+| `--strict-access` / `--no-strict-access` | boolean | all four | Highest. An explicit `--no-strict-access` beats a config or tsconfig `true`. | `false` |
+| `--target` | one of `effect-4.0`, `effect-4.0-rc` | all four | Highest. Beats config `target` and tsconfig `effx.target`. | resolved from the installed Effect version (see below) |
+| `--emit` | one of `contract`, `handlers`, `all` | all four | Highest. Beats config `emit` and tsconfig `effx.emit`. | `all` |
+
+`inspect` and `graph` accept all six flags and resolve them exactly as `check` and `build` do. For example `inspect User.Get --strict-access` and `graph --emit contract` both exit 0 (observed by running `bun packages/cli/src/main.ts` in `examples/users`). `--strict-access` changes diagnostic severity, and `inspect` and `graph` print no diagnostics, so it does not change their output. `check --strict-access` on the same project turns the two `EFFX2504` warnings into errors and exits 1, and `check --no-strict-access` keeps them as warnings and exits 0 (observed).
+
+Positional arguments:
+
+| Command | Argument | Required |
+| --- | --- | --- |
+| `inspect` | `name` | yes |
+| `graph` | `name` | no |
+
+### Literal values
+
+The `--target` and `--emit` values come from the `TargetProfile` and `EmitMode` schemas in `packages/compiler/src/Collected.ts`. `main.ts` builds the flags from `TargetProfile.literals` and `EmitMode.literals`, so the CLI and compiler cannot disagree.
+
+| Schema | Literals |
+| --- | --- |
+| `TargetProfile` | `effect-4.0`, `effect-4.0-rc` |
+| `EmitMode` | `contract`, `handlers`, `all` |
+
+Both `--emit=contract` and `--emit contract` forms are exercised by the CLI tests. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets) for what the values mean.
+
+### Defaults when nothing sets a value
+
+| Value | Result | Source |
+| --- | --- | --- |
+| emit | `all` | `emit ?? config?.emit ?? effx?.emit ?? "all"` in `resolveProject`, `packages/cli/src/commands.ts` |
+| target | Taken from the installed `effect/package.json` that the target project resolves. `4.0.0` selects `effect-4.0`. `4.0.0-rc.<n>` selects `effect-4.0-rc`. A missing or unsupported package is an `EFFX2701` diagnostic. | `docs/specs/0010-target-profiles-and-emit-modes.md`, `packages/frontend-ts/src/project.ts` |
+| strict access | `false`. Access warnings do not block generation. | `docs/specs/0006-access-contract-extension.md`, `resolveProject` |
+
+## Project config
+
+A project can keep its settings in an `effx.config.ts` module instead of repeating flags. The module default-exports `defineConfig({ ... })` from `@effx/cli/config`. This page covers how the CLI finds and applies the file. For authoring extensions and the `extensions` and `generators` fields, see [Extensions](/docs/extensions).
+
+```ts
+import { defineConfig } from "@effx/cli/config";
+
+export default defineConfig({
+  project: "tsconfig.effx.json",
+  outDir: ".effx/generated",
+  emit: "contract",
+  target: "effect-4.0-rc",
+  strictAccess: true,
+});
+```
+
+This shape is the example from spec 0015 without the `extensions` and `generators` lines. `project`, `outDir`, `emit`, `target` and `strictAccess` are optional (`EffxConfig` in `packages/cli/src/config.ts`).
+
+### Discovery
+
+| Situation | Behaviour |
+| --- | --- |
+| No `--config`, file present | The CLI loads `effx.config.ts` from the directory of the tsconfig selected by `--project` (or `./tsconfig.json`). |
+| No `--config`, file absent | The defaults apply. No error. |
+| `--config <path>` | That file is loaded. The path resolves from the working directory. |
+| `--config <path>` and the file does not exist | The command fails before compilation with `invalid effx config <file>: file does not exist`. The `--config nope.ts` case exits 1 (observed). |
+| The module cannot be imported, has invalid fields, or has an invalid `extensions` value | The command fails before compilation with `invalid effx config <file>: <reason>` (`loadConfig` and `configuredExtensions` in `commands.ts`). |
+
+Discovery looks beside the tsconfig selected by the flag or the default. If the discovered config sets another `project`, the CLI does not look for a second config beside that project. When `--project` is given, the config `project` is ignored.
+
+The config module is the only user module the CLI evaluates, once per command invocation. The CLI never imports application source (spec 0015, `loadConfig` in `commands.ts`).
+
+### Precedence
+
+Each value takes the first source that sets it, from left to right.
+
+| Value | CLI flag (highest) | Config | tsconfig `effx` block | Default |
+| --- | --- | --- | --- | --- |
+| tsconfig | `--project` | `project` | none | `tsconfig.json` |
+| config module | `--config` | discovery beside the selected tsconfig | none | absent |
+| output directory | `--out-dir` | `outDir` | `outDir` | `<tsconfig dir>/.effx/generated` |
+| emit mode | `--emit` | `emit` | `emit` | `all` |
+| target | `--target` | `target` | `target` | installed Effect version |
+| strict access | `--strict-access` or `--no-strict-access` | `strictAccess` | `strictAccess` | `false` |
+| project root | none | none | `projectRoot` | tsconfig directory |
+
+Source: the Resolution table in `docs/specs/0015-config-and-extensions.md`, checked against `resolveProject` in `packages/cli/src/commands.ts`. The spec's extra "programmatic `ProjectConfig.projectRoot`" source applies to library callers of `compile`, not to the CLI.
+
+### Where relative paths resolve
+
+| Source of the path | Resolves from |
+| --- | --- |
+| CLI flag (`--project`, `--config`, `--out-dir`) | the working directory |
+| config `project`, config `outDir` | the directory that contains the config file |
+| tsconfig `effx` block (`outDir`, `projectRoot`) | the directory that contains the tsconfig |
+
+The `.effx` directory that holds `ir.json`, `manifest.json` and `surface.json` is `<tsconfig dir>/.effx`. `--out-dir` and `outDir` move only the generated files (`effxDir` in `resolveProject`).
+
+### Extensions and generators
+
+The config can also set `extensions` and `generators`. These have no CLI flags. A config `extensions` array is appended to the built-in extensions. A callback receives the built-ins and returns the whole ordered list. `generators` toggles (`http`, `rpc`, `cli`, `client`, `foldkit`) switch off only the matching built-in file generator. All four compile commands use the resulting extension list, so a custom extension's analyses run in `check`, `inspect` and `graph` as well as `build`. See [Extensions](/docs/extensions) for the authoring guide.
+
+## Exit behaviour
+
+| Situation | Result |
+| --- | --- |
+| `check` or `build` finds a diagnostic with severity `error` | Diagnostics are printed first. The command then fails with `CheckFailed` and exit code 1. |
+| `inspect` or `graph` name resolves to nothing | An `error:` line is printed on stdout. The command fails with `UnknownName` and exit code 1. |
+| Explicit `--config` file is missing or invalid | Fails before compilation with `invalid effx config <file>: <reason>`. Exit 1 for a missing file (observed). |
+| IO or invariant breakage | The command fails with `CompilerFault` (a tagged error, not a diagnostic). |
+
+Source: `CheckFailed` and `UnknownName` in `packages/cli/src/commands.ts`, which are marked `errorReported = false` so the runtime prints nothing more. The numeric exit code 1 for these two is stated in their doc comments and spec 0003. The exit code for `CompilerFault` is decided by `BunRuntime.runMain` and is not specified in the repository docs. A config failure is a `CompilerFault` built by `invalidConfig` with stage `collect`.
+
+Invalid `--target` or `--emit` values fail at the CLI boundary, before the compiler runs (CLI test).
+
+## Output goes to stdout
+
+Diagnostics, the summary, `inspect` text and `graph` text are all written with the `Console` service. The format is described on each command page and in [Diagnostics](/docs/diagnostics).

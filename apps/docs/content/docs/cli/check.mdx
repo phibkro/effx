@@ -1,0 +1,76 @@
+---
+title: effx check
+description: Run the full pipeline, print diagnostics and a summary, and write nothing.
+---
+
+```bash
+effx check [--project <tsconfig>] [--config <file>] [--out-dir <dir>] [--strict-access | --no-strict-access] [--target <profile>] [--emit <mode>]
+```
+
+From the monorepo root: `bun run effx check --project examples/users/tsconfig.json`.
+
+Source: `packages/cli/src/main.ts`, `check` and `compileAndReport` in `packages/cli/src/commands.ts`, `packages/cli/src/report.ts`.
+
+## Flags
+
+`check` accepts the six shared flags that the root command defines. They apply to all four commands and are resolved once by `resolveProject`. See the [CLI overview](/docs/cli#flags) for the full table and [Project config](/docs/cli#project-config) for the order in which flags, `effx.config.ts`, the tsconfig `effx` block and defaults are consulted.
+
+| Flag | Values | Default |
+| --- | --- | --- |
+| `--project` | path to a tsconfig | `tsconfig.json`, or the config `project` |
+| `--config` | path to an `effx.config.ts` module | `effx.config.ts` beside the selected tsconfig, if present |
+| `--out-dir` | path | `<tsconfig dir>/.effx/generated` |
+| `--strict-access`, `--no-strict-access` | boolean flag | `false` |
+| `--target` | `effect-4.0`, `effect-4.0-rc` | resolved from the project's installed Effect |
+| `--emit` | `contract`, `handlers`, `all` | `all` |
+
+`--strict-access` turns the missing-access warning into an error. Missing security markers are errors in both modes. Source: `docs/specs/0006-access-contract-extension.md`. On `examples/users`, `check --strict-access` turns the two `EFFX2504` warnings into errors and exits 1. `check --no-strict-access` keeps them as warnings and exits 0. Both were observed by running `bun packages/cli/src/main.ts`. `--no-strict-access` also overrides a `strictAccess: true` from the config or the tsconfig (`strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false` in `resolveProject`).
+
+`--target` and `--emit` change what the generators would emit and which target-specific diagnostics can appear. `check` writes no files in any mode, so `--out-dir` only changes the resolved output location.
+
+An explicit `--config` file that is missing or invalid fails before compilation. `check --config nope.ts` exits 1 with an `invalid effx config` error (observed).
+
+## What it does
+
+```
+collect → interpret → normalize → analyze → generate (in memory)
+                                        │
+                  print diagnostics + summary
+                                        │
+                  any severity "error"? ── yes → exit 1
+                                        └─ no  → exit 0
+```
+
+`check` calls `compile` with the project's resolved extension list: `Extensions.builtin` when no config sets `extensions`, otherwise the built-ins with the config's additions or the list the config callback returns. A `generators` toggle in the config removes a built-in's file generator but not its interpretation or analyses. The generate stage runs unless an error diagnostic exists, so a generator failure surfaces as a `CompilerFault`. No file is written. Source: `configuredExtensions` in `packages/cli/src/commands.ts`.
+
+## Output
+
+Diagnostics are grouped by file. File names are relative to the working directory when the file is inside it, and absolute otherwise. Diagnostics without a location are listed last under `(no location)`.
+
+```text
+src/operations.ts
+  EFFX#### error    <message>  src/operations.ts:31:3
+(no location)
+  EFFX#### warning  <message>
+0 error(s), 1 warning(s), 0 info
+```
+
+| Rule | Detail |
+| --- | --- |
+| Line format | `<code> <severity padded to 8> <message>  <file>:<line>:<col>` |
+| Location suffix | omitted when the diagnostic has no location |
+| File order | sorted by file name |
+| Order inside a file | by line, then column, then code |
+| Summary | `N error(s), M warning(s), K info` |
+| `related` diagnostics | not printed. They are stored in `manifest.json` when you run `build`. |
+
+The line format is defined by `formatDiagnostic` in `packages/cli/src/report.ts` and spec 0003. The `EFFX####` placeholders above stand for real codes. See [Diagnostics](/docs/diagnostics).
+
+## Exit code
+
+| Condition | Exit |
+| --- | --- |
+| At least one diagnostic with severity `error` | 1 (`CheckFailed`, errors already printed) |
+| Only warnings and info | 0 |
+
+Spec 0003 test laws: a passing project exits 0 and prints an `EFFX0001 info` line and `0 error(s)`. A project with a broken entry exits 1 and prints an `error` line.

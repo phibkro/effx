@@ -1,0 +1,257 @@
+---
+title: What is effx
+description: effx is the enterprise on-ramp to full-stack Effect. You write a familiar declarative surface, the compiler writes ordinary, inspectable Effect, and nothing locks you in.
+---
+
+effx bridges traditional enterprise frameworks and full-stack Effect. The author writes a familiar declarative surface: decorators or builder chains for routes, validation, errors and access. The compiler reads that source ahead of time and writes ordinary Effect. You keep Effect's guarantees, and you can stop using effx without rewriting the result.
+
+Source: [ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp), `AGENTS.md`, `docs/specs/0001-compiler-kernel.md`.
+
+## The problem
+
+A team that runs on a controller-and-decorator framework already knows the declarative surface: routes, DTO validation, guards, error responses, generated clients. Full-stack Effect gives stronger guarantees: typed errors (`E`), typed requirements (`R`), explicit layers and one schema language. It also asks the team to learn a new vocabulary before it ships anything. That cost makes the switch hard to start and hard to pitch (ADR 0012, "Context").
+
+## What effx is in that frame
+
+effx puts the familiar surface on top and keeps ordinary Effect underneath. There are three layers, and you can read and replace the lower two.
+
+| Layer | What you see | What exists underneath |
+| --- | --- | --- |
+| Declaration | `@Query`, `@Command`, `@Http.Patch`, `@Http.Access`, or the builder chain | annotations that contribute to the IR (ADR 0001) |
+| Generated | readable files in `.effx/generated` | `HttpApi`, `Rpc`, CLI `Command`, a client, Foldkit commands |
+| Application | handlers, services, layers | native Effect, written and owned by you |
+
+Source: ADR 0012 layer table; generators in `packages/compiler/src/generate/`.
+
+The rest of this page shows one operation three ways, maps each annotation to the Effect construct it becomes, and states what stays yours and what effx does not do.
+
+## One operation, three views
+
+The operation is "change a user's email": `PATCH /users/:id/email`, with a validated body, a typed failure for a missing user or a taken email, and an access check.
+
+### 1. A NestJS controller method
+
+The snippet below is written for this page after the patterns in the NestJS documentation. It is not copied from NestJS. Each construct links to the official page that defines it.
+
+```ts title="illustrative NestJS code"
+// DTO validated by class-validator (ValidationPipe is registered with app.useGlobalPipes)
+export class ChangeEmailDto {
+  @IsEmail()
+  email: string;
+}
+
+// Guard: canActivate returns a boolean (a false result becomes a ForbiddenException)
+@Injectable()
+export class ChangeEmailGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    return request.user?.id === request.params.id;
+  }
+}
+
+@Controller("users")
+export class UsersController {
+  constructor(private readonly users: UsersService) {}
+
+  @Patch(":id/email")
+  @UseGuards(ChangeEmailGuard)
+  async changeEmail(@Param("id") id: string, @Body() dto: ChangeEmailDto) {
+    const user = await this.users.setEmail(id, dto.email);
+
+    if (user === undefined) throw new NotFoundException(`User ${id} not found`);
+
+    return user;
+  }
+}
+```
+
+| NestJS construct | What the official documentation says | Page |
+| --- | --- | --- |
+| `@Controller("users")`, `@Patch(":id/email")` | A controller prefix and a method decorator form the route. `@Patch()` is one of the provided HTTP method decorators. | [Controllers](https://docs.nestjs.com/controllers) |
+| `@Body() dto: ChangeEmailDto` with `@IsEmail()` | `ValidationPipe` validates classes decorated with `class-validator` rules. A failing request gets a `400 Bad Request`. Bind the pipe with `app.useGlobalPipes(new ValidationPipe())`. | [Validation](https://docs.nestjs.com/techniques/validation) |
+| `@UseGuards(ChangeEmailGuard)` | A guard implements `CanActivate`, decides whether a request reaches the handler, and can be method-scoped with `@UseGuards()`. When it returns `false`, the framework throws `ForbiddenException`. | [Guards](https://docs.nestjs.com/guards) |
+| `throw new NotFoundException(...)` | `HttpException` and its subclasses are handled by the built-in exceptions layer. The built-in filter sends the response; custom filters give full control. | [Exception filters](https://docs.nestjs.com/exception-filters) |
+| `constructor(private readonly users: UsersService)` | The provider is injected by type through the constructor and resolved by the Nest container. | [Providers](https://docs.nestjs.com/providers) |
+
+Two properties matter for the comparison. First, a TypeScript signature does not record which exceptions a function throws, so the `Promise<User>` return type above says nothing about `NotFoundException` or a `ConflictException` thrown inside `UsersService`. Second, the dependency is resolved at runtime by the container.
+
+### 2. The effx declaration
+
+This is the real declaration of `User.ChangeEmail` in the users example. The decorators record annotations. The method body is an ordinary Effect handler.
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+Source: `examples/users/src/operations.ts`. `User.Get` is the first operation in the file; `User.ChangeEmail` starts at `@Command`.
+
+| You wrote | What it states |
+| --- | --- |
+| `@Command({ name, input: ChangeEmailInput, success: User.Self })` | the operation kind, its input `Schema` and its success `Schema`. `ChangeEmailInput` is `Schema.Struct({ id: UserId, email: Email })` with `Email = Schema.NonEmptyString` (`examples/users/src/schemas.ts`). |
+| `@Http.Patch("/users/:id/email")` | the HTTP exposure |
+| `@Rpc(...)`, `@Cli(...)` | two more exposures of the same operation |
+| `@Errors(UserNotFound, EmailTaken)` | an assertion: the handler's inferred `E` must equal this set (spec 0002, ADR 0005, diagnostics `EFFX2201`, `EFFX2202`) |
+| `@Requirements(Users)` | an assertion: the handler's inferred `R` must equal this set (ADR 0005, `EFFX2302`, `EFFX2303`) |
+| `@Authorize(ChangeEmail)` | a recorded capability fact. It is not an enforced guard (see below). |
+
+<Callout type="warn">
+  **The users example does not enforce access.** `@Authorize(ChangeEmail)` records a `Capability` node and an `AuthorizedBy` edge in the IR. effx has no authorization runtime; Cedar and leases are deferred (ADR 0007, `docs/specs/0006-access-contract-extension.md`). The equivalent of the NestJS guard in effx is `@Http.Access`, which this example does not use, so `effx build` prints an `EFFX2504` warning for each unprotected HTTP operation (`STATE.md`, client/Foldkit evidence). See [Guards in generated code](#guards-in-generated-code).
+</Callout>
+
+### 3. The generated Effect `HttpApi` endpoint
+
+`effx build` writes this for the same operation. The excerpt is from `examples/users/.effx/generated/http.ts`, as the compiler wrote it (indentation included). That directory is gitignored, so the file exists only after a build (`.gitignore`; see [Getting started](/docs/getting-started)).
+
+```ts title="examples/users/.effx/generated/http.ts (excerpt)"
+export class HttpOperations extends HttpApiGroup.make("operations").add(
+  HttpApiEndpoint.patch("User.ChangeEmail", "/users/:id/email", {
+  params: { id: Schema.String },
+  payload: ChangeEmailInput,
+  success: User.Self,
+  error: Schema.Union([EmailTaken, UserNotFound]),
+}),
+  // HttpApiEndpoint.get("User.Get", ...) omitted
+) {}
+
+export class Api extends HttpApi.make("effx").add(HttpOperations) {}
+
+export const ApiHandlers = HttpApiBuilder.group(
+  Api,
+  "operations",
+  Effect.fn(function* (handlers) {
+    return handlers.handleAll({
+      "User.ChangeEmail": ({ params, payload }) => UserOperations.changeEmail({ ...params, ...payload }),
+      // "User.Get" omitted
+    });
+  }),
+);
+```
+
+`ChangeEmailInput`, `EmailTaken`, `UserNotFound` and `User` are imported from your own files, not copied. The handler calls your `UserOperations.changeEmail`. The file imports `effect` modules and your source, and nothing from `@effx/*` (see the import block in `examples/users/.effx/generated/http.ts`).
+
+### The three views side by side
+
+| Concern | NestJS | effx declaration | Generated Effect |
+| --- | --- | --- | --- |
+| Route | `@Controller("users")` + `@Patch(":id/email")` | `@Http.Patch("/users/:id/email")` | `HttpApiEndpoint.patch("User.ChangeEmail", "/users/:id/email", ...)` |
+| Input and validation | DTO class with `class-validator` decorators, checked by `ValidationPipe` | `input: ChangeEmailInput` (an Effect `Schema`) | `params: { id: Schema.String }`, `payload: ChangeEmailInput` |
+| Failure | `throw` an `HttpException` subclass; not in the type | `@Errors(UserNotFound, EmailTaken)`, checked against the handler's `E` | `error: Schema.Union([EmailTaken, UserNotFound])` |
+| Service | constructor injection resolved by the container | `@Requirements(Users)`, checked against the handler's `R` | none; you provide `Users.layer` (`examples/users/src/server-main.ts`) |
+| Access | `@UseGuards(...)` | `@Http.Access(...)` (not used in this example) | `guards.ts` types and an `authorize` thunk |
+| Handler | the controller method | the decorated static method | `handleAll({ "User.ChangeEmail": ... })` calls it |
+
+## Guards in generated code
+
+For an operation that has `@Http.Access` with a credential other than `None`, the compiler adds a guard slot. The generated `guards.ts` is a type, not an implementation. This is from the Profile fixture, which does use `@Http.Access`:
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/guards.ts"'>../../packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/guards.ts</include>
+
+The generated handler passes `() => guards["update"](request)` to your handler as its `authorize` argument. Your handler decides when to call it. effx never runs it. Missing or non-Effect guard callbacks fail TypeScript checking.
+
+Source: `packages/compiler/src/generate/guards.ts`, `packages/compiler/src/generate/http.ts` (`handlerLine`), `docs/specs/0006-access-contract-extension.md` §"HTTP lowering and guard interface". Details: [Problems and access](/docs/authoring/problems-and-access#generated-shape-guards).
+
+## Annotation to Effect construct
+
+Each annotation maps to a named Effect construct, or is recorded in the IR only. Rows are **supported**: the generator or extension named in the Source column implements them. Where the construct column says "none", the annotation generates no Effect code today. Constructs come from the `effect` package at the paths the generators import.
+
+| effx annotation | Effect construct it becomes | Generated file | Source |
+| --- | --- | --- | --- |
+| `@Query`, `@Command` (`name`, `input`, `success`) | `Schema` values used as the endpoint `payload`/`success` and the `Rpc` `payload`/`success` | `http.ts`, `rpc.ts` | `generate/http.ts`, `generate/rpc.ts`, `extensions/core.ts` |
+| `@Http.Get` ... `@Http.Delete` | `HttpApiEndpoint.get/post/put/patch/delete`, collected in `HttpApiGroup.make(group)`, then `HttpApi.make(root)`. Handlers: `HttpApiBuilder.group(...)` with `handleAll`. Wiring: `HttpApiBuilder.layer(Api)` and `HttpRouter.serve`, exported as `AppRoutes`. | `http.ts` | `generate/http.ts` (`endpointExpr`, `groupLines`, `rootLines`, `handlersLines`) |
+| `@Http.Group` | `HttpApiGroup.make(group)` plus `OpenApi.annotations` merged with `annotateMerge`. Group defaults are expanded at compile time and never serialized. | `http.ts`, `<group>-contract.ts` | `generate/http.ts` (`groupAnnotation`), `group-defaults.ts`, spec 0013 |
+| `@Http.Contract` | endpoint options `params`, `query`, `headers`, `payload`, `success`; `HttpApiSchema` wrappers for media type; `.middleware(Marker)` with your `HttpApiMiddleware.Service` classes; `OpenApi.annotations` | `http.ts` | `generate/http.ts` (`endpointExpr`), spec 0005 |
+| `@Http.Problems` | the endpoint `error` schemas, produced by your registry function | `http.ts` | `generate/http.ts` (`problemErrors`), spec 0005 |
+| `@Http.Access` | `.annotateMerge(yourAnnotator({...}))` on the endpoint, plus the `authorize` thunk and the `AppGuards` type | `http.ts`, `guards.ts` | `generate/http.ts`, `generate/guards.ts`, spec 0006 |
+| `@Errors` | the endpoint `error` and `Rpc.make` `error` as `Schema.Union([...])`. The set is asserted against the handler's inferred `E`. | `http.ts`, `rpc.ts` | `extensions/core.ts`, ADR 0005 |
+| `@Requirements` | no generated construct. It asserts the handler's inferred `R`. `R` stays in the handler's type and in the `Layer` you provide. | none | `extensions/core.ts`, ADR 0005 |
+| `@Rpc` | `Rpc.make`, `RpcGroup.make`, `group.toLayer`, `RpcServer.layerHttp`, `RpcClient.make` | `rpc.ts` | `generate/rpc.ts` |
+| `@Cli` | `Command.make`, `Command.withSubcommands`, `Flag.String(...)` with `Flag.withSchema(Schema.fromJsonString(...))`, `Command.run` (from `effect/cli`) | `cli.ts` | `generate/cli.ts` |
+| client (every HTTP operation; no annotation) | `HttpApiClient.make(Api)`, a `Context.Service` class `Client` with `Layer` constructors (`layer`, `layerWith`, `layerAt`) | `client.ts` | `generate/client.ts`, spec 0007 |
+| `@Foldkit.Command` | Foldkit `Command.define` adapters over `client.ts` | `foldkit.ts` | `generate/foldkit.ts`, spec 0007 |
+| `@Authorize`, `@PersistentModel` | none. Recorded as `Capability`, `Focus` and `Model` nodes in the IR only. | none | `extensions/core.ts`; ADR 0007 (deferred); spec 0008 (proposed) |
+
+<Callout type="info">
+  The last row is the one place where an annotation has no Effect construct today. ADR 0012 says an annotation with no such mapping is not added. These two annotations exist from earlier decisions (ADR 0007, spec 0008) and are listed here as recorded facts, not as generated behaviour. Their status: [Persistence and authority](/docs/authoring/persistence-and-authority).
+</Callout>
+
+## What stays yours
+
+| You keep | How |
+| --- | --- |
+| Handlers | The operation method is your Effect. The compiler never rewrites handler bodies (ADR 0001). Generated files call it. |
+| Services and layers | You write `Context.Service` classes and `Layer`s and provide them yourself, for example `AppRoutes.pipe(Layer.provide(Users.layer), ...)` (`examples/users/src/server-main.ts`). |
+| `E` and `R` | Both stay in the handler's type. effx infers them from the handler and diagnoses a mismatch with `@Errors` or `@Requirements` (ADR 0005). Nothing is hidden behind exceptions or ambient context. |
+| Raw Effect | You can mix declared operations with hand-written `HttpApi` groups and handlers in one program (ADR 0012, "Consequences"). A declaration-only group binds raw handlers (`.declare()`, spec 0010; see [External bindings](/docs/concepts/external-bindings)). |
+| The way out | The generated files are the contract. Remove `.effx/` from `.gitignore`, commit `.effx/generated`, and stop running `effx build`. See [Generated code](/docs/introduction/generated-code#ejecting). |
+
+## What effx does not do
+
+| Not in effx | Why, and where to look |
+| --- | --- |
+| An effx runtime that executes requests | Generated code is ordinary Effect with no effx runtime (ADR 0008). |
+| Hidden dependency injection | No container, registry or reflection (ADR 0008). Requirements stay visible in types and `Layer`s (ADR 0005, ADR 0012). |
+| Hiding `E` or `R` | ADR 0012, "Rules out". |
+| Evaluating access | `@Http.Access` and `@Authorize` are declarations. effx never executes an access value, resolves a credential or chooses a principal (spec 0006). Cedar authorization and leases are deferred (ADR 0007). |
+| Persistence or SQL | **Gap.** Spec 0008 is proposed, not frozen. `STATE.md` parks it. `examples/users` uses an in-memory `Ref` and `HashMap`. SQL itself comes from the Effect packages (`packages/effect/src/sql/` and `packages/sql/*` in the [Effect repository](https://github.com/Effect-TS/effect)); effx generates nothing for it. |
+| Jobs, queues, scheduling | **Gap** in effx: no spec or source. Effect has `Schedule`, `Queue`, `workflow` and `cluster` modules (`packages/effect/src/{Schedule,Queue}.ts`, `packages/effect/src/{workflow,cluster}/`); effx does not generate code for them. |
+| Scaffolding, generators, a test harness | **Gap.** The CLI has four commands: `check`, `build`, `inspect`, `graph` (`packages/cli/src/main.ts`, [CLI](/docs/cli)). |
+| Reimplement the Effect ecosystem | Authentication, persistence, jobs, caching and infrastructure come from existing Effect packages and your layers. Where none exists, the documentation says "gap" (ADR 0012). |
+
+Effect paths above are in the official repository at commit `b5a2d4c1d6`, the clone used to write this page. Status words: **supported** is implemented, **via ecosystem package** is done by an Effect package, **gap** is nothing today.
+
+## How the compiler runs
+
+```
+ source        decorators  @Query @Http.Get ...      packages/runtime  (syntax only)
+ (.ts)         builder     Operation.query(...)...
+   │
+   │  frontend: TypeScript compiler API              packages/frontend-ts
+   ▼
+ Collected     declarations + annotations (same shape from both syntaxes)
+   │
+   │  interpret: Extension.interpreters              packages/compiler
+   ▼
+ IR            ApplicationIR = nodes + edges         packages/ir
+   │            (normalized, Schema-defined)
+   │  analyses: Analysis(ir, index) → Diagnostic[]   errors stop generation
+   ▼
+ generators    Generator(ir, index, ctx) → GeneratedFile[]
+   │
+   ▼
+ .effx/generated/*.ts   ordinary Effect
+ .effx/ir.json          canonical IR
+ .effx/manifest.json    hash, locations, diagnostics
+```
+
+| Stage | What happens | Defined in |
+| --- | --- | --- |
+| Source | Decorators and builder chains are source syntax. Both lower to identical `Annotation`s. | `packages/runtime/src`, `packages/frontend-ts/src` |
+| Collect | The frontend returns `Collected`: declarations, their annotations, frontend diagnostics. | `packages/compiler/src/Collected.ts` |
+| Interpret | Each annotation name is owned by an extension interpreter. It returns a `Contribution` of nodes, edges and diagnostics. | `packages/compiler/src/pipeline.ts` |
+| Normalize | Contributions merge into one `ApplicationIR` with a stable order. | `packages/ir/src/normalize.ts` |
+| Analyze | Analyses read the IR and its graph index and return diagnostics. | `packages/compiler/src/pipeline.ts` |
+| Generate | If no diagnostic has severity `error`, generators emit files. Output is sorted by path. | `packages/compiler/src/pipeline.ts` |
+
+The packages are `@effx/ir`, `@effx/compiler`, `@effx/frontend-ts`, `@effx/runtime` and `@effx/cli` (`AGENTS.md` package map). The vertical slice `examples/users` measured 70 hand-written declaration lines against 118 generated projection lines for two operations (`STATE.md`, "CLI/users vertical slice" evidence).
+
+<Callout type="warn">
+  The packages are not published to a registry. You run effx from the monorepo today. See [Getting started](/docs/getting-started).
+</Callout>
+
+## What to read next
+
+<Cards>
+  <Card title="Getting started" href="/docs/getting-started">
+    Build the `examples/users` slice end to end.
+  </Card>
+  <Card title="Coming from NestJS, ASP.NET Core or Laravel" href="/docs/coming-from">
+    Concept maps, with each concept marked supported, via an ecosystem package, or a gap.
+  </Card>
+  <Card title="The invariant" href="/docs/introduction/invariant">
+    A decorator is a contribution to the IR, never generated behaviour.
+  </Card>
+  <Card title="Generated code" href="/docs/introduction/generated-code">
+    What the compiler writes, and how to keep it and drop effx.
+  </Card>
+  <Card title="Concepts" href="/docs/concepts">
+    IR, StableId, semantic hash, emit modes.
+  </Card>
+</Cards>

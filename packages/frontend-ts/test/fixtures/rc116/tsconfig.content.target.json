@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src/content-support.ts",
+    "src/content-root.ts",
+    ".effx/generated/content-contract.ts",
+    "project/content-handlers/.effx/generated/content-handlers.ts"
+  ]
+}

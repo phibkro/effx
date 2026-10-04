@@ -1,0 +1,9 @@
+{
+  "package": "@phibkro/oxlint-effect-plugin",
+  "version": "0.1.0",
+  "artifact": "oxlint-effect-plugin-0.1.0-2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e.tgz",
+  "sourceUrl": "https://github.com/phibkro/oxlint-effect-plugin.git",
+  "commit": "2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e",
+  "sha256": "64d16f1d315fbf5e1ae5376274fcbd205905bce9afa3cce645895ba773e64520",
+  "license": "MIT"
+}

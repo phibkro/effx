@@ -1,0 +1,49 @@
+---
+title: effx
+description: The enterprise on-ramp to full-stack Effect. A familiar declarative surface on top, ordinary inspectable Effect underneath, no lock-in.
+---
+
+effx bridges traditional enterprise frameworks and full-stack Effect. You write a familiar declarative
+surface (decorators or builder chains). The compiler reads it ahead of time and writes ordinary Effect
+(`HttpApi`, `Rpc`, CLI commands, a client, Foldkit commands) that you can read, keep and edit. Effect's
+typed errors and requirements stay visible, and there is no effx runtime.
+
+```
+source ──► annotations ──► IR (Schema) ──► analyses ──► generators ──► ordinary Effect
+```
+
+The one rule: **a decorator is a contribution to the IR, never generated behaviour.** The positioning is
+recorded in [ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp).
+
+<Cards>
+  <Card title="Introduction" href="/docs/introduction">
+    What effx is in the enterprise-framework frame, how it compares on one operation, and the invariants it keeps.
+  </Card>
+  <Card title="Coming from NestJS, ASP.NET Core or Laravel" href="/docs/coming-from">
+    Concept maps from each framework, with every concept marked supported, via an ecosystem package, or a gap.
+  </Card>
+  <Card title="Getting started" href="/docs/getting-started">
+    Compile the `examples/users` slice end to end.
+  </Card>
+  <Card title="Authoring" href="/docs/authoring">
+    Every annotation, as a decorator and as a builder step.
+  </Card>
+  <Card title="CLI" href="/docs/cli">
+    `effx check`, `build`, `inspect` and `graph`.
+  </Card>
+  <Card title="Concepts" href="/docs/concepts">
+    IR, StableId, semantic hash, emit modes, targets, external bindings.
+  </Card>
+  <Card title="Extensions" href="/docs/extensions">
+    The `Extension` contract.
+  </Card>
+  <Card title="Diagnostics" href="/docs/diagnostics">
+    Codes, severities, and where the registry will be generated.
+  </Card>
+  <Card title="Architecture decisions" href="/docs/decisions">
+    The ADRs, rendered from `docs/decisions`.
+  </Card>
+  <Card title="API reference" href="/docs/api">
+    Generated from JSDoc with `@effect/docgen`.
+  </Card>
+</Cards>

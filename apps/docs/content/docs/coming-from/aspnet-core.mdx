@@ -1,0 +1,598 @@
+---
+title: Coming from ASP.NET Core
+description: A concept map from ASP.NET Core controllers, policies, ProblemDetails and OpenAPI to effx annotations and the Effect constructs underneath, a list of gaps, and one PATCH endpoint ported side by side.
+---
+
+effx bridges enterprise frameworks and full-stack Effect. You write a familiar declarative surface
+(decorators or builder chains). The compiler reads it ahead of time and writes ordinary Effect that you can
+read, edit or keep. This page maps ASP.NET Core concepts onto that surface and says, row by row, what exists
+today (`docs/decisions/0012-positioning-enterprise-on-ramp.md`).
+
+**Pinned versions.** ASP.NET Core claims cite [learn.microsoft.com/aspnet/core](https://learn.microsoft.com/aspnet/core)
+at **ASP.NET Core 10.0** (`view=aspnetcore-10.0`). As fetched on 2026-10-04 the
+[.NET support policy](https://dotnet.microsoft.com/platform/support/policy/dotnet-core) lists .NET 10 as LTS in
+the active phase and .NET 11 as a release candidate. Two pages are not published for 10.0: the NSwag tutorial
+is cited at 8.0, and EF Core and Kiota live outside `aspnet/core` on Microsoft Learn. Effect claims cite the
+official clone at `https://github.com/Effect-TS/effect/tree/b5a2d4c1d62c9620a68d72b7f20248c69ef7663b` (`github.com/Effect-TS/effect`, commit `b5a2d4c`, package `effect`
+`4.0.0`). effx claims cite a spec or a source path in this repository.
+
+## Read this first: what an attribute means
+
+| | ASP.NET Core | effx |
+| --- | --- | --- |
+| An attribute such as `[HttpPatch]` or `[Authorize(Policy = "...")]` | Metadata the framework reads at runtime: routing picks the action, and "the framework uses handlers to evaluate the requirements behind a policy" ([Policy-based authorization](https://learn.microsoft.com/aspnet/core/security/authorization/policies?view=aspnetcore-10.0)). | A contribution to the IR. Runtime decorators are no-ops or metadata only, and the compiler (not a runtime) reads the source. Source: `AGENTS.md` invariants 1 and 2; ADR 0001. |
+| Dependency injection | A built-in container: "ASP.NET Core provides a built-in service container, `IServiceProvider`" ([Dependency injection](https://learn.microsoft.com/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0)). | No container. A handler's requirements `R` are inferred and `@Requirements` asserts them. You provide `Layer`s. Source: ADR 0005; ADR 0012 ("Rules out" hidden DI). |
+| Failures | Exceptions caught by exception-handling middleware or filters ([Handle errors](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling?view=aspnetcore-10.0)), plus MVC turning an error status code into a `ProblemDetails` body ([web API controllers](https://learn.microsoft.com/aspnet/core/web-api/?view=aspnetcore-10.0)). | Expected failures are typed errors `E` in the handler's `Effect<A, E, R>`. `@Errors` asserts them and a mismatch is a diagnostic. `@Http.Problems` names the HTTP error responses. Source: ADR 0005; spec 0005. |
+| Output | Behaviour lives in the framework at runtime. | Readable files in `.effx/generated`. A team can stop running the compiler and keep them. Source: ADR 0008; ADR 0012. |
+
+<Callout type="info">
+  Status vocabulary. **supported**: effx implements it (cited source or spec). **via ecosystem package**:
+  an Effect package does it and effx composes with it; the path is cited. **gap**: nothing today (not called
+  "planned" unless a spec says so). A cell can carry two statuses: first what effx itself provides, then what
+  the Effect ecosystem provides.
+</Callout>
+
+## Concept map
+
+### HTTP surface
+
+| ASP.NET Core concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Controllers, minimal APIs, routing: [controllers](https://learn.microsoft.com/aspnet/core/web-api/?view=aspnetcore-10.0), [minimal APIs](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis?view=aspnetcore-10.0), [routing](https://learn.microsoft.com/aspnet/core/fundamentals/routing?view=aspnetcore-10.0), [`[HttpPatch]` and verb templates](https://learn.microsoft.com/aspnet/core/mvc/controllers/routing?view=aspnetcore-10.0) | `@Query` or `@Command` plus `@Http.Get/Post/Put/Patch/Delete(path)`, `@Http.Group`; builder twin `Operation.command(...).http.patch(path)`. An operation class is a namespace of static methods, not an instantiated controller. | `HttpApiEndpoint`, `HttpApiGroup`, `HttpApi`, `HttpApiBuilder.group` | supported | Spec 0005; `packages/runtime/src/{decorators,builder}.ts`; `packages/compiler/src/generate/http.ts`; real output `examples/users/.effx/generated/http.ts`. See [HTTP](/docs/authoring/http). |
+| Model binding and validation: [model binding](https://learn.microsoft.com/aspnet/core/mvc/models/model-binding?view=aspnetcore-10.0) (`[FromRoute]`, `[FromBody]`), [model validation](https://learn.microsoft.com/aspnet/core/mvc/models/validation?view=aspnetcore-10.0) (DataAnnotations such as `[Required]` and `[EmailAddress]`) | `input` and `success` on `@Query`/`@Command`; `params`, `query`, `headers`, `payload` on `@Http.Contract`, each an Effect `Schema`. Rules are `Schema` checks, not attributes. | `HttpApiEndpoint` decodes each channel before the handler runs. A decode failure is `HttpApiSchemaError`, which "responds as an empty `400 Bad Request`". | supported (decode); a problem body for decode failures: via ecosystem package (`HttpApiMiddleware.layerSchemaErrorTransform`) | `examples/users/src/schemas.ts`; spec 0005; `packages/compiler/src/extensions/http-contract.ts`; Effect `packages/effect/src/http-api/HttpApiBuilder.ts:866-880`, `HttpApiError.ts:468-502`, `HttpApiMiddleware.ts:489`. See [Http.Contract](/docs/authoring/http-contract). |
+| Dependency injection, service lifetimes: [Dependency injection](https://learn.microsoft.com/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0) (`AddSingleton`, `AddScoped`, `AddTransient`). The options pattern is in the configuration row. | `@Requirements(Service)` asserts the handler's `R`. No module or container. | `Context.Service` and `Layer`. Layer construction is memoized and shared (`MemoMap`). A request-scoped value is a service that an `HttpApiMiddleware` `provides`. | supported (assertion, `EFFX2302`/`EFFX2303`); lifetimes: via ecosystem package (`effect`) | ADR 0005; ADR 0012; `examples/users/src/{services,server-main}.ts`; Effect `packages/effect/src/Layer.ts:183`, `http-api/HttpApiMiddleware.ts:1-10,193`. See [Operations](/docs/authoring/operations#errors-and-requirements). |
+| Middleware pipeline: [Middleware](https://learn.microsoft.com/aspnet/core/fundamentals/middleware/?view=aspnetcore-10.0) (`Use`, `Run`, `Map`; order is Program-file order) | `Http.Contract.middleware: [Marker]` per operation; `Http.group({ defaults: { middleware } })` per group. Markers attach in declaration order and effx never instantiates one. | `HttpApiMiddleware.Service` plus `.middleware(Marker)` on the endpoint. App-wide: `HttpMiddleware` (`logger`, `cors`, `tracer`, `xForwardedHeaders`). | supported (attach marker); implementation and app-wide middleware: via ecosystem package (`effect`) | Spec 0005 (`middleware` row); `packages/compiler/src/generate/http.ts:128-132`; Effect `http-api/HttpApiMiddleware.ts:67,340`, `http/HttpMiddleware.ts:149,199,299,341`. See [HTTP](/docs/authoring/http#how-group-defaults-merge). |
+| Filters: [Filters](https://learn.microsoft.com/aspnet/core/mvc/controllers/filters?view=aspnetcore-10.0) (authorization, resource, action, exception, result) | No filter annotation. Authorization filter: `Http.Access` plus a security marker. Action filter: a middleware marker. Exception filter: `@Errors` plus the endpoint's error schemas. | One `HttpApiMiddleware` wraps the endpoint effect and receives the endpoint and group. `Effect.catch*` in a handler handles a failure locally. | via ecosystem package (`effect`); staged filter pipeline (resource, result): gap | `packages/runtime/src/decorators.ts` (full annotation vocabulary); spec 0005, 0006; Effect `http-api/HttpApiMiddleware.ts:67-74`. |
+
+### Security and errors
+
+| ASP.NET Core concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Authentication and authorization policies: [policies, requirements, handlers](https://learn.microsoft.com/aspnet/core/security/authorization/policies?view=aspnetcore-10.0), [`[Authorize]`](https://learn.microsoft.com/aspnet/core/security/authorization/simple?view=aspnetcore-10.0), [resource-based authorization](https://learn.microsoft.com/aspnet/core/security/authorization/resource-based?view=aspnetcore-10.0) | `@Http.Access({ acceptedCredentials, principalKinds, capabilities, requirements, canonicalScopeResolver, concealment, decisionTime, annotator })` plus a security marker in `Http.Contract.middleware`. The handler receives a lazy `authorize` callback. `@Authorize(capability)` records capability facts only. | `HttpApiMiddleware.Service` with a `security` option (`HttpApiSecurity.bearer`, `apiKey`, `basic`); `endpoint.annotateMerge(annotator(spec))`; a guard `(request) => Effect<Principal, Problem, R>` that you write | supported (declaration, typed guard binding, `EFFX2500`-`EFFX2504`); **evaluation: gap, application code**; Cedar and leases deferred | Spec 0006; ADR 0007; `packages/compiler/src/extensions/access-contract.ts`; `packages/compiler/src/generate/guards.ts`; Effect `http-api/HttpApiSecurity.ts:167,191,220`. The Effect repository has no identity-provider package under `packages/`. See [Problems and access](/docs/authoring/problems-and-access). |
+| ProblemDetails and exception handling: [Handle errors in APIs](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling-api?view=aspnetcore-10.0) (`AddProblemDetails`, `IProblemDetailsService`, `ProblemDetails`), [`IExceptionHandler`](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling?view=aspnetcore-10.0), [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) | `@Http.Problems({ registry, codes, map })`. `registry` is an exported function you write; effx keeps no code, status or body table. | Endpoint `error` option; `HttpApiSchema.status` / `httpApiStatus` for the status; `HttpApiSchema.asJson({ contentType })` for the media type | supported (typed slot, `EFFX2205`/`EFFX2206`); problem body type, registry and domain-error conversion: application code. **RFC 9457 types: gap** | Spec 0005 §"Problem responses"; `packages/compiler/src/extensions/problem-contract.ts`; `ai-docs/src/04_problems-and-access/`; Effect `http-api/HttpApiSchema.ts:131-146,946`, `test/httpapi/HttpApiClient.test.ts:1226-1238`. No RFC 9457 module exists in `packages/effect/src`: the only match for `problem+json` there is the bundled Scalar UI asset `http-api/internal/httpApiScalar.ts`. |
+
+The ASP.NET Core pages above describe their `ProblemDetails` type as based on RFC 7807
+([web API controllers](https://learn.microsoft.com/aspnet/core/web-api/?view=aspnetcore-10.0)). RFC 9457 states
+"This document obsoletes RFC 7807" ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)).
+
+### Contract outputs
+
+| ASP.NET Core concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| OpenAPI: [`Microsoft.AspNetCore.OpenApi`](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview?view=aspnetcore-10.0) (`AddOpenApi`, `MapOpenApi`) | `Http.Contract.metadata` (`operationId`, `summary`, `description`, `tags`, `annotator`). Error and success schemas come from the contract. | `OpenApi.annotations(...)` merged with `annotateMerge`; `OpenApi.fromApi(api)` builds the document; `HttpApiScalar.layer` / `HttpApiSwagger.layer` serve a UI | supported (annotations); document and UI: via ecosystem package (`effect`). effx emits no document | Spec 0005 §"Generation and compatibility"; `packages/compiler/src/generate/http.ts:134-150`; `packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts`; Effect `http-api/OpenApi.ts:200,300,595-600`, `HttpApiScalar.ts:216`, `HttpApiSwagger.ts:64`. |
+| Client generation: [NSwag](https://learn.microsoft.com/aspnet/core/tutorials/getting-started-with-nswag?view=aspnetcore-8.0) (C# or TypeScript clients from the OpenAPI document; tutorial published up to 8.0), [Kiota](https://learn.microsoft.com/openapi/kiota/overview) | Generated `client.ts`: a `Client` service and one typed function per operation. Also `rpc.ts` clients, an operation index, Foldkit commands. | `HttpApiClient.ForApi`, `RpcClient`, `Context.Service` | supported | Spec 0007; `packages/compiler/src/generate/{client,rpc,foldkit}.ts`; real output `examples/users/.effx/generated/client.ts`; Effect `http-api/HttpApiClient.ts:71`. See [Generated code](/docs/introduction/generated-code). |
+| Configuration and the options pattern: [Configuration](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/?view=aspnetcore-10.0), [Options pattern](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/options?view=aspnetcore-10.0) (`IOptions<T>`, `ValidateDataAnnotations`) | None. The composition root reads `Config`. | `Config` (`Config.schema(Schema.Struct(...))` validates), `ConfigProvider` (environment, `.env`, JSON) | via ecosystem package (`effect`) | `examples/users/src/server-main.ts` (`Config.Number("PORT").pipe(Config.withDefault(3000))`); Effect `packages/effect/CONFIG.md`, `src/Config.ts`, `src/ConfigProvider.ts:1200`. |
+
+### Data and runtime
+
+| ASP.NET Core concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| EF Core and migrations: [EF Core](https://learn.microsoft.com/ef/core/), [Migrations](https://learn.microsoft.com/ef/core/managing-schemas/migrations/) (`dotnet ef migrations add`) | `@PersistentModel({ table, views, focus })` records `Model` and `Focus` nodes. It generates no SQL, no repository and no migration. | `SqlClient`, `SqlSchema`, `SqlModel`, `Migrator` in `effect/sql`; drivers such as `@effect/sql-pg`, `@effect/sql-mssql`, `@effect/sql-sqlite-bun` | **gap** (effx); hand-written data layer: via ecosystem package | `STATE.md` (persistence parked); spec 0008 (**proposed, not frozen**, codec-only wrappers, no migrations); `packages/compiler/src/extensions/core.ts`; `examples/users/src/services.ts` (in-memory `Ref`); Effect `packages/effect/src/sql/{SqlClient,SqlSchema,SqlModel,Migrator}.ts`, `packages/sql/pg`. See [Persistence and authority](/docs/authoring/persistence-and-authority). |
+| Background jobs: [hosted services](https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services?view=aspnetcore-10.0) (`IHostedService`, `BackgroundService`) | No annotation. | A long-lived task is a `Layer` with `Effect.forkScoped`, run by `Layer.launch`. `Schedule`, `Cron`; durable: `ClusterCron`, `PersistedQueue`, `Workflow`. | effx declaration: **gap**; execution: via ecosystem package (`effect`) | `packages/runtime/src/decorators.ts` (no job annotation); `examples/users/src/server-main.ts` (`Layer.launch`); Effect `Layer.ts:2209`, `Effect.ts:8666`, `Schedule.ts`, `Cron.ts`, `cluster/ClusterCron.ts`, `persistence/PersistedQueue.ts`, `workflow/Workflow.ts`. |
+| Caching: [`IMemoryCache`](https://learn.microsoft.com/aspnet/core/performance/caching/memory?view=aspnetcore-10.0), [output caching](https://learn.microsoft.com/aspnet/core/performance/caching/output?view=aspnetcore-10.0) (`AddOutputCache`, `UseOutputCache`) | No annotation. For GET, `Http.Contract.conditional` adds a 304 beside the header-bearing success; the handler owns the ETag logic. | `Cache`, `ScopedCache`, `PersistedCache`, `RateLimiter`; ETag `Generator` in `effect/http` | in-process cache: via ecosystem package (`effect`); response/output caching middleware: **gap** | Spec 0005 (`conditional`); Effect `packages/effect/src/{Cache,ScopedCache}.ts`, `persistence/{PersistedCache,RateLimiter}.ts`, `http/Etag.ts`. |
+| Realtime: [SignalR](https://learn.microsoft.com/aspnet/core/signalr/introduction?view=aspnetcore-10.0) | `@Rpc(name)` exposes an operation over the generated HTTP RPC endpoint (`protocol: "http"` at `/rpc`). No hub, no push, no streaming annotation. | `RpcServer` also supports a `websocket` protocol; `Socket`; SSE response schemas (`HttpApiSchema.StreamSse`) | effx declaration: **gap**; transport: via ecosystem package (`effect`) | `examples/users/.effx/generated/http.ts` (`RpcServer.layerHttp`); Effect `rpc/RpcServer.ts:875`, `socket/Socket.ts`, `http-api/HttpApiSchema.ts:289`. |
+
+### Tooling
+
+| ASP.NET Core concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Testing: [integration tests with `WebApplicationFactory`](https://learn.microsoft.com/aspnet/core/test/integration-tests?view=aspnetcore-10.0) | No harness. The example test starts a Bun test server and uses the generated clients. | `HttpApiTest` (in-memory generated client), `RpcTest`, `BunHttpServer.layerTest`, `@effect/vitest` | effx harness: **gap**; building blocks: via ecosystem package | `examples/users/test/e2e.test.ts`; Effect `packages/effect/src/http-api/HttpApiTest.ts`, `rpc/RpcTest.ts`, `packages/platform/bun/src/BunHttpServer.ts:350`, `packages/vitest`. |
+| CLI and scaffolding: [`dotnet new`](https://learn.microsoft.com/dotnet/core/tools/dotnet-new), [`aspnet-codegenerator`](https://learn.microsoft.com/aspnet/core/tutorials/first-mvc-app/adding-model?view=aspnetcore-10.0) | `effx check`, `build`, `inspect`, `graph`. `@Cli("users get")` makes the operation a command in generated `cli.ts`. | `effect/cli` `Command` | compile and generated CLI: supported; **project templates and scaffolding generators: gap** | `packages/cli/src/main.ts:25-88`; `packages/compiler/src/generate/cli.ts`; [CLI overview](/docs/cli). The CLI is not published (see that page). |
+| Observability: [logging with `ILogger`](https://learn.microsoft.com/dotnet/core/extensions/logging/overview?view=net-10.0), [OpenTelemetry](https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel), [health checks](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-10.0) (`AddHealthChecks`, `MapHealthChecks`) | None generated. | `Logger`, `Effect.log`, `Effect.fn(name)` spans, `Metric`; `OtlpTracer`, `PrometheusMetrics`, `@effect/opentelemetry`. A health check is a hand-written route, as in the `HttpRouter.add("GET", "/health", ...)` documentation example. | logging, tracing, metrics: via ecosystem package; **health checks: gap** | `examples/users/src/services.ts` (`Effect.fn("Users.find")`); Effect `packages/effect/src/{Logger,Metric}.ts`, `observability/{OtlpTracer,PrometheusMetrics}.ts`, `Effect.ts:13665`, `http/HttpRouter.ts:479`, `packages/opentelemetry`. No HTTP health-check module exists in `packages/effect/src` (`cluster/RunnerHealth.ts` checks cluster runners). |
+
+## Gaps today
+
+These are not planned unless a spec says so. Each cites why it is a gap.
+
+- **Persistence, SQL and migrations.** Spec 0008 is **proposed, not frozen**, and `STATE.md` lists persistence as
+  parked. `@PersistentModel` records facts only. Use `effect/sql` and a driver package by hand.
+- **Authorization evaluation.** effx records the policy and requires a typed guard. It never resolves a
+  credential, interprets a relationship, chooses a principal or issues a lease (spec 0006). Cedar and leases are
+  deferred (ADR 0007). Spec 0006 also states that a required binding "is not proof that the handler called it".
+- **Automatic problem responses.** There is no `ProblemDetails` type, no `AddProblemDetails` equivalent and no
+  automatic 4xx mapping. The registry and the domain-error to problem conversion are application code until an
+  explicit runtime mapping contract exists (spec 0005 §"Problem responses").
+- **Validation failure body.** A request that fails decoding is an empty 400 by default. A `ValidationProblemDetails`
+  style body needs `HttpApiMiddleware.layerSchemaErrorTransform` and your own error schema.
+- **Jobs, queues, scheduling.** No annotation exists (`packages/runtime/src/decorators.ts`). The Effect modules
+  in the table above are wired by hand.
+- **Caching and output caching.** No annotation and no middleware generated.
+- **Realtime.** No hub-style annotation. `@Rpc` is request and response over HTTP.
+- **Scaffolding and generators.** No `dotnet new` template and no code generator for controllers or models. The
+  CLI has four commands. It is not published.
+- **Testing harness.** No generated or shipped fixture for `WebApplicationFactory`-style tests.
+- **Health checks.** No Effect HTTP health-check module and no effx output. A `/health` route is hand-written (`packages/effect/src/http/HttpRouter.ts:479`).
+- **Staged filter pipeline.** One `HttpApiMiddleware` wraps the whole endpoint. There are no resource or result stages.
+- **Custom annotations.** A compiler extension registered in `effx.config.ts` gives a custom `@Annotate` name its meaning ([Extensions](/docs/extensions/guide), spec 0015). It adds IR and generated files; it does not add a runtime middleware or filter stage.
+
+## One endpoint, ported
+
+`PATCH /users/{id}/email`:
+
+- The caller needs a permission to change an email address (`[Authorize(Policy = "CanChangeEmail")]`).
+- The body `{ "email": "..." }` is validated.
+- `404` when the user does not exist and `409` when the email belongs to another user, both as problem responses.
+
+<Callout type="warn">
+  Neither tab is compiled by this site. The C# is illustrative and each construct cites the Microsoft Learn page
+  that documents it. The effx tab shows the committed example files as they are, then a pasted extension. The
+  extension is assembled from patterns that compile in the repository
+  (`ai-docs/src/04_problems-and-access/`,
+  `packages/frontend-ts/test/fixtures/users/src/{operations.access.ts,access-support.ts,contract-support.ts,operations.contract-status.ts}`).
+  That exact combination was not built for this page.
+</Callout>
+
+<Tabs items={['ASP.NET Core', 'effx']}>
+<Tab value="ASP.NET Core">
+
+**Request model.** Validation rules are DataAnnotations attributes on the model.
+
+```csharp title="Requests/ChangeEmailRequest.cs"
+using System.ComponentModel.DataAnnotations;
+
+public sealed class ChangeEmailRequest
+{
+    [Required, EmailAddress]
+    public string Email { get; init; } = "";
+}
+```
+
+Source: [Model validation](https://learn.microsoft.com/aspnet/core/mvc/models/validation?view=aspnetcore-10.0)
+(built-in attributes in `System.ComponentModel.DataAnnotations`; `[DataType]` subclasses such as
+`[EmailAddress]`).
+
+**Policy, requirement and handler.** The requirement is a marker. The handler decides.
+
+```csharp title="Authorization/ChangeEmail.cs"
+using Microsoft.AspNetCore.Authorization;
+
+public sealed class ChangeEmailRequirement : IAuthorizationRequirement { }
+
+public sealed class ChangeEmailHandler : AuthorizationHandler<ChangeEmailRequirement>
+{
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context, ChangeEmailRequirement requirement)
+    {
+        if (context.User.HasClaim("permission", "users:change-email"))
+        {
+            context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;
+    }
+}
+```
+
+```csharp title="Program.cs (excerpt)"
+builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("CanChangeEmail", policy => policy.Requirements.Add(new ChangeEmailRequirement()));
+builder.Services.AddSingleton<IAuthorizationHandler, ChangeEmailHandler>();
+// Authentication scheme registration (JWT bearer, cookies, ...) is omitted.
+```
+
+Source: [Policy-based authorization](https://learn.microsoft.com/aspnet/core/security/authorization/policies?view=aspnetcore-10.0)
+(`AddAuthorizationBuilder().AddPolicy(...)`, `AuthorizationHandler<TRequirement>`, `context.Succeed`,
+"Handler registration" with `AddSingleton<IAuthorizationHandler, ...>`);
+[Dependency injection](https://learn.microsoft.com/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0)
+(`AddScoped`); [Handle errors in APIs](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling-api?view=aspnetcore-10.0)
+(`AddProblemDetails`).
+
+**Controller and service contract.** With `[ApiController]`, invalid model state returns an automatic 400 and
+error status codes become `ProblemDetails`.
+
+```csharp title="Controllers/UsersController.cs"
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("users")]
+public sealed class UsersController : ControllerBase
+{
+    private readonly IUserService _users;
+
+    public UsersController(IUserService users) => _users = users;
+
+    [HttpPatch("{id}/email")]
+    [Authorize(Policy = "CanChangeEmail")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangeEmail(string id, ChangeEmailRequest request)
+    {
+        switch (await _users.SetEmailAsync(id, request.Email))
+        {
+            case SetEmailResult.Updated updated:
+                return Ok(updated.User);
+            case SetEmailResult.NotFound:
+                return NotFound();
+            default:
+                return Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Email already in use");
+        }
+    }
+}
+
+public interface IUserService
+{
+    Task<SetEmailResult> SetEmailAsync(string id, string email);
+}
+
+public abstract record SetEmailResult
+{
+    public sealed record Updated(UserSelf User) : SetEmailResult;
+    public sealed record NotFound : SetEmailResult;
+    public sealed record EmailTaken : SetEmailResult;
+}
+
+public sealed record UserSelf(string Id, string Email, string DisplayName);
+```
+
+Source: [web API controllers](https://learn.microsoft.com/aspnet/core/web-api/?view=aspnetcore-10.0)
+(`[ApiController]`, "Automatic HTTP 400 responses", "Problem details for error status codes": `NotFound()`
+"produces an HTTP 404 status code with a ProblemDetails body", `[FromRoute]` "inferred for any action parameter
+name matching a parameter in the route template", `[FromBody]` inferred for complex types,
+`[ProducesResponseType(StatusCodes....)]`);
+[controller routing](https://learn.microsoft.com/aspnet/core/mvc/controllers/routing?view=aspnetcore-10.0)
+(`[HttpPatch]`);
+[`ControllerBase.Problem`](https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.mvc.controllerbase.problem?view=aspnetcore-10.0)
+(`Problem(detail, instance, statusCode, title, type)`);
+[Simple authorization](https://learn.microsoft.com/aspnet/core/security/authorization/simple?view=aspnetcore-10.0)
+(`[Authorize(Policy = "...")]`).
+
+ASP.NET Core code often throws instead and maps in an
+[`IExceptionHandler`](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling?view=aspnetcore-10.0).
+The result type above keeps the two failures visible in the signature, which is the closer match to effx's `E`.
+
+</Tab>
+<Tab value="effx">
+
+**What the repository already has.** `PATCH /users/:id/email`, a non-empty email, typed `UserNotFound` and
+`EmailTaken` errors, and the service. These files are shown as committed.
+
+<include cwd lang="ts" meta='title="examples/users/src/schemas.ts"'>../../examples/users/src/schemas.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/services.ts"'>../../examples/users/src/services.ts</include>
+
+`Email` is `Schema.NonEmptyString`, so an empty email is rejected before the handler runs. `@Errors(UserNotFound,
+EmailTaken)` asserts the handler's error set, and `Users.setEmail` fails with exactly those two errors.
+
+The real generated HTTP endpoint for this operation (excerpt of `examples/users/.effx/generated/http.ts`, written
+by `effx build`; the `.effx` directory is git-ignored):
+
+```ts title="examples/users/.effx/generated/http.ts (excerpt, generated)"
+HttpApiEndpoint.patch("User.ChangeEmail", "/users/:id/email", {
+  params: { id: Schema.String },
+  payload: ChangeEmailInput,
+  success: User.Self,
+  error: Schema.Union([EmailTaken, UserNotFound]),
+}),
+```
+
+```ts title="examples/users/.effx/generated/http.ts (excerpt, generated)"
+"User.ChangeEmail": ({ params, payload }) => UserOperations.changeEmail({ ...params, ...payload }),
+```
+
+What this committed example does **not** do, compared with the ASP.NET Core version:
+
+- **No 404 or 409.** `UserNotFound` and `EmailTaken` carry no `httpApiStatus`. Effect resolves an error schema
+  with no status to 500 (`packages/effect/src/http-api/HttpApiSchema.ts:1099-1101`). The example's end-to-end test
+  checks typed `EmailTaken` over RPC, not an HTTP status (`examples/users/test/e2e.test.ts`). [INFERENCE] for this
+  endpoint over HTTP: the 500 was not observed.
+- **No guard.** `@Authorize(ChangeEmail)` records a capability fact. No access contract is declared and nothing
+  checks the caller. `effx check` warns `EFFX2504` for an HTTP operation without `Http.Access` (an error under
+  `--strict-access`).
+- **A weaker email rule.** Only non-empty.
+- **The PATCH body carries `id` too.** Without `Http.Contract`, the whole input is the payload
+  (`packages/compiler/src/generate/http.ts`, `legacyPayload`).
+
+**The extension (pasted, not in the repository).** Four edits turn that endpoint into the ASP.NET Core one.
+
+*1. Schemas.* A stricter `Email`, and error classes that carry RFC 9457 members plus a status. `type`, `title` and
+`status` are RFC 9457 members; `_tag` and `id` travel as extension members, which clients must ignore if they do
+not recognize them ([RFC 9457 §3.2](https://www.rfc-editor.org/rfc/rfc9457.html)). The status constants are
+written once and used for both the `status` member and `httpApiStatus`.
+
+```ts title="examples/users/src/schemas.ts (changed exports only, pasted)"
+import { Schema } from "effect";
+
+export const UserId = Schema.String.pipe(Schema.brand("UserId"));
+
+// An application-chosen rule. It is not the same check as [EmailAddress].
+export const Email = Schema.NonEmptyString.check(Schema.isPattern(/^[^@\s]+@[^@\s]+$/));
+
+const NOT_FOUND = 404 as const;
+const CONFLICT = 409 as const;
+const FORBIDDEN = 403 as const;
+
+export class UserNotFound extends Schema.TaggedError<UserNotFound>()(
+  "UserNotFound",
+  {
+    type: Schema.tag("urn:effx-example:problem:user-not-found"),
+    title: Schema.tag("User not found"),
+    status: Schema.tag(NOT_FOUND),
+    id: UserId,
+  },
+  { httpApiStatus: NOT_FOUND },
+) {}
+
+export class EmailTaken extends Schema.TaggedError<EmailTaken>()(
+  "EmailTaken",
+  {
+    type: Schema.tag("urn:effx-example:problem:email-taken"),
+    title: Schema.tag("Email already in use"),
+    status: Schema.tag(CONFLICT),
+    email: Email,
+  },
+  { httpApiStatus: CONFLICT },
+) {}
+
+export class AccessDenied extends Schema.TaggedError<AccessDenied>()(
+  "AccessDenied",
+  {
+    type: Schema.tag("urn:effx-example:problem:access-denied"),
+    title: Schema.tag("Access denied"),
+    status: Schema.tag(FORBIDDEN),
+  },
+  { httpApiStatus: FORBIDDEN },
+) {}
+
+// GetUserInput, ChangeEmailInput, UserPublic and UserSelf are unchanged.
+```
+
+`Schema.tag(literal)` is a literal with a constructor default, so `new UserNotFound({ id })` in `services.ts` keeps
+working (Effect `packages/effect/src/Schema.ts:5995`). The `TaggedError` third argument with `httpApiStatus` is the
+pattern in `packages/frontend-ts/test/fixtures/users/src/access-support.ts`.
+
+*2. HTTP support file.* The request channels, the security marker, the access annotator, the problem registry and the
+guard service. Everything here is application code that effx only references by symbol.
+
+```ts title="examples/users/src/change-email-http.ts (new file, pasted)"
+import { Context, Effect, Schema } from "effect";
+import type { HttpServerRequest } from "effect/http";
+import { HttpApiMiddleware, HttpApiSchema, HttpApiSecurity } from "effect/http-api";
+import type { HttpAccessAnnotationSpec } from "@effx/runtime";
+import { AccessDenied, Email, EmailTaken, UserId, UserNotFound } from "./schemas.ts";
+
+export const ChangeEmailParams = Schema.Struct({ id: UserId });
+
+export const ChangeEmailBody = Schema.Struct({ email: Email });
+
+export interface UserPrincipal {
+  readonly userId: string;
+}
+
+/** Application-owned. Resolves the credential and evaluates the permission; implementation not shown. */
+export class Authz extends Context.Service<
+  Authz,
+  {
+    readonly require: (
+      request: HttpServerRequest.HttpServerRequest,
+      capability: string,
+    ) => Effect.Effect<UserPrincipal, AccessDenied>;
+  }
+>()("users/Authz") {}
+
+/** The lazy thunk the handler receives. Nothing runs until the handler calls it. */
+export type AuthorizeCall = () => Effect.Effect<UserPrincipal, AccessDenied, Authz>;
+
+/** Declares the credential scheme. It authorizes nothing itself; a Layer must implement it. */
+export class UserSecurity extends HttpApiMiddleware.Service<UserSecurity>()("users/UserSecurity", {
+  security: { bearer: HttpApiSecurity.bearer },
+  error: AccessDenied,
+}) {}
+
+/** An opaque handle your interpreter maps to its own scope resolver. */
+export const UserSelfScope = { id: "users.self" } as const;
+
+export class UserAccessAnnotation extends Context.Service<
+  UserAccessAnnotation,
+  HttpAccessAnnotationSpec
+>()("users/UserAccessAnnotation") {}
+
+/** Receives the access spec as written in the declaration. The application interprets it. */
+export const userAccessAnnotations = (spec: HttpAccessAnnotationSpec) =>
+  Context.make(UserAccessAnnotation, spec);
+
+const problemJson = <S extends Schema.Top>(schema: S) =>
+  schema.pipe(HttpApiSchema.asJson({ contentType: "application/problem+json" }));
+
+/** The registry: one response schema per code. effx keeps no status or body table. */
+export const UserProblemResponses = (_identifier: string, codes: ReadonlyArray<string>) =>
+  codes.map((code) => {
+    if (code === "user.not-found") return problemJson(UserNotFound);
+    if (code === "user.email-taken") return problemJson(EmailTaken);
+    if (code === "authority.denied") return problemJson(AccessDenied);
+
+    throw new TypeError(`Unknown user problem code: ${code}`);
+  });
+```
+
+The registry shape, the security marker and the annotator follow
+`ai-docs/src/04_problems-and-access/fixtures/settings.ts` and
+`packages/frontend-ts/test/fixtures/users/src/access-support.ts`. `HttpApiSchema.asJson({ contentType })` on an error
+schema is exercised by Effect's own test (`packages/effect/test/httpapi/HttpApiClient.test.ts:1226-1238`). That test
+decodes a client response. This page did not run the server-side encoding.
+
+*3. The operation.* Only `changeEmail` changes. `@Rpc` and `@Cli` are dropped: the generators for those projections
+contain no guard handling (`packages/compiler/src/generate/{rpc,cli}.ts`), so [INFERENCE] a second `authorize`
+parameter would not type-check there.
+
+```ts title="examples/users/src/operations.ts (changeEmail replaced, pasted)"
+@Command({ name: "User.ChangeEmail", input: ChangeEmailInput, success: User.Self })
+@Http.Patch("/users/:id/email")
+@Http.Contract({
+  group: "users",
+  params: ChangeEmailParams,
+  payload: ChangeEmailBody,
+  success: User.Self,
+  middleware: [UserSecurity],
+  metadata: { summary: "Change a user's email address", tags: ["Users"] },
+})
+@Http.Access({
+  annotator: userAccessAnnotations,
+  exposure: "External",
+  acceptedCredentials: ["OAuthUserBearer"],
+  principalKinds: ["Person"],
+  capabilities: Capability.one("User.ChangeEmail"),
+  requirements: [{ id: "user.self" }],
+  canonicalScopeResolver: UserSelfScope,
+  concealment: Concealment.reveal,
+  decisionTime: "Transaction",
+})
+@Http.Problems({
+  registry: UserProblemResponses,
+  codes: ["user.not-found", "user.email-taken", "authority.denied"],
+  map: {
+    UserNotFound: "user.not-found",
+    EmailTaken: "user.email-taken",
+    AccessDenied: "authority.denied",
+  },
+})
+@Authorize(ChangeEmail)
+@Errors(UserNotFound, EmailTaken, AccessDenied)
+@Requirements(Users, Authz)
+static changeEmail(input: typeof ChangeEmailInput.Type, authorize: AuthorizeCall) {
+  return Effect.gen(function* () {
+    yield* authorize();
+    const users = yield* Users;
+
+    return yield* users.setEmail(input.id, input.email);
+  });
+}
+```
+
+`decisionTime: "Transaction"` because this is a Command; `"SnapshotRead"` on a Command is `EFFX2501` (spec 0006).
+The `middleware: [UserSecurity]` marker is required because the credential is not `None` (`EFFX2503`).
+`ChangeEmailInput` is `Schema.Struct({ id: UserId, email: Email })` in the committed file; the generated handler
+spreads `params` then `payload` into that single `input` (`packages/compiler/src/generate/http.ts`, `handlerLine`).
+
+*4. Guard and composition root.* The generated `guards.ts` exports `AppGuards`. You supply the record. The guard
+runs when the handler calls `authorize()`.
+
+```ts title="examples/users/src/guards.ts (new file, pasted)"
+import type { AppGuards } from "../.effx/generated/guards.ts";
+import { Authz } from "./change-email-http.ts";
+
+export const guards: AppGuards = {
+  "effx/users": {
+    "User.ChangeEmail": (request) =>
+      Authz.use((authz) => authz.require(request, "User.ChangeEmail")),
+  },
+};
+```
+
+```ts title="examples/users/src/server-main.ts (Server layer changed, pasted)"
+const Server = Layer.unwrap(
+  Effect.map(Config.Number("PORT").pipe(Config.withDefault(3000)), (port) =>
+    AppRoutes(guards).pipe(
+      Layer.provide(Users.layer),
+      Layer.provide(AuthzLive),
+      Layer.provide(UserSecurityLive),
+      Layer.provide(BunHttpServer.layer({ port })),
+    ),
+  ),
+);
+```
+
+`AuthzLive` (a `Layer` for `Authz`) and `UserSecurityLive` (a `Layer` implementing the `UserSecurity` middleware)
+are application code that this page does not define. The key `"effx/users"` is `<root>/<group>` and the inner key is
+the endpoint key, which is the operation name when `metadata.operationId` is absent
+(`packages/frontend-ts/test/frontend.test.ts:365-399` asserts `guards["Profile.Update"]` for the same shape).
+
+**What the generator does with this.** No generated output was produced for the extension. The pinned generated
+output of a protected fixture (a different file, same mechanism) shows the three changes
+(`packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/http.ts`):
+
+```ts title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/http.ts (excerpt, generated)"
+  HttpApiEndpoint.patch("update", "/api/profile", {
+  headers: ProfileWriteHeaders,
+  payload: ProfileUpdateInput,
+  success: HttpApiSchema.WithHeaders(ProfileResponse, ProfileResponseHeaders),
+  error: ProfileProblemResponses("updateProblem", ["credential.missing"]),
+}).middleware(ProfileCredentialSecurity).annotateMerge(OpenApi.annotations({ identifier: "profile.update" })).annotateMerge(profileAccessAnnotations({ exposure: "External", acceptedCredentials: ["BetterAuthCookie","OAuthUserBearer"], principalKinds: ["Person"], capabilities: {"_tag":"One","capability":"profile.update-self"}, requirements: [{"id":"profile.owner"}], canonicalScopeResolver: ProfileCurrentPerson, concealment: {"_tag":"Reveal"}, decisionTime: "Transaction" })),
+```
+
+```ts title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/http.ts (excerpt, generated)"
+"update": ({ request, headers, payload }) => ClientFoldkitProfileOperations.update({ ...headers, ...payload }, () => guards["update"](request)),
+```
+
+```ts title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/http.ts (excerpt, generated)"
+export const AppRoutes = (guards: AppGuards) => HttpRouter.serve(Layer.mergeAll(HttpApiBuilder.layer(Api).pipe(Layer.provide([ProfileHandlers(guards["effx/profile"])])), HttpApiBuilder.layer(InternalApi).pipe(Layer.provide([InternalSecretsHandlers]))));
+```
+
+The endpoint gains `.middleware(...)` and the access annotation. The handler call gains the lazy
+`() => guards[...](request)` thunk. `AppRoutes` becomes a function of the guards. The `error:` option is whatever
+your registry returns. Run `effx build` to read the real output (`.effx/generated/http.ts`).
+
+</Tab>
+</Tabs>
+
+### Construct by construct
+
+| ASP.NET Core construct (above) | effx construct | Source |
+| --- | --- | --- |
+| `[ApiController]`, `[Route("users")]`, `[HttpPatch("{id}/email")]` | `@Http.Patch("/users/:id/email")`, `@Http.Contract({ group: "users" })` | Spec 0005; `examples/users/src/operations.ts` |
+| `string id` bound from the route | `params: ChangeEmailParams`. Its fields must equal the route's `:param` names (`EFFX2402` otherwise). | Spec 0005; [Http.Contract](/docs/authoring/http-contract) |
+| `ChangeEmailRequest` with `[Required, EmailAddress]` | `payload: ChangeEmailBody` with `Email` as a `Schema` check | `examples/users/src/schemas.ts`; Effect `Schema.ts:6656` (`isPattern`) |
+| Automatic 400 from `[ApiController]` | Decode before the handler; failure is an empty 400 by default | Effect `HttpApiBuilder.ts:866-880`, `HttpApiError.ts:468-502` |
+| `[Authorize(Policy = "CanChangeEmail")]` | `@Http.Access({ capabilities: Capability.one("User.ChangeEmail"), ... })` plus `middleware: [UserSecurity]` | Spec 0006; `packages/compiler/src/extensions/access-contract.ts` |
+| `ChangeEmailRequirement` and `ChangeEmailHandler` | `Authz` service and the `guards` record, called through `authorize()` | Spec 0006 §"HTTP lowering and guard interface" |
+| `NotFound()` returning ProblemDetails | `UserNotFound` failing the handler; the registry gives it 404 and `application/problem+json` | Spec 0005 §"Problem responses" |
+| `Problem(statusCode: 409, ...)` | `EmailTaken` failing the handler; 409 | Same |
+| `[ProducesResponseType(...)]` for 404 and 409 | The endpoint's `error` union. `OpenApi.fromApi` reads each error schema's status. | Effect `OpenApi.ts:595-600` |
+| `AddScoped<IUserService, UserService>()` | `Users.layer` and `@Requirements(Users, Authz)` | `examples/users/src/services.ts`; ADR 0005 |
+| `AddControllers()` and the endpoint pipeline | `AppRoutes(guards)` composed with `Layer.provide` | `examples/users/src/server-main.ts` |
+
+### What the port preserves, and what it does not
+
+**Preserved** (by construction or by cited source):
+
+- The verb, the route and the single operation name.
+- Request validation before application code runs. The handler cannot see an invalid `email`.
+- A 404 and a 409 for the two domain failures, each as `application/problem+json` with the RFC 9457 members
+  `type`, `title` and `status`.
+- Both failures appear in the handler's type (`E`), in `@Errors`, in the endpoint's `error` option, in the OpenAPI
+  document and in the generated client's error type. ASP.NET Core lists them in `[ProducesResponseType]` by hand.
+- The access declaration is data in the IR (`AccessContract`, spec 0006). It is not code that the framework runs.
+
+**Not preserved:**
+
+- **Access evaluation stays application code.** `[Authorize(Policy = "...")]` runs in the framework before the
+  action. In effx, `Http.Access` records the policy and the generated handler passes a lazy `authorize()` thunk.
+  If the handler never calls it, nothing denies the request. Spec 0006: "A required typed binding is **not** proof
+  that the handler called it"; the real gate is an end-to-end run of your own journey.
+- **No `traceId` and no `ClientErrorMapping`.** For controllers, ASP.NET Core turns every error status code (400
+  and above) into a `ProblemDetails` body by default ([web API controllers](https://learn.microsoft.com/aspnet/core/web-api/?view=aspnetcore-10.0)).
+  effx returns a problem body only for the codes in `Http.Problems.codes`. A status without a code is not a problem body.
+- **Problem responses follow spec 0005.** The registry, the body shape and the domain-error conversion are yours.
+  The compiler diagnoses an unmapped error (`EFFX2205`) and a mapping to an absent code (`EFFX2206`) and nothing else.
+- **Validation failures are empty 400s.** ASP.NET Core returns `ValidationProblemDetails` for invalid model
+  state. Effect returns an empty 400 unless you add `HttpApiMiddleware.layerSchemaErrorTransform`.
+- **RFC 7807 versus 9457.** The ASP.NET Core pages describe 7807. This port uses the 9457 media type and members.
+- **The email rule differs.** The pattern is the application's own, not the `[EmailAddress]` attribute.
+- **Storage differs.** `examples/users` uses an in-memory `Ref<HashMap>`, not EF Core; writes do not survive a
+  restart (`STATE.md`, "Deferred / notes"). The uniqueness check is in `Users.setEmail`, not a database constraint.
+- **The 401 challenge is yours.** ASP.NET Core's authentication middleware issues it. In effx the `UserSecurity`
+  Layer you write decodes the credential and fails with `AccessDenied`.
+- **Not compiled here.** Nothing on this page was built or run for this version of the page. The C# is
+  illustrative and the TypeScript extension is assembled from compiled fixtures.
+
+## Next
+
+<Cards>
+  <Card title="Problems and access" href="/docs/authoring/problems-and-access">
+    Http.Problems, Http.Access, guards and their diagnostics.
+  </Card>
+  <Card title="Http.Contract" href="/docs/authoring/http-contract">
+    Request channels, response shape, middleware and OpenAPI metadata.
+  </Card>
+  <Card title="Generated code" href="/docs/introduction/generated-code">
+    What each generated file contains and how to keep or eject it.
+  </Card>
+</Cards>

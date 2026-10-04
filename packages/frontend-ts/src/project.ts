@@ -1,0 +1,279 @@
+import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import {
+  CompilerFault,
+  type Diagnostic,
+  type ProjectConfig,
+  type ProjectResolution,
+  EmitMode,
+  TargetProfile,
+  error,
+  warning,
+} from "@effx/compiler";
+import { ts, tryTs } from "./ts.ts";
+
+export interface Project {
+  readonly program: ts.Program;
+  readonly checker: ts.TypeChecker;
+  readonly rootDir: string;
+  /** The actual tsconfig include/explicit entry files; imported helpers are not declarations. */
+  readonly rootNames: ReadonlyArray<string>;
+  readonly resolution: ProjectResolution | undefined;
+  /** TS resolution against this tsconfig's installed Effect package, not a source-file sibling. */
+  readonly resolveEffectModule: ((specifier: string) => boolean) | undefined;
+  readonly outDir: string;
+  /** Directory of the resolved `@effx/runtime` entry; `undefined` when the project does not import it. */
+  readonly runtimeRoot: string | undefined;
+  readonly diagnostics: ReadonlyArray<Diagnostic>;
+}
+
+const PackageJson = Schema.fromJsonString(
+  Schema.Struct({
+    dependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+    devDependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  }),
+);
+
+const TsconfigEffx = Schema.Struct({
+  effx: Schema.optionalKey(
+    Schema.Struct({
+      projectRoot: Schema.optionalKey(Schema.String),
+      outDir: Schema.optionalKey(Schema.String),
+      emit: Schema.optionalKey(EmitMode),
+      target: Schema.optionalKey(TargetProfile),
+      strictAccess: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+});
+
+/** Read selected tsconfig metadata without evaluating application modules. */
+export const readTsconfigEffx = Effect.fnUntraced(function* (tsconfigPath: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(tsconfigPath);
+
+  const settings = yield* tryTs("collect", () => {
+    const parsed = ts.parseConfigFileTextToJson(tsconfigPath, text);
+
+    if (parsed.error !== undefined) {
+      throw new Error(ts.flattenDiagnosticMessageText(parsed.error.messageText, "\n"));
+    }
+
+    return parsed.config;
+  });
+
+  const decoded = yield* Schema.decodeUnknownEffect(TsconfigEffx)(settings).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CompilerFault({
+          stage: "collect",
+          message: "invalid tsconfig effx settings in " + tsconfigPath,
+          cause,
+        }),
+    ),
+  );
+
+  return decoded.effx;
+});
+
+const InstalledEffect = Schema.fromJsonString(
+  Schema.Struct({ name: Schema.Literal("effect"), version: Schema.String }),
+);
+
+/** Only the installed target package version selects an implicit output API profile. */
+export const targetProfileFromVersion = (version: string): TargetProfile | undefined => {
+  if (version === "4.0.0") return "effect-4.0";
+
+  if (/^4\.0\.0-rc\.\d+$/.test(version)) return "effect-4.0-rc";
+
+  return undefined;
+};
+
+/** Nearest `package.json` walking up from `dir`; `Option`-like via `undefined` because absence is normal. */
+const typescriptPin = Effect.fn("typescriptPin")(function* (dir: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  let current = dir;
+
+  for (;;) {
+    const candidate = path.join(current, "package.json");
+
+    if (yield* fs.exists(candidate)) {
+      const text = yield* fs.readFileString(candidate);
+      const pkg = yield* Schema.decodeEffect(PackageJson)(text);
+      const pin = pkg.devDependencies?.["typescript"] ?? pkg.dependencies?.["typescript"];
+
+      if (pin !== undefined) return pin;
+    }
+
+    const parent = path.dirname(current);
+
+    if (parent === current) return undefined;
+    current = parent;
+  }
+});
+
+const major = (version: string): string => version.replace(/^[^\d]*/, "").split(".")[0] ?? version;
+
+/** ADR 0009: report analysis-vs-gate TypeScript skew as data. */
+const versionSkew = (pin: string | undefined): ReadonlyArray<Diagnostic> => {
+  if (pin === undefined || pin === ts.version) return [];
+  const message = `effx analyses with TypeScript ${ts.version} but the project pins typescript ${pin}; tsc/tsgo remains the authoritative type gate`;
+
+  return [
+    major(pin) === major(ts.version)
+      ? { code: "EFFX0001", severity: "info", message }
+      : warning("EFFX0001", message),
+  ];
+};
+
+export const loadProject = Effect.fn("loadProject")(function* (config: ProjectConfig) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const tsconfigPath = path.resolve(config.tsconfigPath);
+  const tsconfigDir = path.dirname(tsconfigPath);
+
+  const text = yield* fs.readFileString(tsconfigPath);
+
+  const { parsed, settings } = yield* tryTs("collect", () => {
+    const json = ts.parseConfigFileTextToJson(tsconfigPath, text);
+
+    if (json.error !== undefined) {
+      throw new Error(ts.flattenDiagnosticMessageText(json.error.messageText, "\n"));
+    }
+
+    return {
+      parsed: ts.parseJsonConfigFileContent(json.config, ts.sys, tsconfigDir),
+      settings: json.config,
+    };
+  });
+
+  if (parsed.errors.length > 0) {
+    return yield* new CompilerFault({
+      stage: "collect",
+      message: parsed.errors
+        .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"))
+        .join("\n"),
+    });
+  }
+
+  const effx = Schema.decodeUnknownOption(TsconfigEffx)(settings);
+  const settingsEffx = Option.isSome(effx) ? effx.value.effx : undefined;
+
+  const outDir =
+    config.outDir === undefined
+      ? path.resolve(tsconfigDir, settingsEffx?.outDir ?? ".effx/generated")
+      : path.resolve(config.outDir);
+
+  const rootDir = path.resolve(tsconfigDir, config.projectRoot ?? settingsEffx?.projectRoot ?? ".");
+
+  const rootNames =
+    config.entry === undefined
+      ? parsed.fileNames
+      : config.entry.map((file) => path.resolve(tsconfigDir, file));
+
+  const options: ts.CompilerOptions = { ...parsed.options, noEmit: true };
+
+  const { program, runtimeRoot, effectPackagePath, resolveEffectModule } = yield* tryTs(
+    "collect",
+    () => {
+      const host = ts.createCompilerHost(options);
+      const created = ts.createProgram(rootNames, options, host);
+      const containing = rootNames[0] ?? path.join(tsconfigDir, "__effx_target__.ts");
+      const targetContaining = path.join(tsconfigDir, "__effx_target__.ts");
+
+      const runtime = ts.resolveModuleName("@effx/runtime", containing, options, host)
+        .resolvedModule?.resolvedFileName;
+
+      const effectPackage = ts.resolveModuleName(
+        "effect/package.json",
+        targetContaining,
+        { ...options, resolveJsonModule: true },
+        host,
+      ).resolvedModule?.resolvedFileName;
+
+      const packageRoot = effectPackage === undefined ? undefined : path.dirname(effectPackage);
+
+      return {
+        program: created,
+        runtimeRoot: runtime === undefined ? undefined : path.dirname(runtime),
+        effectPackagePath: effectPackage,
+        resolveEffectModule:
+          packageRoot === undefined
+            ? undefined
+            : (specifier: string): boolean => {
+                const resolved = ts.resolveModuleName(specifier, targetContaining, options, host)
+                  .resolvedModule?.resolvedFileName;
+
+                return (
+                  resolved !== undefined &&
+                  path.resolve(resolved).startsWith(packageRoot + path.sep)
+                );
+              },
+      };
+    },
+  );
+
+  const pin = yield* typescriptPin(tsconfigDir).pipe(
+    Effect.orElseSucceed((): string | undefined => undefined),
+  );
+
+  const diagnostics: Array<Diagnostic> = [...versionSkew(pin)];
+  const location = { file: tsconfigPath, line: 1, col: 1 };
+
+  if (Option.isNone(effx)) {
+    diagnostics.push(error("EFFX2701", "invalid tsconfig effx settings", location));
+  }
+
+  const packageText =
+    effectPackagePath === undefined ? undefined : yield* fs.readFileString(effectPackagePath);
+
+  const installed =
+    packageText === undefined ? Option.none() : Schema.decodeOption(InstalledEffect)(packageText);
+
+  const target =
+    config.target ??
+    settingsEffx?.target ??
+    (Option.isSome(installed) ? targetProfileFromVersion(installed.value.version) : undefined);
+
+  if (target === undefined || Option.isNone(installed)) {
+    const reason = Option.isSome(installed)
+      ? "unsupported effect version " + installed.value.version + " at " + effectPackagePath
+      : effectPackagePath === undefined
+        ? "effect/package.json is not resolvable from " + tsconfigDir
+        : "invalid effect/package.json at " + effectPackagePath;
+
+    diagnostics.push(error("EFFX2701", reason, location));
+  }
+
+  if (runtimeRoot === undefined) {
+    diagnostics.push(
+      warning(
+        "EFFX1106",
+        "@effx/runtime is not resolvable from " +
+          (rootNames[0] ?? tsconfigDir) +
+          "; no effx declarations can be recognised",
+      ),
+    );
+  }
+
+  return {
+    program,
+    checker: program.getTypeChecker(),
+    rootDir,
+    rootNames,
+    outDir,
+    runtimeRoot,
+    resolveEffectModule,
+    resolution:
+      target === undefined || Option.isNone(installed)
+        ? undefined
+        : {
+            target,
+            emit: config.emit ?? settingsEffx?.emit ?? "all",
+            strictAccess: config.strictAccess ?? settingsEffx?.strictAccess ?? false,
+            allowImportingTsExtensions: parsed.options.allowImportingTsExtensions === true,
+            canonicalImportBase: path.join(rootDir, ".effx", "generated"),
+            outputDir: outDir,
+          },
+    diagnostics,
+  } satisfies Project;
+});

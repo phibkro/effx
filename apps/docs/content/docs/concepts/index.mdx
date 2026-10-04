@@ -1,0 +1,50 @@
+---
+title: Concepts
+description: The vocabulary of effx. IR, StableId, semantic hash, emit modes and targets, external bindings and schema references.
+---
+
+These pages define the terms used across the docs. Each page names the source files it was written from.
+
+## How the concepts fit
+
+```
+ annotations ──interpret──▶ IR ──normalize──▶ canonical JSON ──sha-256──▶ semanticHash
+ (SchemaRef,                 │                  (ir.json)
+  SymbolRef inside)          │ toGraph
+                             ▼
+                        GraphIndex ──▶ analyses ──▶ diagnostics
+                             │
+                             ▼
+ GenerationContext ──────▶ generators ──▶ files
+ (target, emit)              (policy lives here, never in the IR)
+```
+
+## Index
+
+| Concept | One line | Page |
+| --- | --- | --- |
+| IR | A Schema-defined graph of nodes and edges. The durable data model. | [The IR](/docs/concepts/ir) |
+| StableId | `<kind>:<name>`. The identity of every node. | [StableId](/docs/concepts/stable-id) |
+| Semantic hash | sha-256 of the canonical JSON of the normalized IR. | [Semantic hash](/docs/concepts/semantic-hash) |
+| Emit mode, target profile | Output policy: which files and which Effect import paths. Not in the IR. | [Emit modes and targets](/docs/concepts/emit-modes-and-targets) |
+| External binding | A declaration-only operation whose handler the application provides. | [External bindings](/docs/concepts/external-bindings) |
+| SchemaRef, SymbolRef | Schemas and symbols kept by reference, never serialized. | [Schema refs](/docs/concepts/schema-refs) |
+
+## Terms used across pages
+
+| Term | Meaning | Defined in |
+| --- | --- | --- |
+| Annotation | `{ name, args }`. Both decorators and builder chains lower to it. | `packages/compiler/src/Collected.ts` |
+| Declaration | A collected source item: id, kind, module, export, annotations, location. | `packages/compiler/src/Collected.ts` |
+| Contribution | The nodes, edges and diagnostics one annotation adds. | `packages/compiler/src/Extension.ts` |
+| Extension | A named bundle of interpreters, analyses and generators. | [Extensions](/docs/extensions) |
+| Diagnostic | A plain-data report with a code, severity and optional location. | [Diagnostics](/docs/diagnostics) |
+| Manifest | `.effx/manifest.json`. Locations, versions, file list and diagnostics. | [effx build](/docs/cli/build) |
+
+## Rules that hold everywhere
+
+| Rule | Reference |
+| --- | --- |
+| The IR is semantics only. No `ts.*` objects, no source locations, no output policy. | [The invariant](/docs/introduction/invariant) |
+| `Graph`, `Trie` and `HashMap` are working indexes. They are never serialized. | [The IR](/docs/concepts/ir) |
+| Diagnostics are data. A failing check is a diagnostic, not an exception. | [Diagnostics](/docs/diagnostics) |

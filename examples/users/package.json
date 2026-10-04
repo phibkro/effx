@@ -1,0 +1,20 @@
+{
+  "name": "@effx-examples/users",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "effx:build": "bun ../../packages/cli/src/main.ts build",
+    "serve": "bun src/server-main.ts",
+    "client": "bun src/client-main.ts",
+    "cli": "bun src/cli-main.ts"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0",
+    "@effx/runtime": "workspace:*",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@effx/cli": "workspace:*"
+  }
+}

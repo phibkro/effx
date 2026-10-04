@@ -1,0 +1,146 @@
+---
+title: Operations
+description: Query, Command, Errors, Requirements, Rpc, Cli and Authorize. What each records, and which parts the compiler infers.
+---
+
+An operation is a `Query` or a `Command` plus optional annotations. Every other annotation attaches to an
+operation. Without `@Query` or `@Command` it has no target and the compiler reports `EFFX1103`.
+
+## Query and Command
+
+Decorator and builder forms:
+
+```ts
+// decorator
+@Query({ name: "User.Get", input: GetUserInput, success: User.Public })
+static get(input: typeof GetUserInput.Type) { /* returns Effect<A, E, R> */ }
+
+// builder
+export const getUser = Operation.query({ name: "User.Get", input: GetUserInput, success: User.Public })
+  .handler((input: typeof GetUserInput.Type) => /* Effect<A, E, R> */);
+```
+
+`@Command(options)` and `Operation.command(options)` take the same options.
+
+### `OperationOptions`
+
+| Field     | Type         | Optional | Meaning                                                                                                                   |
+| --------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `name`    | `string`     | yes      | Operation name. Becomes the stable ID `operation:<name>`. Default: `<Class>.<method>` for a static method, the export name for a builder. |
+| `input`   | `Schema.Top` | no       | Input schema, recorded as a `SchemaRef` with an `InputOf` edge.                                                           |
+| `success` | `Schema.Top` | no       | Success schema, recorded as a `SchemaRef` with a `SuccessOf` edge.                                                        |
+
+Source: `packages/runtime/src/Annotation.ts` (`OperationOptions`); default name from
+`packages/compiler/src/extensions/core.ts` (`operationName`).
+
+### Query is a semantic claim
+
+`@Query` means "the developer declares observational semantics". It is not a purity proof: two handlers can
+share `A`, `E`, `R` while one reads and one writes (ADR 0006,
+`docs/decisions/0006-query-is-a-semantic-claim.md`). The compiler checks only what it can know.
+
+| Query doing...                                                  | Result                      | Status                                                                                                          |
+| --------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| exposed over non-GET HTTP                                       | `EFFX2401` error            | Implemented (`core.ts` `queryOverNonGet`).                                                                      |
+| exposed over POST with `payloadIsQuery: true` and a `payload`   | allowed                     | Implemented; opt-in per ADR 0010. See [HTTP contract](/docs/authoring/http-contract).                           |
+| calling a Command, a write-classified service, or a write lease | error or warning (ADR 0006) | **Not implemented.** `core.ts` has no such analysis. ADR 0006 marks it "(future)".                              |
+| an arbitrary raw Effect                                         | unknown; no claim           | By design.                                                                                                      |
+
+`Query` and `Command` are the only operation kinds. There is no `Mutation` or `Action` (ADR 0006).
+
+## Errors and Requirements
+
+`E` and `R` are inferred from the handler's `Effect<A, E, R>` return type. `@Errors` and `@Requirements`
+assert them (ADR 0005, `docs/decisions/0005-e-and-r-are-inferred-declarations-assert.md`).
+
+| Syntax                         | Signature                                       | Arguments                                              |
+| ------------------------------ | ----------------------------------------------- | ------------------------------------------------------ |
+| `@Errors(...)` / `.errors(...)`                  | `(...schemas: ReadonlyArray<Schema.Top>)`       | Schema-addressable error classes.                      |
+| `@Requirements(...)` / `.requirements(...)`      | `(...services: ReadonlyArray<ServiceLike>)`     | `Context.Service` classes.                             |
+
+`ServiceLike`:
+
+| Field | Type     | Optional | Meaning                                                |
+| ----- | -------- | -------- | ------------------------------------------------------ |
+| `key` | `string` | no       | The static `key` carried by a `Context.Service` class. |
+
+Source: `packages/runtime/src/Annotation.ts` (`ServiceLike`), `packages/runtime/src/decorators.ts`,
+`packages/runtime/src/builder.ts`.
+
+### Inferred versus asserted
+
+| Source                                  | IR                                              | Check                                                   |
+| --------------------------------------- | ----------------------------------------------- | ------------------------------------------------------- |
+| handler return type only                | `errors` / `requirements` with `inferred: true` | an opaque constituent is a diagnostic asking for a mapping |
+| `@Errors(...)` / `@Requirements(...)`   | `inferred: false`, the declared set             | exact set equality against the inferred set             |
+
+| Code       | Severity | Condition                                                                         |
+| ---------- | -------- | --------------------------------------------------------------------------------- |
+| `EFFX2201` | error    | handler can fail with an error that `@Errors` does not declare                    |
+| `EFFX2202` | error    | `@Errors` declares an error the handler cannot fail with                          |
+| `EFFX2203` | error    | inferred error is not schema-addressable (for example a plain `Error`); map it with `@Errors` |
+| `EFFX2204` | warning  | inferred errors are empty; the boundary will expose none                          |
+| `EFFX2302` | error    | handler requires a service that `@Requirements` does not declare                  |
+| `EFFX2303` | error    | `@Requirements` declares a service the handler no longer requires                 |
+| `EFFX2304` | error    | inferred requirement has no stable effx identity; declare or register the service |
+
+Source: `packages/compiler/src/extensions/core.ts`; ADR 0005; `docs/specs/0002-source-frontend.md`
+§"E/R inference".
+
+Dropping an assertion never silently changes a contract: the inferred set takes over, and an opaque
+constituent still diagnoses.
+
+<Callout type="warn">
+  `Effect.gen` bodies that fail with both a tagged error and a plain `Error` infer `E = Error` by
+  common-supertype inference. effx reports that as `EFFX2203`. This is documented in spec 0002 and not
+  solved by the compiler.
+</Callout>
+
+### External operations
+
+On a `.declare()` operation (see [HTTP](/docs/authoring/http)) there is no handler to infer from.
+`@Errors` and `@Requirements` are then **declarations**, not assertions: they are recorded with
+`inferred: false`, including the `Requires` edge, and the E/R equality checks do not run. Without them the
+sets are empty and `inferred: false`. Source: `core.ts` (`operationInterpreter`, `errorsAssertion`,
+`requirementsAssertion`), `docs/specs/0010-target-profiles-and-emit-modes.md` §"Declaration-only operations".
+
+## Rpc and Cli
+
+| Annotation                   | Signature                | Records                                                                  |
+| ---------------------------- | ------------------------ | ------------------------------------------------------------------------ |
+| `@Rpc(name)` / `.rpc(name)`  | `(name: string)`         | an `Exposure` with transport `rpc` and that name                         |
+| `@Cli(words)` / `.cli(words)` | `(words: string)`        | an `Exposure` with transport `cli`; `words` is split on whitespace into the command words |
+
+```ts
+@Rpc("User.Get")
+@Cli("users get")
+```
+
+Source: `packages/runtime/src/decorators.ts`, `packages/runtime/src/builder.ts`,
+`packages/compiler/src/extensions/transports.ts`.
+
+A `.declare()` operation cannot have RPC or CLI exposure: a raw HTTP binding cannot implement them
+(`EFFX1107`).
+
+## Authorize
+
+| Syntax                                  | Signature                      | Records                                                           |
+| --------------------------------------- | ------------------------------ | ----------------------------------------------------------------- |
+| `@Authorize(capability)` / `.authorize(capability)` | `(capability: Capability)` | a `Capability` node, an `AuthorizedBy` edge from the operation, and a `Focus` node plus `Focuses` edge when the capability has a focus |
+
+`Capability` values come from `Capability.make`. See
+[Persistence and authority](/docs/authoring/persistence-and-authority) for the field table.
+
+<Callout type="warn">
+  `@Authorize` records authority facts only. No authorization runtime exists: Cedar and request-scoped
+  leases are deferred past the MVP kernel (ADR 0007,
+  `docs/decisions/0007-cedar-authorizes-effx-issues-leases.md`). HTTP access declarations are a separate,
+  app-enforced contract; see [Problems and access](/docs/authoring/problems-and-access).
+</Callout>
+
+## Example
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+`User.Get` declares only the Query, transports and capability: `E` and `R` are inferred.
+`User.ChangeEmail` also asserts `@Errors(UserNotFound, EmailTaken)` and `@Requirements(Users)`.

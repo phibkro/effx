@@ -1,0 +1,93 @@
+---
+title: Diagnostics
+description: Diagnostics are plain data with a code, severity, location and related items. Their shape, where they appear, and where the code registry will be generated.
+---
+
+A diagnostic reports a problem in your source or your project. It is data, not an exception. A diagnostic with severity `error` blocks generation. Nothing is thrown.
+
+Source: `packages/compiler/src/Diagnostic.ts`, `packages/compiler/src/CompilerFault.ts`, `packages/cli/src/report.ts`, `docs/specs/0001-compiler-kernel.md`.
+
+## Shape
+
+```ts title="packages/compiler/src/Diagnostic.ts (shape)"
+interface Diagnostic {
+  readonly code: string
+  readonly severity: "error" | "warning" | "info"
+  readonly message: string
+  readonly location?: { file: string; line: number; col: number }
+  readonly related?: ReadonlyArray<Diagnostic>
+}
+```
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `code` | string | must match `EFFX` followed by four digits (`/^EFFX\d{4}$/`) |
+| `severity` | `error`, `warning` or `info` | `Severity` schema |
+| `message` | string | human-readable text |
+| `location` | `Location`, optional | `{ file, line, col }` with integer `line` and `col` |
+| `related` | `Diagnostic` array, optional | nested diagnostics, for example the other side of a conflict |
+
+`Diagnostic` is an Effect `Schema`, so it serializes. Helpers: `error(code, message, location?)`, `warning(code, message, location?)` and `hasErrors(diagnostics)`.
+
+## What severities do
+
+| Severity | Blocks generation | CLI exit |
+| --- | --- | --- |
+| `error` | yes. `generate` is skipped and `effx build` writes nothing. | 1 |
+| `warning` | no | 0 |
+| `info` | no | 0 |
+
+Some codes change severity with a setting. For example `--strict-access` raises the missing-access warning to an error (spec 0006).
+
+## Diagnostics are data
+
+Every pipeline stage returns a `StageResult`: an optional value plus the diagnostics it found. Diagnostics accumulate across stages. The frontend's own diagnostics also travel as data in `Collected`.
+
+| Type | Shape |
+| --- | --- |
+| `StageResult<A>` | `{ value: Option<A>, diagnostics: Diagnostic[] }` |
+| `CompileResult.diagnostics` | every diagnostic from every stage, in stage order |
+
+`CompilerFault` is a different thing. It is a tagged error reserved for IO and invariant failures, such as an unreadable project, a broken cache or a generator bug. A source problem is never a fault (invariant 11, [The invariant](/docs/introduction/invariant)).
+
+## Where you see diagnostics
+
+| Place | Detail |
+| --- | --- |
+| Terminal | `effx check` and `effx build` print them grouped by file, then a summary line ([effx check](/docs/cli/check)) |
+| `.effx/manifest.json` | `effx build` stores all diagnostics, with `related`, in the `diagnostics` field ([effx build](/docs/cli/build)) |
+
+Terminal line format:
+
+```text
+<code> <severity padded to 8> <message>  <file>:<line>:<col>
+```
+
+Diagnostics without a location omit the file suffix and are listed last under `(no location)`. `inspect` and `graph` do not print diagnostics.
+
+## Specifications
+
+Diagnostic codes are currently defined in the specs and at their use sites in the compiler. There is no central registry in the code yet. These specs are the contracts:
+
+| Spec | Title |
+| --- | --- |
+| [0001-compiler-kernel](/docs/specs/0001-compiler-kernel) | Compiler kernel |
+| [0002-source-frontend](/docs/specs/0002-source-frontend) | Runtime surface and TypeScript source frontend |
+| [0003-cli-and-vertical-slice](/docs/specs/0003-cli-and-vertical-slice) | CLI and vertical slice |
+| [0005-http-contract-extension](/docs/specs/0005-http-contract-extension) | HTTP contract extension |
+| [0006-access-contract-extension](/docs/specs/0006-access-contract-extension) | AccessContract and required guard bindings |
+| [0007-client-and-foldkit](/docs/specs/0007-client-and-foldkit) | Generated client and Foldkit command adapter |
+| [0010-target-profiles-and-emit-modes](/docs/specs/0010-target-profiles-and-emit-modes) | Target profiles, declarations and split HTTP emit modes |
+| [0013-group-defaults](/docs/specs/0013-group-defaults) | Group defaults and dense HTTP declarations |
+
+## Diagnostic code registry
+
+<Callout type="warn">
+  The code registry is not generated yet. Do not copy codes from specs into this page by hand.
+</Callout>
+
+{/* effx:diagnostics-registry:begin -- GENERATED from the compiler diagnostic registry when it lands; do not hand-copy codes */}
+
+The diagnostic registry index is not generated yet. When the compiler diagnostic registry lands, this section is replaced by a generated table of codes, severities and messages.
+
+{/* effx:diagnostics-registry:end */}

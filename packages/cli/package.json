@@ -1,0 +1,43 @@
+{
+  "name": "@effx/cli",
+  "version": "0.1.0",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phibkro/effx.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "effx": "dist/effx.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "AGENTS.md",
+    "ai-docs/**/*"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./dist/effx.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "source": "./src/config.ts",
+      "default": "./dist/config.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=bun --outfile dist/effx.js --external @typescript/typescript6 && bun build src/config.ts --target=bun --outfile dist/config.js --external @effx/compiler && bunx tsc --ignoreConfig --noCheck --noResolve --declaration --emitDeclarationOnly --outDir dist src/config.ts"
+  },
+  "dependencies": {
+    "@effx/compiler": "0.1.0",
+    "@typescript/typescript6": "6.0.2"
+  }
+}

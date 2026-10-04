@@ -1,0 +1,93 @@
+# TeamApplications — Gate 4 local parity acceptance
+
+Observed 2026-10-04 on **clean mono-web `23bc0d6b932d28199d294cd393533376a21ba154` (unpublished)**. The retained, unlanded `mono-web integration` worktree was fast-forwarded to this **same commit** after measurement; the operator-owned mono-web `main` remained read-only at `f433ea906c9f9af5134c7316d54c78d8c859038f`. The main golden receipt records 17 steps, `clean_source: true`, this exact revision and one source tree. Each final job in the machine `just measure` ledger carries the same revision and `dirty: false`. This is local Chromium/Better Auth/native HTTP/disposable PostgreSQL/loopback-mail parity, not authority for a branch landing, production action or real provider (`docs/specs/0023-team-applications-migration.md`; `mw/AGENTS.md`). Mono-web `STATE.md` was committed **before** the final serial run; this effx evidence is written **after** it.
+
+Measured on the maintainer's workstation; mono-web revisions refer to an unpublished integration branch.
+
+Mono-web file paths use the `mw/` prefix. Commands in the measured table run from its repository root and keep executable arguments relative to that root.
+
+## Seven generated operations, same business ownership
+
+`mw/packages/http-api/src/team-application.effx.ts` declares one dense `TeamApplicationsGroup` on the complete native API. The seven operations replace the old handwritten endpoint declarations; there is no eighth drain operation. Both project emits share semantic hash **`9b3738ed4b188644ba388a047afb64e156f37f2b7bec8a51d58aa062632b324e`**. The group has three genuinely anonymous public routes and four Person-protected staff routes. Their original access resolvers, current team authority, credentials, metadata, exact success/problem schemas, rate limit, cache headers and methods remain intact (`mw/packages/http-api/src/{team-application.effx,team-application-effx-adapters,team-application,api,index}.ts`; `mw/apps/backend/src/team-application/http.ts`).
+
+| Existing qualified operation | Method and path | Preserved decision |
+| --- | --- | --- |
+| `team-applications.readTeamApplicationIntake` | `GET /api/teams/{teamId}/application-intake` | Anonymous SnapshotRead. |
+| `team-applications.listTeamApplicationIntakes` | `GET /api/team-application-intakes` | Anonymous SnapshotRead, domain-bounded public listing. |
+| `team-applications.submitTeamApplication` | `POST /api/teams/{teamId}/applications` | Anonymous Transaction; rate limit before parsing, including replay; 201 ETag/Location. |
+| `team-applications.listTeamApplications` | `GET /api/teams/{teamId}/applications` | Current team member; REPEATABLE READ snapshot. |
+| `team-applications.readTeamApplication` | `GET /api/team-applications/{applicationId}` | Current team member; REPEATABLE READ snapshot. |
+| `team-applications.deleteTeamApplication` | `DELETE /api/team-applications/{applicationId}` | Current team leader; Transaction; replayable bodyless 204. |
+| `team-applications.reviseTeamApplicationIntake` | `PATCH /api/teams/{teamId}/application-intake` | Current team leader; Transaction, Idempotency-Key and fresh If-Match; 200/new ETag. |
+
+`mw/apps/backend/src/team-application/http.ts` now binds the generated `TeamApplicationsApiHandlers` with typed raw handlers and **seven non-no-op guards**. A request-local `Context.Reference` carries the original actor and operation identity. Each raw handler invokes the generated guard **at its old decision point**: public reads before the domain read; public submit inside command preparation after rate limiting and strict decoding; staff reads inside the same current-authority snapshot; delete/revise after locking and current actor resolution but **before** HTTP receipt lookup, including replay. An absent or mismatched request frame fails closed. The original HTTP identity, response capsule, exact problem mapping and serialization retry remain app-owned. `TeamApplications` domain methods, PostgreSQL layer, domain/HTTP receipts, outbox, persisted queue lease/retry, mail worker, provider Layer, homepage public form and Foldkit Model/update/view/Command were **not** replaced. The homepage's types now refer to generated endpoint exports. The old handwritten endpoint class, imports and stale JSDoc names were deleted; `just constructs write` regenerated its one source-derived page (`mw/docs/architecture.md:285-307`; mono-web `mw/apps/backend/src/{team-application/http,http-api/problem}.ts`; `mw/apps/homepage/src/lib/api-types.ts`; `mw/docs/constructs/http-problem.md`).
+
+The pilot `feat/team-application-queue-pilot-0926` remains **unmerged**. Its proposed `POST /api/team-application-deliveries/drain`, `ServiceSecurity`, operation grants, migration 0081 and scheduler were not imported. The inherited handwritten PersistedQueue/outbox/worker and its existing PostgreSQL/PgBouncer proofs remained in place. No database schema or provider code changed (`docs/specs/0023-team-applications-migration.md:45-47` in effx).
+
+## Real 204 and complete byte parity
+
+The first minimal *disposable* compiler fixture used Effect's own `HttpApiSchema.NoContent`, a real `Schema.Void` with status 204, rather than an invented response body. With the pinned **effx `f3c6bf8ae6205b9b60a449d01faed63744beb765`**, its strict contract check/build exited 0 with only known `EFFX0001` (compiler TypeScript 6.0.3 versus target TypeScript 7.0.2). A one-group `OpenApi.fromApi` probe matched every JSON-path value and the stable-encoded **354 bytes** of the accepted DELETE 204 response: `<No Content>`, required `no-store` and `Vary: Origin`, no body. The initial fixture-only `EFFX1102` for a missing `concealment` disappeared when that actual AccessSpec field was supplied; it was **not** a compiler gap. The disposable fixture and separate config were removed after proof. The product's full seven-group emission was then checked independently (`docs/specs/0023-team-applications-migration.md`; mono-web `mw/packages/http-api/src/team-application.effx.ts:218-249`).
+
+At the final clean revision, `bun run --cwd packages/http-api generate` emitted exactly **107 external operations** and excluded **one internal receipt**. `bun run --cwd packages/sdk generate` retained the same seven TeamApplications IDs. Complete-file `cmp -s` against the clean Content-accepted `fcc2f3e029b49c9bd0f0446c37c193416c362f50` (unpublished) projections returned **0 for both files**; the source modules were not checked only by sampled endpoint comparison:
+
+| Full projection | Accepted `fcc2f3e0` (unpublished) SHA-256 | TeamApplications SHA-256 | Size |
+| --- | --- | --- | --- |
+| `mw/packages/http-api/openapi.json` | `81e7b872178803a3c8bf6ccf86b96b5185ba560e9661b47e98d1d0d4e827b749` | **identical** | 5,360,174 bytes; 157,287 lines |
+| `mw/packages/sdk/native-api-operations.json` | `c4abcca1878171c84fd3c531c3fe5c93f92329818c59d4b73a8bf796bca8aad3` | **identical** | 18,009 bytes; 655 lines |
+
+The original DELETE path's `204` response subtree is byte-identical, not just schema-equivalent. All **eight** previously accepted generated Profile/Directory/SocialEvents/Content contract and handler TypeScript files also compared byte-for-byte equal to `fcc2f3e0` (unpublished). No S5 pack was re-vendored mid-run: both effx and mono-web manifests still pin the same f3c6bf8 CLI/runtime archives. The full projection comparison covers the existing headers, security, statuses, ordered problem unions and 201/204 body shapes; it is local wire parity, not production traffic proof.
+
+## Observed red-first repairs, not new business rules
+
+- **One source for public intake limit.** On clean seven-declaration commit `1e3ca8d1` (unpublished), the new source-based test ran **red**: 1/5 failed because declaration metadata said **250** active teams while domain `TEAM_APPLICATION_INTAKE_LIST_LIMIT` was **500**. An interim literal correction turned the test green; final `36158786` (unpublished) removed the copied number. App-owned `teamApplicationsOperationAnnotations` now derives that description from the domain constant, the same value used by the existing response schema and SQL limit. The test asserts the *rendered full OpenAPI* description against the domain constant; 5/5 passed and the entire OpenAPI stayed byte-identical. Searches found no other copied numeric intake-limit wording in app, package, tool or documentation sources (`mw/packages/http-api/src/team-application-effx-adapters.ts:14-23`; `mw/packages/domain/src/team-application/schema.ts:143-144`; mono-web `STATE.md:97-104`). The old endpoint problem arrays were also deduplicated: the retained native problem schemas and seven declarations import the **same six ordered code tuples**.
+- **PGlite full-migration test lifetime.** At clean generated-backend integration commit `7dfb9e82` (unpublished), the original four-file TeamApplications database focused run had **1 failure / 21 passes**: PGlite's in-test creation and application of every prior migration exceeded Vitest's default **5,000 ms**, while PostgreSQL and the other suites passed. The real migration assertion did **not** fail. Separate commit `75d8deb8` (unpublished) assigns that one PGlite full-migration case a **30,000 ms bounded test timeout**; PostgreSQL/PGlite historical rows, claim fencing and queue-state assertions stayed unchanged. Its focused rerun passed 2/2, and the final same-revision four-file database run passed 22/22 (`mw/packages/database/src/team-application/queue-migration.test.ts:417-440`). No retry, provider simulation, or reduced invariant hid the red outcome.
+- **Test type compatibility.** The first source-parity test used status helpers absent from installed Effect's public rc.116 TypeScript declarations. A measured HTTP package target `tsc` run exited 1. A separate test-only commit `e1eb8ee7` (unpublished) uses supported native reflection and real `OpenApi.fromApi`; no suppression or fabricated type was added. The final target HTTP/backend/homepage/SDK type checks and full `just check` exited 0. No Effect exception was added.
+
+## One clean final revision: measured acceptance
+
+Every job in the table ran inside the final worktree's `devenv shell`. `just measure` held mono-web's shared heavy lock. The per-command machine ledger filtered by **revision `23bc0d6b` (unpublished) and `dirty: false`** gives the exits, elapsed wall time and peak RSS. Frozen `bun install --frozen-lockfile` exited **0** with no changes (1,252 installs checked across 1,562 packages). All checks were serial, not siblings observing half-finished generated files.
+
+| Command after `devenv shell --` | Exit | Ledger wall | Peak RSS | Observation |
+| --- | ---: | ---: | ---: | --- |
+| `just measure --class check -- just effx-native` | 0 | 6,826 ms | 958,824,448 B | Five contracts/five handler factories; both manifests have hash `9b3738ed4b188644ba388a047afb64e156f37f2b7bec8a51d58aa062632b324e`. |
+| `just measure --class check -- bun x effx check --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract` | 0 | 3,616 ms | 1,072,795,648 B | Strict group and SchemaRef/access check. |
+| `just measure --class check -- bun x effx check --project apps/backend/tsconfig.effx.json --strict-access --emit=handlers` | 0 | 3,273 ms | 953,942,016 B | Strict typed raw-handler project. |
+| `just measure --class check -- bun run --cwd packages/http-api generate` | 0 | 4,131 ms | 1,006,608,384 B | Complete 107-operation OpenAPI. |
+| `just measure --class check -- bun run --cwd packages/sdk generate` | 0 | 554 ms | 340,049,920 B | Complete SDK operation index. |
+| `just measure --class test -- bun run --cwd packages/http-api vitest run test/team-application-effx-adapters.test.ts test/native-api.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 2,627 ms | 451,833,856 B | 2 files, 17 tests: all seven declared operations, original authority/problem/header projection. |
+| `just measure --class test -- bun run --cwd apps/backend vitest run src/team-application/http.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 4,838 ms | 800,165,888 B | 5 HTTP tests: public rate limit/replay, staff authority, delete 204 and stale intake. |
+| `just measure --class test -- bun run --cwd packages/database vitest run src/team-application/service.test.ts src/team-application/delivery.test.ts src/team-application/delivery-pgbouncer.test.ts src/team-application/queue-migration.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 23,269 ms | 967,299,072 B | 4 files, 22 tests: PGlite, PostgreSQL/PgBouncer, queue lease/recovery and upgrade. |
+| `just measure --class test -- bun run --cwd packages/domain vitest run src/team-application/policy.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 657 ms | 250,347,520 B | 5 policy tests. |
+| `just measure --class test -- bun run --cwd apps/dashboard vitest run app/foldkit/team-applications/update.test.ts app/foldkit/team-applications/paths.test.ts app/foldkit/team-applications/oslo-time.test.ts app/lib/browser-api.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 3,073 ms | 409,169,920 B | 4 files, 20 Foldkit/route/local-time/client tests. |
+| `just measure --class test -- bun run --cwd apps/homepage vitest run test/public-team-application.test.ts test/team-directory.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 2,524 ms | 397,451,264 B | 2 files, 19 public form/directory tests. |
+| `just measure --class test -- bun run --cwd packages/sdk vitest run src/__tests__/generated-native-client.test.ts src/__tests__/profile-operation-index.test.ts --no-file-parallelism --maxWorkers=1` | 0 | 2,736 ms | 398,086,144 B | 2 files, 9 generated client/index tests. |
+| `just measure --class golden-team-application -- just golden team-application` | 0 | 53,660 ms | 5,641,269,248 B | **Original 17-checkpoint Chromium journey passed** with real Better Auth, native HTTP, separate PostgreSQL observer, production frontend builds and loopback mail. |
+| `GOLDEN_TEAM_APPLICATION_FAULT=after-submitted just measure --class golden-team-application-fault -- just golden team-application` | **1, expected injection** | 29,721 ms | 3,785,490,432 B | Original harness stopped after submitted checkpoint with `fault: Injected journey failure after-submitted`; teardown reported no survivors/errors, released listeners and deleted private resources. Not a passing normal journey. |
+| `GOLDEN_TEAM_APPLICATION_FAULT=interrupt-after-submitted just measure --class golden-team-application-interrupt -- just golden team-application` | **143, expected SIGTERM** | 28,561 ms | 3,703,611,392 B | Original harness interrupted after submitted checkpoint; teardown reported no survivors/errors, released listeners and deleted private resources. Not a passing normal journey. |
+| `just measure --class e2e -- just e2e profile` | 0 | 47,321 ms | 2,720,522,240 B | Original Profile edit/stale/replay/denial browser proof. |
+| `just measure --class e2e -- just e2e schools` | 0 | 69,841 ms | 3,743,035,392 B | Original Schools directory **and** management browser/PostgreSQL proofs. |
+| `just measure --class e2e -- just e2e social-events` | 0 | 69,960 ms | 2,940,850,176 B | Original SocialEvents scope/replay/snapshot/keyboard/mobile proof. |
+| `just measure --class e2e -- just e2e content-publication` | 0 | 78,805 ms | 4,893,708,288 B | Original Content staff/public browser/PostgreSQL proof; no hydration errors. |
+| `just measure --class check -- just check --concurrency=1` | 0 | 59,967 ms | 4,030,517,248 B | Full source safety, format, Effect-aware lint, types/OpenAPI, layout, guides, constructs and exception checks; 16/16 type-graph tasks. |
+| `just measure --class test -- just test --concurrency=1` | 0 | 273,543 ms | 2,578,907,136 B | Full 16-package test graph exited 0; this is the aggregate exit, not a sum inferred from focused passes. |
+
+The golden fault receipts are **expected failed runs**, not green suites. Both source-bound receipts have the same source-tree hash as the passing normal receipt, and each cleanup reported `descendantsExited`, `processesExited`, `privateResourcesRemoved` and `listenersReleased` true, zero survivors and zero cleanup errors. The normal receipt reports all 17 steps and `clean_source: true`. The golden's existing axe checks reject only serious/critical WCAG 2A/AA violations; sign-in Enter is its explicit keyboard assertion. It does not prove Tab order, focus traps or an external provider. The branch is retained unlanded; no production action followed.
+
+## Maintained LOC, separately counted generated artifacts
+
+Physical `wc -l` on a **consistent 31-file pre-cutover responsibility set** at clean mono-web `fcc2f3e0` (unpublished), then its **33-file after-state** at clean `23bc0d6b` (unpublished). The set is: the Content-independent TeamApplications contract; backend HTTP; seven non-test domain source files; database `service.ts`, `postgres.ts`, `index.ts` (the queue/outbox implementation stays outside this interface cutover); eleven Foldkit non-test source files; two dashboard team-applications routes; and six homepage public-form/type/route source files. New authored `.effx.ts` and adapter lines join the maintained after-state; tests, queue worker/outbox, migration files, shared transport and generated files are excluded on both sides.
+
+| Responsibility | Before | After |
+| --- | ---: | ---: |
+| Handwritten transport contract → retained schemas + authored effx declarations/adapter | 382 | 652 |
+| Backend TeamApplications HTTP | 678 | 866 |
+| Domain TeamApplications | 725 | 725 |
+| Database TeamApplications SQL/service/index | 819 | 819 |
+| TeamApplications Foldkit editor | 1,751 | 1,751 |
+| Dashboard chooser/per-team routes | 105 | 105 |
+| Homepage public form/types/routes | 1,269 | 1,269 |
+| **Maintained total** | **5,729 (31 files)** | **6,187 (33 files; +458)** |
+
+The authored `team-application.effx.ts` adds **283 lines** and `team-application-effx-adapters.ts` **251**. The generated TeamApplications contract and handler add **69** and **97** lines (**166 generated TypeScript lines**, not maintained). Complete OpenAPI and SDK line/byte totals are above. The positive authored-line delta describes parity; it is not a reason to discard the user journey.
+
+**Unverified:** real mail provider, deployed environment, production credentials/data, branch landing, a whole-lost-response product contract beyond the existing golden fault checkpoints, and the pilot eighth drain/operation-grant service principal. These require separate operator authority or a separate approved contract. The integration branch remains unlanded, with operator-owned `main` unchanged.

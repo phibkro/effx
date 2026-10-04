@@ -1,0 +1,72 @@
+---
+title: The invariant
+description: A decorator is a contribution to the IR, never generated behaviour. What that rules out, and the eleven invariants that follow from it.
+---
+
+> **decorator = contribution to IR, never generated behaviour.**
+
+Source: `docs/decisions/0001-aot-compilation-is-authoritative.md`, `docs/decisions/0008-generated-code-is-ordinary-effect.md`, `docs/decisions/0012-positioning-enterprise-on-ramp.md`, `AGENTS.md`.
+
+## What it means
+
+A decorator or builder call says something about your code. The compiler records that claim as nodes and edges in the IR. Nothing the decorator does at runtime, and nothing the compiler generates, depends on the decorator being executed.
+
+This is what lets effx be an on-ramp rather than a lock-in. The declaration is a familiar surface, and the generated Effect does not depend on it being executed. A team can keep the generated files and stop running the compiler ([ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp), [Generated code](/docs/introduction/generated-code#ejecting)).
+
+```
+@Http.Get("/users/:id")        source syntax
+        │  lowers to
+        ▼
+Annotation { name: "Http.Get", args: ["/users/:id"] }
+        │  interpreter returns
+        ▼
+Contribution { nodes: [Exposure], edges: [ExposedAs], diagnostics: [] }
+```
+
+`Contribution` is the type an interpreter returns. Its doc comment reads: "What one annotation on one declaration contributes to the IR. Never behaviour." (Source: `packages/compiler/src/Extension.ts`.)
+
+## What it rules out
+
+| Not allowed | Why | ADR |
+| --- | --- | --- |
+| A decorator that wraps, replaces or registers the decorated method at runtime | Runtime decorators are no-ops or metadata only. The AOT compiler is the source of truth. | 0001 |
+| The compiler rewriting your handler bodies | The compiler generates separate files and never rewrites bodies. | 0001 |
+| An effx dependency-injection container, runtime registry or reflection | Generated code has no effx runtime. You provide ordinary Effect layers. | 0008 |
+| Needing to execute application modules to build the IR | Schemas are kept as references. The frontend reads types with the TypeScript compiler API. | 0001, 0004 |
+| `ts.*` objects or source locations inside the IR | The IR holds semantics only. Locations go to the manifest. | spec 0001, ADR 0002 |
+| Treating diagnostics as thrown failures | Diagnostics are data. `CompilerFault` is for IO and invariant breakage. | spec 0001 |
+| An effx runtime that executes requests, or runtime reflection that changes behaviour | Generated code has no effx runtime. | 0008, 0012 |
+| Hiding `E` or `R` behind framework-style exceptions or ambient context | `E` and `R` are inferred from the handler and stay in types and `Layer`s. | 0005, 0012 |
+| A generated-code format only the compiler can read | Output is ordinary Effect, deterministic and readable. | 0008, 0012 |
+
+## All invariants
+
+The table below is the invariant table from `AGENTS.md`. ADR and spec pages are linked.
+
+| # | Invariant | Reference |
+| --- | --- | --- |
+| 1 | AOT analysis is authoritative; runtime decorators are no-ops/metadata only | [ADR 0001](/docs/decisions/0001-aot-compilation-is-authoritative) |
+| 2 | **decorator = contribution to IR, never generated behaviour** | [ADR 0001](/docs/decisions/0001-aot-compilation-is-authoritative) |
+| 3 | IR is graph-shaped and defined with Effect `Schema`; `Graph`/`Trie`/`HashMap` are indexes, not the format | [ADR 0002](/docs/decisions/0002-ir-is-graph-shaped-and-schema-defined) |
+| 4 | Canonical JSON (RFC 8785 over the normalized IR) is a projection; `semanticHash` = sha-256 of it | [ADR 0003](/docs/decisions/0003-canonical-json-is-a-projection) |
+| 5 | Schemas are preserved as `SchemaRef` (module/export/symbolId); never serialized | [ADR 0004](/docs/decisions/0004-schemas-preserved-by-symbol-reference) |
+| 6 | `E`/`R` are inferred from the handler; `@Errors`/`@Requirements` assert and mismatches diagnose | [ADR 0005](/docs/decisions/0005-e-and-r-are-inferred-declarations-assert) |
+| 7 | `@Query` is a semantic claim, not a purity proof | [ADR 0006](/docs/decisions/0006-query-is-a-semantic-claim) |
+| 8 | Cedar authorizes, effx issues leases (deferred past MVP) | [ADR 0007](/docs/decisions/0007-cedar-authorizes-effx-issues-leases) |
+| 9 | Generated code is ordinary Effect (`HttpApi`, `Rpc`, `Command`); no effx runtime DI | [ADR 0008](/docs/decisions/0008-generated-code-is-ordinary-effect) |
+| 10 | **No `ts.*` objects in the IR.** Source locations live in the manifest, not the IR | [spec 0001](/docs/specs/0001-compiler-kernel) |
+| 11 | **Diagnostics are data, not failures.** `CompilerFault` is reserved for IO/invariant breakage | [spec 0001](/docs/specs/0001-compiler-kernel) |
+
+<Callout type="info">
+  Invariant 8 is a decision, not a feature. Cedar and leases are not built. `STATE.md` lists "Authority (Cedar, leases)" as deferred past the MVP.
+</Callout>
+
+## How the code keeps it
+
+| Rule | Where it shows |
+| --- | --- |
+| Interpreters are pure: `(annotation, declaration, ctx) => Contribution` | `packages/compiler/src/Extension.ts` |
+| Contributions merge and normalize before any analysis runs | `interpret` in `packages/compiler/src/pipeline.ts` |
+| Analyses and generators only read the IR and its graph index | `Analysis`, `Generator` in `packages/compiler/src/Extension.ts` |
+| Output policy (target, emit mode) is a `GenerationContext`, never IR | see [Emit modes and targets](/docs/concepts/emit-modes-and-targets) |
+| Every `Diagnostic` is a plain value with a code, severity and location | see [Diagnostics](/docs/diagnostics) |

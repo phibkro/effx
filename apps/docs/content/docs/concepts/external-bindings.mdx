@@ -1,0 +1,103 @@
+---
+title: External bindings
+description: A declaration-only operation has a contract but no handler. The application binds it. What the IR records, what is generated, and what the compiler refuses.
+---
+
+A local operation has a handler that effx can see. An external operation does not. You declare its contract, and your application supplies the implementation. effx generates the wiring only.
+
+Source: `docs/specs/0010-target-profiles-and-emit-modes.md` ("Declaration-only operations", "Emit modes and raw bindings"), `docs/specs/0005-http-contract-extension.md`, `docs/specs/0009-profile-proving-slice.md`, `packages/runtime/src/builder.ts`, `packages/compiler/src/extensions/core.ts`.
+
+For how to write HTTP contracts and groups, see [Authoring HTTP](/docs/authoring/http).
+
+## Why it exists
+
+A shared contract package must not import a backend handler. That would reverse the dependency. A stub handler would claim behaviour that does not exist. A declaration-only operation lets the contract package declare the endpoint and its problems, while the backend owns the implementation, its raw request handling and its transactions.
+
+```
+ contract package                         backend
+ ─────────────────                        ───────
+ Operation.query(...).http.get(...)       imports the generated *-handlers.ts
+   .declare()                             calls  ProfileApiHandlers({ raw, guards })
+        │ effx build --emit=contract              ▲
+        ▼                                         │ effx build --emit=handlers
+ profile-contract.ts  (HttpApiGroup)  ────────────┘
+```
+
+## Declaring one
+
+The builder's terminal `.declare()` returns an operation value with no callable handler. `.handler(fn)` returns a local operation.
+
+```ts title="builder terminals (packages/runtime/src/builder.ts)"
+handler<Handler>(handler: Handler): OperationValue<Handler>
+declare(): ExternalOperationValue
+```
+
+A shortened chain, from the fixture `packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts`:
+
+```ts title="declaration-only operation (shortened)"
+export const readOwnProfile = Operation.query({
+  name: "Profile.ReadOwnProfile",
+  input: ProfileReadInput,
+  success: UserProfileResponse,
+})
+  .in(ProfileGroup)
+  .http.get("/api/profile")
+  // .http.contract({...}) .http.problems({...}) .http.access({...})
+  .declare();
+```
+
+`.declare()` lowers the same `Query` or `Command`, `Http.*`, `Errors` and `Requirements` annotations as `.handler(...)`. The collector records `binding: "external"` on the declaration.
+
+<Callout type="info">
+  The spec names `.declare()` as the declaration-only form. A decorated static method needs a real implementation, so decorators are not the declaration-only syntax (spec 0009).
+</Callout>
+
+## What the IR records
+
+| Field | Local operation | External operation |
+| --- | --- | --- |
+| `binding` | absent | `"external"` |
+| `handler` | `SymbolRef` of the handler | absent |
+| `errors`, `requirements` | inferred from the handler, or declared and checked | declared only. Nothing is inferred from an absent function. |
+
+The `Operation` node schema rejects an external operation with a handler and a local operation without one. A core analysis also reports the mismatch (`invalidOperationBinding` in `packages/compiler/src/extensions/core.ts`).
+
+`@Errors` and `@Requirements` on an external operation stay in the IR, including the `Requires` edge. They are declarations, not an upper bound on what the backend may use. Generated raw callbacks restrict typed failures to the endpoint's problems and infer their requirement channel from the backend binding (spec 0010).
+
+## What gets generated
+
+For an external-only group, per emit mode (see [Emit modes and targets](/docs/concepts/emit-modes-and-targets)):
+
+| Mode | File | Content |
+| --- | --- | --- |
+| `contract` | `<group>-contract.ts` | endpoint constants and an exported `HttpApiGroup`. It imports no backend handler, no root and no `AppRoutes`. |
+| `handlers` | `<group>-handlers.ts` | an exported `<Group>ApiHandlers({ raw, guards })` factory. It imports the concrete root named by the group's `rootSymbol`. |
+
+The handlers factory registers each endpoint with `HttpApiBuilder.group(...)` and `.handleRaw(...)`. The backend passes two records:
+
+| Record | Meaning |
+| --- | --- |
+| `raw` | one callback per endpoint, receiving the decoded request (no payload) and a lazy `authorize` thunk. It returns an `HttpServerResponse`. |
+| `guards` | one authorization effect per endpoint. It runs only when the application calls the thunk. |
+
+The generated registration looks like this (from the checked-in snapshot `packages/frontend-ts/test/fixtures/rc116/project/handlers/.effx/generated/directory-handlers.ts`):
+
+```ts title="generated handlers, one endpoint shown"
+handlers
+  .handleRaw("amendSchool", (input) => raw["amendSchool"](input, () => guards["directory.amendSchool"](input.request)))
+```
+
+effx adds no handler call of its own. A missing `raw` or `guards` key, or an incompatible response or error channel, fails TypeScript in the target project (spec 0010).
+
+## What the compiler refuses
+
+| Situation | Result | Source |
+| --- | --- | --- |
+| An external operation has RPC or CLI exposure (or a Foldkit command) with no executable binding | error. A raw HTTP binding cannot implement another transport. | `externalExecutableProjection` in `core.ts` |
+| A local operation without a handler, or an external one with a handler | error | `invalidOperationBinding` in `core.ts` |
+| An external operation mixed with local operations in one `(root, group)` | a diagnostic until a combined group is specified | spec 0010 |
+| Endpoint key, group or metadata rules for externally bound HTTP operations | `EFFX2403` and related errors | spec 0010 |
+
+## Status
+
+External bindings with `--emit contract` and `--emit handlers` are implemented. `STATE.md` marks "Gate 3 compiler prerequisites (target/split emit)" as build, DoD met locally. Whether a particular application's cutover has landed is tracked per slice in `STATE.md`. This page describes the compiler contract only.

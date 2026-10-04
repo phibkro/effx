@@ -1,0 +1,12 @@
+{
+  "title": "Authoring",
+  "pages": [
+    "index",
+    "operations",
+    "http",
+    "http-contract",
+    "problems-and-access",
+    "foldkit",
+    "persistence-and-authority"
+  ]
+}

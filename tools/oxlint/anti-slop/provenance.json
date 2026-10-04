@@ -1,0 +1,28 @@
+{
+  "copiedFrom": {
+    "repository": "mw",
+    "path": "tools/oxlint/anti-slop",
+    "revision": "f433ea906c9f9af5134c7316d54c78d8c859038f"
+  },
+  "source": "https://github.com/joelhooks/rat-stack",
+  "commit": "5d99b80c9a19ab0c51a23a1e3ffc8fb101f78b61",
+  "path": "tools/oxlint/anti-slop",
+  "upstream": {
+    "source": "https://github.com/dmmulroy/anti-slop",
+    "commit": "c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b"
+  },
+  "deviations": [
+    "Copied from the mono-web local path at the recorded revision; its provenance chain is rat-stack commit 5d99b80c9a19ab0c51a23a1e3ffc8fb101f78b61 → dmmulroy/anti-slop commit c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b.",
+    "Removed mono-web-domain rule no-leadership-reach and its tests.",
+    "Removed mono-web-domain rule no-raw-advisory-lock-sql and its tests.",
+    "Removed mono-web-domain rule no-hand-rolled-postgres and its tests.",
+    "Removed mono-web-domain rule no-literal-window-instant and its tests.",
+    "Removed mono-web-domain rule no-git-history and its tests.",
+    "Removed mono-web-domain rule no-port-probe and its tests.",
+    "Removed mono-web-domain rule no-dev-server and its tests.",
+    "Removed mono-web-domain rule no-unkeyed-command-row and its tests.",
+    "Removed mono-web-domain rule no-zoneless-calendar-interval and its tests.",
+    "Removed mono-web-domain rule no-json-text-parameter and its tests.",
+    "The retained generic anti-slop rules and Effect sub-plugin remain; RuleTester cases run with Node’s test runner via tools/oxlint/package.json, matching mono-web."
+  ]
+}

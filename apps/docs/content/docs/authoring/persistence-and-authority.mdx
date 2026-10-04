@@ -1,0 +1,137 @@
+---
+title: Persistence and authority
+description: PersistentModel, Model.persistent, views and focus, Focus.key and Capability.make. What is recorded, and what is deferred.
+---
+
+Models and capabilities are **recorded facts** in the IR. effx generates no persistence code and no
+authorization runtime from them yet.
+
+| Area                         | Status                                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `PersistentModel`, views, focus | Recorded as `Model` and `Focus` nodes (implemented, `packages/compiler/src/extensions/core.ts`).                                      |
+| `Capability`, `Authorize`    | Recorded as `Capability` and `Focus` nodes with `AuthorizedBy` and `Focuses` edges (implemented).                                       |
+| SQL projection from `table`  | Spec 0008 is **proposed, not frozen**. STATE.md lists persistence as parked. `examples/users` uses an in-memory `Ref<HashMap>` store.   |
+| Cedar authorization, leases  | **Deferred past the MVP kernel** (ADR 0007). Optics are a later runtime mechanism, never the identity.                                  |
+
+## PersistentModel
+
+```ts
+// decorator: the decorated class is the model schema
+@PersistentModel({ table: "users", views: { Public: UserPublic, Self: UserSelf }, focus: { email: ["email"] } })
+export class User extends Schema.Class<User>("User")({ /* ... */ }) {}
+
+// builder: the schema is the first argument
+export const UserModel = Model.persistent(User, { table: "users", focus: { email: ["email"] } });
+```
+
+### `PersistentModelOptions`
+
+| Field   | Type                                                          | Optional | Meaning                                                                                       |
+| ------- | ------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `table` | `string`                                                      | no       | Table name. Recorded on the `Model` node and as the `PersistsAs` edge qualifier.              |
+| `views` | `Readonly<Record<string, Schema.Top>>`                        | yes      | Named view schemas of the model (for example `Public`, `Self`). Each becomes a `ViewOf` edge qualified by its name. |
+| `focus` | `Readonly<Record<string, Focus \| ReadonlyArray<string>>>`    | yes      | Named focus paths inside the model. The IR stores each as a string path.                      |
+
+Source: `packages/runtime/src/Annotation.ts` (`PersistentModelOptions`); IR in
+`packages/compiler/src/extensions/core.ts` (`PersistentModelArgs`, `persistentModel`).
+
+Both forms record `PersistentModel [{ ...options, schema }]`, where `schema` is the decorated class or the
+`Model.persistent` first argument. `Model.persistent<S extends Schema.Top>(schema: S, options)` evaluates to
+`ModelValue<S>`: `{ _tag: "Model", annotations, schema }`.
+
+| Decorator                                | Builder                                    |
+| ---------------------------------------- | ------------------------------------------ |
+| `@PersistentModel({ table, views?, focus? })` on a class `C` | `Model.persistent(C, { table, views?, focus? })` |
+
+Source: `packages/runtime/src/decorators.ts`, `packages/runtime/src/builder.ts`.
+
+IR produced (spec 0001, `core.ts`):
+
+| Node or edge                        | Content                                                                          |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `Model` node `model:<schema export>` | `name`, `schema`, `table`, `views: [{ name, schema }]`                          |
+| `Focus` node `focus:<Model>.<name>`  | `root` (the model), `path`                                                      |
+| `PersistsAs` edge                   | model to its schema, qualifier is the table                                      |
+| `ViewOf` edge                       | view schema to the model, qualifier is the view name                             |
+
+Model identity is the schema's export, so `@PersistentModel class User` and `Model.persistent(User, ...)`
+name the same model `model:User` (spec 0002).
+
+## Focus
+
+A focus is a serializable identity: a model root plus a key path (ADR 0007).
+
+| Field   | Type                      | Optional |
+| ------- | ------------------------- | -------- |
+| `_tag`  | `"Focus"`                 | no       |
+| `root`  | `Schema.Top`              | no       |
+| `path`  | `ReadonlyArray<string>`   | no       |
+
+Constructor: `Focus.key(root: Schema.Top, ...path: ReadonlyArray<string>)` returns that value.
+
+```ts
+Focus.key(User, "email"); // { _tag: "Focus", root: User, path: ["email"] }
+```
+
+Source: `packages/runtime/src/Annotation.ts` (`Focus`), `packages/runtime/src/authority.ts`.
+
+The frontend lowers `Focus.key(Root, "a", "b")` or a string array to the path `["a", "b"]` (spec 0002
+§"Argument lowering"). In the IR the focus root is the model, not a live schema.
+
+## Capability
+
+A capability is a kind of authority over a model, optionally narrowed to a focus.
+
+### `Capability` value
+
+| Field      | Type           | Optional | Meaning                                    |
+| ---------- | -------------- | -------- | ------------------------------------------ |
+| `_tag`     | `"Capability"` | no       |                                            |
+| `name`     | `string`       | no       | Capability name; becomes `capability:<name>`. |
+| `resource` | `Schema.Top`   | no       | The model schema the authority applies to. |
+| `focus`    | `Focus`        | yes      | Narrows the authority to a path in the model. |
+
+Constructor: `Capability.make(name: string, options: { readonly resource: Schema.Top; readonly focus?: FocusValue })`.
+The runtime exports the value type as `CapabilityValue`. `focus` is omitted from the result when undefined.
+
+Source: `packages/runtime/src/Annotation.ts` (`Capability`), `packages/runtime/src/authority.ts`.
+
+The same `Capability` export also holds the access-expression constructors `one`, `any`, `all` and `none`.
+Those belong to `Http.Access`; see [Problems and access](/docs/authoring/problems-and-access#accesscapabilities-and-capability-constructors).
+
+### `@Authorize`
+
+`@Authorize(capability)` and `.authorize(capability)` link an operation to a capability. The frontend lowers a
+`Capability.make` call to `{ name, resource: <resource export>, focus?: string[] }`. The interpreter records:
+
+| Recorded                                              | When                          |
+| ----------------------------------------------------- | ----------------------------- |
+| `Capability` node `capability:<name>`, `resource` = `model:<export>` | always                         |
+| `AuthorizedBy` edge, operation to capability          | always                        |
+| `Focus` node `focus:<resource>.<path joined by ".">`, `Focuses` edge capability to focus | when `focus` is present |
+
+Source: `packages/compiler/src/extensions/core.ts` (`AuthorizeArgs`, `authorize`).
+
+## ADR 0007: Cedar deferred
+
+ADR 0007 is accepted and **deferred past the MVP kernel**. The kernel only records capability and focus facts.
+The following do **not** exist yet (`docs/decisions/0007-cedar-authorizes-effx-issues-leases.md`):
+
+- the Cedar runtime decision (principal, action, resource, context; default deny; `forbid` overrides `permit`);
+- the request-scoped `Lease` and `Lease.modify` flow;
+- Cedar schema generation from the IR and `EFFX41xx` policy diagnostics;
+- optics as the runtime mechanism for focus.
+
+For the mono-web migration, the application reuses its own AccessSpec interpreter with fresh authority
+resolved inside each committing transaction. See
+[Problems and access](/docs/authoring/problems-and-access).
+
+## Example
+
+<include cwd lang="ts" meta='title="examples/users/src/user.ts"'>../../examples/users/src/user.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/capabilities.ts"'>../../examples/users/src/capabilities.ts</include>
+
+Builder twin of the model (compiler fixture):
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/users/src/user.builder.ts"'>../../packages/frontend-ts/test/fixtures/users/src/user.builder.ts</include>

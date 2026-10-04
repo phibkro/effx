@@ -1,0 +1,494 @@
+---
+title: Coming from NestJS
+description: A concept map from NestJS controllers, pipes, guards and filters to effx annotations and the Effect constructs underneath, a list of gaps, and one endpoint ported side by side.
+---
+
+effx bridges enterprise frameworks and full-stack Effect. You write a familiar declarative surface
+(decorators or builder chains). The compiler reads it ahead of time and writes ordinary Effect that you
+can read, edit or keep. This page maps NestJS concepts onto that surface and says, row by row, what exists
+today ([ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp)).
+
+**Pinned versions.** NestJS claims cite [docs.nestjs.com](https://docs.nestjs.com). As fetched on 2026-10-04 that site
+documents **NestJS 12** (its [migration guide](https://docs.nestjs.com/migration-guide) covers "version 11
+to version 12"). Effect claims cite the official clone at `https://github.com/Effect-TS/effect/tree/b5a2d4c1d62c9620a68d72b7f20248c69ef7663b` (commit `b5a2d4c`,
+package `effect` `4.0.0`). effx claims cite a spec or a source path in this repository.
+
+## Read this first: what a decorator means
+
+| | NestJS | effx |
+| --- | --- | --- |
+| A decorator such as `@UseGuards` or `@Get` | Metadata the Nest runtime reads to route requests and run guards, pipes, interceptors and filters ([Guards](https://docs.nestjs.com/guards): they run "after all middleware, but before any interceptor or pipe"). | A contribution to the IR. Runtime decorators are no-ops or metadata only, and the compiler (not a runtime) reads the source. Source: `AGENTS.md` invariants 1 and 2; ADR 0001. |
+| Dependency injection | A runtime container resolves constructor parameters ([Providers](https://docs.nestjs.com/providers)). | No container. A handler's requirements `R` are inferred, and `@Requirements` asserts them. You provide `Layer`s yourself. Source: ADR 0005, ADR 0012 ("Rules out" hidden DI). |
+| Failures | Exceptions thrown anywhere, rendered by filters ([Exception filters](https://docs.nestjs.com/exception-filters)). | Typed errors `E` in the handler's `Effect<A, E, R>`. `@Errors` asserts them and mismatches are diagnostics. Source: ADR 0005; `apps/docs/content/docs/authoring/operations.mdx`. |
+| Output | Behaviour lives in the framework at runtime. | Readable files in `.effx/generated`. A team can stop running the compiler and keep them. Source: ADR 0008, ADR 0012. |
+
+<Callout type="info">
+  Status vocabulary. **supported**: effx implements it (cited source or spec). **via ecosystem package**:
+  an Effect package does it and effx composes with it; the path is cited. **gap**: nothing in effx today
+  (not called "planned" unless a spec says so). A row can carry two statuses: first what effx itself
+  provides, then what the Effect ecosystem provides.
+</Callout>
+
+## Concept map
+
+### HTTP surface
+
+| NestJS concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Controllers and routing: [`@Controller`, `@Get`, `@Patch`, ...](https://docs.nestjs.com/controllers) | `@Http.Get/Post/Put/Patch/Delete(path)`, `@Http.Group`, `@Http.Contract`; builder `.http.get(...)`, `.in(group)` | `HttpApiEndpoint`, `HttpApiGroup`, `HttpApi`, `HttpApiBuilder.group` | supported | Spec 0005; `packages/runtime/src/decorators.ts`; `packages/compiler/src/generate/http.ts`; real output `examples/users/.effx/generated/http.ts`. See [HTTP](/docs/authoring/http). |
+| DTO validation: [`ValidationPipe` with class-validator](https://docs.nestjs.com/techniques/validation), [pipes](https://docs.nestjs.com/pipes) | `input` and `success` on `@Query`/`@Command`; `params`, `query`, `headers`, `payload` on `@Http.Contract` | `Schema` (`Schema.Struct`, `Schema.NonEmptyString`); `HttpApiEndpoint` decodes each channel before the handler runs | supported | `examples/users/src/schemas.ts`; spec 0005; `packages/runtime/src/Annotation.ts` (`HttpContractOptions`); Effect `packages/effect/src/http-api/HttpApiBuilder.ts:866-880`. See [Http.Contract](/docs/authoring/http-contract). |
+| DI, modules, providers: [providers](https://docs.nestjs.com/providers), [modules](https://docs.nestjs.com/modules) | `@Requirements(Service)` asserts `R`; `@Errors` asserts `E`. No module or container. | `Context.Service`, `Layer` (composed by the application) | supported (assertion only; wiring is yours) | ADR 0005; `examples/users/src/services.ts`; `examples/users/src/server-main.ts` (`Layer.provide(Users.layer)`); Effect `packages/effect/src/Layer.ts`, `Context.ts`. |
+| Middleware: [`NestMiddleware`](https://docs.nestjs.com/middleware) | `middleware: [Marker]` on `@Http.Contract`, or `defaults.middleware` on a group | `HttpApiMiddleware.Service` marker class; app-wide `HttpMiddleware` (logger, tracer, cors, compression) | supported (attaching the marker); via ecosystem package (the implementation) | Spec 0005, spec 0013; `apps/docs/content/docs/authoring/http-contract.mdx` ("Middleware and security markers"); Effect `packages/effect/src/http-api/HttpApiMiddleware.ts`, `packages/effect/src/http/HttpMiddleware.ts`. effx never instantiates the marker. |
+| Interceptors: [`NestInterceptor`](https://docs.nestjs.com/interceptors) | No annotation. | `HttpApiMiddleware` wraps endpoint execution; `Effect` combinators (`Effect.withSpan`, `Effect.tap`) inside handlers; the endpoint `success` schema shapes the response | gap (effx); via ecosystem package (Effect) | `packages/effect/src/http-api/HttpApiMiddleware.ts` (module header); `packages/effect/src/Effect.ts` (`withSpan`). |
+
+### Security and errors
+
+| NestJS concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Guards: [`CanActivate`, `@UseGuards`](https://docs.nestjs.com/guards) | `@Http.Access({...})` records the access contract. The generator requires a typed guard in a generated `Guards` record, passed to the handler as a lazy `authorize()` thunk. | `endpoint.annotateMerge(annotator(spec))` (a `Context` you supply); `HttpApiMiddleware` with `HttpApiSecurity` as the security marker | supported (declaration and typed binding); evaluation is application code | Spec 0006; `packages/compiler/src/generate/guards.ts`; `packages/compiler/src/generate/http.ts` (`handlerLine`). See [Problems and access](/docs/authoring/problems-and-access). |
+| Filters and exception handling: [`@Catch`, `ExceptionFilter`](https://docs.nestjs.com/exception-filters) | Typed errors in the handler; `@Errors(...)` asserts them; a literal `httpApiStatus` on an exported error class is recognized as its HTTP status | `Schema.TaggedError` with `{ httpApiStatus: N }`; the endpoint `error` option; `Effect.catch*` in handlers | supported | ADR 0005; `packages/frontend-ts/src/signature.ts:46-85` (`literalHttpStatus`); `packages/compiler/src/extensions/problem-contract.ts`. An error with no status is encoded as 500 (Effect `packages/effect/src/http-api/HttpApiSchema.ts:1099-1100`). |
+| Auth and authorization policies: [authentication](https://docs.nestjs.com/security/authentication), [authorization](https://docs.nestjs.com/security/authorization) (`@Policy()`, `@Can()`) | `@Authorize(Capability.make(...))` records capability and focus facts; `@Http.Access` records credentials, principals, capabilities and scope. Nothing evaluates them. | Credential schemes: `HttpApiSecurity` (bearer, apiKey, basic) inside an `HttpApiMiddleware.Service`. No policy engine found in the Effect clone. | supported (declaration only); gap (authorization runtime: Cedar and leases are deferred); via ecosystem package (credential extraction) | ADR 0007; spec 0006; `apps/docs/content/docs/authoring/persistence-and-authority.mdx`; Effect `packages/effect/src/http-api/HttpApiSecurity.ts`. The current NestJS authorization chapter documents `@nestjs/authorization` policies; it does not mention CASL (searched 2026-10-04). |
+| Problem-details style error responses (a custom filter; on the [Exception filters](https://docs.nestjs.com/exception-filters) page I found `statusCode`/`message` bodies and `errorCode`, and no Problem Details section) | `@Http.Problems({ registry, codes, map })` and your `ProblemRegistry` function | Endpoint `error` schemas derived by your registry; `HttpApiSchema` status | supported (contract); the domain-error to Problem conversion is hand-written | Spec 0005 §"Problem responses"; `packages/compiler/src/extensions/problem-contract.ts`; `packages/compiler/src/generate/http.ts` (`problemErrors`). See the warning in [Problems and access](/docs/authoring/problems-and-access). |
+
+### Contracts and tooling
+
+| NestJS concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| OpenAPI / Swagger: [`@nestjs/swagger`](https://docs.nestjs.com/openapi/introduction) | `metadata` (`operationId`, `summary`, `description`, `tags`, `annotator`) on `@Http.Contract`; group `title`, `description`, `displayName` | `OpenApi.annotations`; the document comes from `OpenApi.fromApi`; UI from `HttpApiSwagger` or `HttpApiScalar` | supported (annotations); via ecosystem package (document and UI; effx wires no UI) | Spec 0005, spec 0010; `packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts` (real `OpenApi.fromApi`); STATE.md Gate 3 evidence; Effect `packages/effect/src/http-api/OpenApi.ts`, `HttpApiSwagger.ts`, `HttpApiScalar.ts`. |
+| Client generation. I found no first-party client generator in NestJS's OpenAPI chapter; its [types chapter](https://docs.nestjs.com/openapi/types-and-parameters) refers to tools that take the spec as input and generate client code. | Generated `client.ts` (typed client plus operation index); opt-in Foldkit Command | `HttpApiClient` | supported | Spec 0007; `packages/compiler/src/generate/client.ts`; real output `examples/users/.effx/generated/client.ts`. |
+| Configuration: [`ConfigModule`, `ConfigService`](https://docs.nestjs.com/techniques/configuration) | No annotation. | `Config`, `ConfigProvider` | gap (effx); via ecosystem package (Effect) | Real use: `examples/users/src/server-main.ts` (`Config.Number("PORT").pipe(Config.withDefault(3000))`); Effect `packages/effect/src/Config.ts`, `ConfigProvider.ts`. |
+| CLI and scaffolding: [`nest generate`](https://docs.nestjs.com/cli/usages) | `@Cli("users get")` projects an operation to a CLI command. The `effx` CLI has `check`, `build`, `inspect`, `graph`. No generator command. | `effect/cli` `Command` | supported (CLI projection); gap (scaffolding) | Spec 0003; `packages/cli/src/main.ts`; `packages/compiler/src/generate/cli.ts`; real output `examples/users/.effx/generated/cli.ts`. |
+
+### Infrastructure
+
+| NestJS concept | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| ORM and migrations: [TypeORM](https://docs.nestjs.com/techniques/database), [Prisma](https://docs.nestjs.com/recipes/prisma), [MikroORM](https://docs.nestjs.com/recipes/mikroorm) | `@PersistentModel` records model, views and focus metadata. No SQL, repository or migration is generated. | `SqlClient`, `SqlSchema`, `SqlModel`, `Migrator` (package `effect`, `effect/sql`); drivers such as `@effect/sql-pg` | gap (effx); via ecosystem package (Effect) | Spec 0008 is "proposed, not frozen"; STATE.md lists persistence as parked; `examples/users` uses an in-memory `Ref`. Effect `packages/effect/src/sql/{SqlClient,SqlSchema,SqlModel,Migrator}.ts`, `packages/sql/pg`. |
+| Jobs, queues, scheduling: [Queues (Bull/BullMQ)](https://docs.nestjs.com/techniques/queues), [`@nestjs/schedule`](https://docs.nestjs.com/techniques/task-scheduling) | No annotation. | `Schedule`, `Cron`, `Queue`; durable: `PersistedQueue` (memory, Redis or SQL store), `DurableQueue`, `ClusterCron` | gap (effx); via ecosystem package (Effect) | Effect `packages/effect/src/{Schedule,Cron,Queue}.ts`, `persistence/PersistedQueue.ts`, `workflow/DurableQueue.ts`, `cluster/ClusterCron.ts`. Parity with BullMQ was not evaluated. |
+| Caching: [`CacheInterceptor`, `@CacheKey`](https://docs.nestjs.com/techniques/caching) | No annotation. | `Cache`, `ScopedCache`; durable: `PersistedCache` | gap (effx); via ecosystem package (Effect) | Effect `packages/effect/src/Cache.ts`, `ScopedCache.ts`, `persistence/PersistedCache.ts`. There is no declarative per-route cache. |
+| Realtime: [WebSocket gateways](https://docs.nestjs.com/websockets/gateways), [SSE](https://docs.nestjs.com/techniques/server-sent-events) | No annotation. The generated RPC server uses `protocol: "http"`. | `Socket`; RPC over WebSocket (`RpcServer.layerHttp` with `protocol: "websocket"`); `Sse` encoding | gap (effx); via ecosystem package (Effect) | Real output `examples/users/.effx/generated/http.ts` (last line); Effect `packages/effect/src/socket/Socket.ts`, `rpc/RpcServer.ts:872-895`, `encoding/Sse.ts`. |
+| Testing: [`Test.createTestingModule`](https://docs.nestjs.com/fundamentals/testing) | No harness. | `Layer` substitution; `@effect/vitest`; `TestClock`; `HttpApiTest` | gap (effx); via ecosystem package (Effect) | effx's own pattern: `examples/users/test/e2e.test.ts` (generated routes, clients and `Users.layer` on `BunHttpServer.layerTest`). Effect `packages/vitest`, `packages/effect/src/testing/TestClock.ts`, `http-api/HttpApiTest.ts`, `ai-docs/src/51_http-server/20_testing.ts`. |
+| Observability: [logging](https://docs.nestjs.com/techniques/logger), [health checks](https://docs.nestjs.com/recipes/terminus), [observability](https://docs.nestjs.com/observability/overview) | No annotation. Generated code adds no spans or logs. | `Logger`, `Tracer`, `Effect.withSpan`, `HttpMiddleware.logger`/`tracer`, `@effect/opentelemetry`, `effect/observability` (OTLP, Prometheus). A health check is an ordinary endpoint. | gap (effx); via ecosystem package (Effect) | Effect `packages/effect/src/{Logger,Tracer}.ts`, `http/HttpMiddleware.ts:149,199`, `observability/`, `packages/opentelemetry`; `ai-docs/src/08_observability/`; `ai-docs/src/51_http-server/fixtures/api/System.ts` (`health` endpoint). I found no Terminus-style indicator module in the clone. |
+
+## Gaps today
+
+effx has no declaration or generator for the items below. Where an Effect package exists, you use it directly
+in handlers and layers, and it coexists with generated code (ADR 0012: "Raw Effect always coexists").
+
+- **Authorization runtime.** `@Authorize` and `@Http.Access` record facts. Cedar decisions and leases are
+  deferred (ADR 0007). The compiler checks that a guard binding is present, not that the handler calls it
+  (spec 0006). Enforcement evidence exists only in mono-web's unlanded browser and PostgreSQL journeys
+  (STATE.md).
+- **Domain error to Problem conversion.** The generated handler is an ordinary Effect handler. The
+  conversion is hand-written until a runtime mapping contract exists (spec 0005).
+- **Persistence.** Spec 0008 is proposed, not frozen. `@PersistentModel` records metadata only.
+- **Jobs, queues and scheduling.** No annotation, no generator, no spec.
+- **Caching.** No annotation and no per-route cache declaration.
+- **Realtime.** No WebSocket or SSE annotation. Generated RPC is HTTP only.
+- **Configuration, logging, tracing, health checks.** No annotation. Use `Config`, `Logger`, `Tracer`
+  and ordinary endpoints.
+- **Testing harness.** No module-override equivalent. Tests provide `Layer`s directly.
+- **Scaffolding.** No `nest g` equivalent. The CLI has `check`, `build`, `inspect` and `graph`.
+- **Global interceptors and filters.** There is no app-wide declaration. Attach a marker with
+  `Http.Contract.middleware` or a group's `defaults.middleware`, or use Effect `HttpMiddleware`.
+- **Query is a claim, not a proof.** `@Query` does not stop a handler from writing. The analysis that would
+  flag it is not implemented (ADR 0006).
+- **Distribution.** The packages are not published to a registry. You run effx from the monorepo
+  ([Getting started](/docs/getting-started)).
+
+## Port: `PATCH /users/:id/email`
+
+The endpoint under port:
+
+- `PATCH /users/:id/email` with body `{ "email": "..." }`.
+- Only the signed-in user may change their own email (a guard).
+- The email must be non-empty (validation).
+- Problem-style responses: `404` when the user does not exist, `409` when the email belongs to another user.
+
+NestJS code cites the pages named in each block. The effx tab uses the real files under `examples/users/src`
+where they match, and labelled pasted snippets where it extends them.
+
+<Tabs items={['NestJS', 'effx']}>
+<Tab value="NestJS">
+
+**DTO.** Rules are decorators on a class. A global `ValidationPipe` enforces them.
+
+```ts title="users/change-email.dto.ts"
+import { IsNotEmpty } from 'class-validator';
+
+export class ChangeEmailDto {
+  @IsNotEmpty()
+  email: string;
+}
+```
+
+```ts title="main.ts (excerpt)"
+app.useGlobalPipes(new ValidationPipe());
+```
+
+Source: [Validation](https://docs.nestjs.com/techniques/validation) (`IsNotEmpty`, "Auto-validation").
+
+**Domain exception.** A custom exception extends `HttpException`, so Nest renders it.
+
+```ts title="users/user-problem.exception.ts"
+import { HttpException, HttpStatus } from '@nestjs/common';
+
+export class UserProblem extends HttpException {
+  constructor(
+    readonly code: string,
+    title: string,
+    status: HttpStatus,
+  ) {
+    super(title, status);
+  }
+}
+```
+
+Source: [Exception filters](https://docs.nestjs.com/exception-filters) ("Custom exceptions").
+
+**Guard.** Returns `true` to proceed. Returning `false` makes Nest throw `ForbiddenException`.
+
+```ts title="users/owner.guard.ts"
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+
+@Injectable()
+export class OwnerGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    // verifyToken stands for your authentication, as validateRequest() does in the Guards chapter.
+    const caller = verifyToken(request.headers.authorization);
+
+    return caller !== undefined && caller.userId === request.params.id;
+  }
+}
+```
+
+Source: [Guards](https://docs.nestjs.com/guards) ("Authorization guard", "When a guard returns `false`...").
+
+**Exception filter.** Renders a problem-style body for every `HttpException`, including the guard's 403 and the
+pipe's 400.
+
+```ts title="users/problem.filter.ts"
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { UserProblem } from './user-problem.exception';
+
+@Catch(HttpException)
+export class ProblemFilter implements ExceptionFilter {
+  catch(exception: HttpException, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+    const status = exception.getStatus();
+
+    response.status(status).json({
+      code: exception instanceof UserProblem ? exception.code : undefined,
+      title: exception.message,
+      status,
+      instance: request.url,
+    });
+  }
+}
+```
+
+Source: [Exception filters](https://docs.nestjs.com/exception-filters) ("Exception filters", "Binding filters").
+
+**Controller and service.**
+
+```ts title="users/users.controller.ts"
+import { Body, Controller, Param, Patch, UseFilters, UseGuards } from '@nestjs/common';
+
+@Controller('users')
+@UseFilters(ProblemFilter)
+export class UsersController {
+  constructor(private readonly users: UsersService) {}
+
+  @Patch(':id/email')
+  @UseGuards(OwnerGuard)
+  changeEmail(@Param('id') id: string, @Body() dto: ChangeEmailDto) {
+    return this.users.setEmail(id, dto.email);
+  }
+}
+```
+
+```ts title="users/users.service.ts"
+@Injectable()
+export class UsersService {
+  private readonly users = new Map<string, { id: string; email: string; displayName: string }>([
+    ['1', { id: '1', email: 'alice@example.com', displayName: 'Alice' }],
+    ['2', { id: '2', email: 'bob@example.com', displayName: 'Bob' }],
+  ]);
+
+  setEmail(id: string, email: string) {
+    const user = this.users.get(id);
+
+    if (user === undefined) {
+      throw new UserProblem('user.not-found', 'User not found', HttpStatus.NOT_FOUND);
+    }
+
+    for (const [otherId, other] of this.users) {
+      if (otherId !== id && other.email === email) {
+        throw new UserProblem('user.email-taken', 'Email already in use', HttpStatus.CONFLICT);
+      }
+    }
+
+    const updated = { ...user, email };
+    this.users.set(id, updated);
+
+    return updated;
+  }
+}
+```
+
+Source: [Controllers](https://docs.nestjs.com/controllers) (`@Controller`, `@Patch`, `@Param`, `@Body`; PATCH
+returns 200 by default), [Providers](https://docs.nestjs.com/providers) (`@Injectable`, constructor
+injection), [Modules](https://docs.nestjs.com/modules) (list `UsersController` and `UsersService` in an
+`@Module`). The service mirrors `examples/users/src/services.ts`.
+
+</Tab>
+<Tab value="effx">
+
+**What the repository already has.** `PATCH /users/:id/email`, a non-empty email, typed `UserNotFound` and
+`EmailTaken` errors, and the service. These files match the port and are shown as committed.
+
+<include cwd lang="ts" meta='title="examples/users/src/schemas.ts"'>../../examples/users/src/schemas.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/services.ts"'>../../examples/users/src/services.ts</include>
+
+`Email` is `Schema.NonEmptyString`, so an empty email is rejected before the handler runs. `@Errors(UserNotFound,
+EmailTaken)` asserts the handler's error set, and `Users.setEmail` fails with those two errors.
+
+The real generated HTTP endpoint for this operation (excerpt of `examples/users/.effx/generated/http.ts`):
+
+```ts title="examples/users/.effx/generated/http.ts (excerpt, generated)"
+HttpApiEndpoint.patch("User.ChangeEmail", "/users/:id/email", {
+  params: { id: Schema.String },
+  payload: ChangeEmailInput,
+  success: User.Self,
+  error: Schema.Union([EmailTaken, UserNotFound]),
+}),
+```
+
+```ts title="examples/users/.effx/generated/http.ts (excerpt, generated)"
+"User.ChangeEmail": ({ params, payload }) => UserOperations.changeEmail({ ...params, ...payload }),
+```
+
+What this committed example does **not** do, compared with the NestJS version:
+
+- **No status codes.** `UserNotFound` and `EmailTaken` carry no `httpApiStatus`. Effect encodes an error with no
+  status as 500 (`packages/effect/src/http-api/HttpApiSchema.ts:1099-1100`). The example's end-to-end test
+  checks typed `EmailTaken` over RPC, not an HTTP status (`examples/users/test/e2e.test.ts`). [INFERENCE] for
+  this endpoint over HTTP: not observed.
+- **No guard.** The operation records `@Authorize(ChangeEmail)` as a fact. No access contract is declared and
+  nothing checks the caller. `effx check` reports `EFFX2504` as a warning for an HTTP operation without
+  `Http.Access` (error under `--strict-access`).
+- **The body carries `id` too.** Without `Http.Contract`, the whole input is the payload, so the PATCH body is
+  `{ "id": ..., "email": ... }` (`packages/compiler/src/generate/http.ts`, `legacyPayload`).
+
+**The protected variant (pasted, not in the repository).** The pieces below extend the real files. They are
+modelled on compiled fixtures: `ai-docs/src/04_problems-and-access/fixtures/settings.ts`,
+`packages/frontend-ts/test/fixtures/users/src/access-support.ts` and `contract-support.ts`. This exact
+combination was not built for this page.
+
+```ts title="examples/users/src/change-email-http.ts (new file, pasted)"
+import { Context, Effect, Schema } from "effect";
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/http-api";
+import type { HttpAccessAnnotationSpec } from "@effx/runtime";
+import { Email, EmailTaken, UserId, UserNotFound } from "./schemas.ts";
+
+export const ChangeEmailParams = Schema.Struct({ id: UserId });
+
+export const ChangeEmailBody = Schema.Struct({ email: Email });
+
+export class AccessDenied extends Schema.TaggedError<AccessDenied>()(
+  "AccessDenied",
+  { message: Schema.String },
+  { httpApiStatus: 403 },
+) {}
+
+export interface UserPrincipal {
+  readonly userId: string;
+}
+
+/** The thunk the handler receives. Calling it runs your own guard. */
+export type OwnerCheck = () => Effect.Effect<UserPrincipal, AccessDenied>;
+
+/** Declares the credential scheme. It authorizes nothing itself; a Layer must implement it. */
+export class UserSecurity extends HttpApiMiddleware.Service<UserSecurity>()("users/UserSecurity", {
+  security: { bearer: HttpApiSecurity.bearer },
+  error: AccessDenied,
+}) {}
+
+/** An opaque handle your interpreter maps to its own scope resolver. */
+export const UserOwner = { id: "users.owner" } as const;
+
+export class UserAccessAnnotation extends Context.Service<
+  UserAccessAnnotation,
+  HttpAccessAnnotationSpec
+>()("users/UserAccessAnnotation") {}
+
+export const userAccessAnnotations = (spec: HttpAccessAnnotationSpec) =>
+  Context.make(UserAccessAnnotation, spec);
+
+/** Derives the endpoint's error schemas from the declared codes. Status comes from the annotation. */
+export const UserProblems = (_identifier: string, codes: ReadonlyArray<string>) =>
+  codes.map((code) => {
+    if (code === "user.not-found") return UserNotFound.pipe(Schema.annotate({ httpApiStatus: 404 }));
+    if (code === "user.email-taken") return EmailTaken.pipe(Schema.annotate({ httpApiStatus: 409 }));
+    if (code === "authority.denied") return AccessDenied;
+    throw new TypeError(`Unknown problem code: ${code}`);
+  });
+```
+
+```ts title="examples/users/src/operations.ts (changeEmail replaced, pasted)"
+// Added imports: Capability, Concealment from "@effx/runtime"; ChangeEmailBody, ChangeEmailParams,
+// AccessDenied, OwnerCheck, UserOwner, UserProblems, UserSecurity, userAccessAnnotations from "./change-email-http.ts".
+@Command({ name: "User.ChangeEmail", input: ChangeEmailInput, success: User.Self })
+@Http.Patch("/users/:id/email")
+@Http.Contract({
+  group: "users",
+  params: ChangeEmailParams,
+  payload: ChangeEmailBody,
+  success: User.Self,
+  middleware: [UserSecurity],
+  metadata: { operationId: "users.changeEmail" },
+})
+@Http.Access({
+  annotator: userAccessAnnotations,
+  exposure: "External",
+  acceptedCredentials: ["OAuthUserBearer"],
+  principalKinds: ["Person"],
+  capabilities: Capability.one("users.change-email"),
+  requirements: [{ id: "users.owner" }],
+  canonicalScopeResolver: UserOwner,
+  concealment: Concealment.reveal,
+  decisionTime: "Transaction",
+})
+@Http.Problems({
+  registry: UserProblems,
+  codes: ["user.not-found", "user.email-taken", "authority.denied"],
+  map: {
+    UserNotFound: "user.not-found",
+    EmailTaken: "user.email-taken",
+    AccessDenied: "authority.denied",
+  },
+})
+@Authorize(ChangeEmail)
+@Errors(UserNotFound, EmailTaken, AccessDenied)
+@Requirements(Users)
+static changeEmail(input: typeof ChangeEmailInput.Type, authorize: OwnerCheck) {
+  return Effect.gen(function* () {
+    const users = yield* Users;
+    const principal = yield* authorize();
+
+    if (principal.userId !== input.id) {
+      return yield* new AccessDenied({ message: "Only the owner may change this email" });
+    }
+
+    return yield* users.setEmail(input.id, input.email);
+  });
+}
+```
+
+The `@Rpc` and `@Cli` annotations are dropped here. The generated `rpc.ts` and `cli.ts` call
+`UserOperations.changeEmail(payload)` with one argument (real output, `examples/users/.effx/generated/rpc.ts`),
+and a protected handler takes the guard thunk as a second argument. [INFERENCE] that keeping them would fail
+generated-code typechecking; not run.
+
+**The generated shape for a protected operation.** For a protected operation the generator emits a `Guards`
+type and passes a thunk to the handler. This excerpt is real output for a different fixture, the Profile
+operations in `packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/`. [INFERENCE] that the
+`users` group would have the same shape.
+
+```ts title="client-foldkit-generated/guards.ts (excerpt, generated)"
+export type ProfileGuards = {
+  readonly "update": (request: HttpServerRequest.HttpServerRequest) => GuardEffect<Parameters<typeof ClientFoldkitProfileOperations.update>[1]>;
+};
+```
+
+```ts title="client-foldkit-generated/http.ts (excerpt, generated)"
+"update": ({ request, headers, payload }) => ClientFoldkitProfileOperations.update({ ...headers, ...payload }, () => guards["update"](request)),
+```
+
+**Your guard and the wiring (pasted, application code).** effx requires the record, and you write what is in it.
+`verifyToken` stands for your authentication.
+
+```ts title="examples/users/src/server-main.ts (excerpt, pasted)"
+import type { AppGuards } from "../.effx/generated/guards.ts";
+
+// The key "changeEmail" follows the Profile fixture above (operationId "profile.read" gives key "read").
+// [INFERENCE] for this operation: not built.
+const guards: AppGuards = {
+  "effx/users": {
+    changeEmail: (request) =>
+      // verifyToken: (header: string | undefined) => Effect<UserPrincipal, AccessDenied>
+      verifyToken(request.headers.authorization),
+  },
+};
+
+// AppRoutes becomes a function of the guards (spec 0006). The UserSecurity marker
+// still needs a Layer that implements it before the server can start.
+const Routes = AppRoutes(guards).pipe(Layer.provide(Users.layer));
+```
+
+</Tab>
+</Tabs>
+
+### What the port preserves
+
+| Behaviour | NestJS | effx | Evidence |
+| --- | --- | --- | --- |
+| Route and method | `@Patch(':id/email')` | `@Http.Patch("/users/:id/email")` | `examples/users/src/operations.ts`; generated `http.ts` |
+| Non-empty email rejected | `@IsNotEmpty()` through `ValidationPipe` | `Schema.NonEmptyString`, decoded before the handler | `examples/users/src/schemas.ts`; `HttpApiBuilder.ts:866-880` |
+| 404 and 409 | `UserProblem` with `NOT_FOUND` and `CONFLICT` | Typed errors mapped to codes by `Http.Problems`, status from `httpApiStatus` | `problem-contract.ts`; `signature.ts:46-85` |
+| Success status | 200 (the default for PATCH) | `User.Self` success, no `status` set, so Effect's default of 200 applies (`HttpApiSchema.ts:1072-1073`; not observed for this endpoint) | Nest [Controllers](https://docs.nestjs.com/controllers); `packages/effect/src/http-api/HttpApiSchema.ts` |
+| Only the owner may change the email | `OwnerGuard` returns `false`, Nest renders 403 | `Http.Access` declares the contract; your guard and handler decide; `AccessDenied` is a typed 403 | Spec 0006 |
+
+### What it does not preserve
+
+- **effx declares an access contract. It does not evaluate it.** `Http.Access` is data (credentials,
+  principal kinds, capability, requirements, scope resolver, decision time). Your guard record decides, and
+  your handler chooses when to call `authorize()`. A typed binding is not proof that the handler called it
+  (spec 0006). The ownership check above is application code.
+- **Order differs.** In Nest a guard runs before pipes ([Guards](https://docs.nestjs.com/guards)), so a
+  non-owner with an invalid body gets 403. In effx the request is decoded before the handler runs
+  (`HttpApiBuilder.ts:866-883`) and `authorize()` runs inside the handler, so the same request gets the
+  decode failure first. Credential rejection by the `UserSecurity` marker's Layer is a separate step, and its
+  order relative to decoding was not examined.
+- **Validation errors are not problem-style by default.** Nest's `ValidationPipe` returns `400` with messages
+  ([Validation](https://docs.nestjs.com/techniques/validation)), and the filter above reshapes it. A decode
+  failure in Effect `HttpApi` is an `HttpApiSchemaError`, which responds as an **empty 400**
+  (`packages/effect/src/http-api/HttpApiError.ts:470-471`). You can map it with
+  `HttpApiMiddleware.layerSchemaErrorTransform` (`HttpApiMiddleware.ts:489`). effx generates no such mapping.
+- **No catch-all filter.** The NestJS filter shapes every `HttpException`. In effx, only errors declared on an
+  operation have a response schema. An error outside `E` is a defect.
+- **The problem body is whatever your registry returns.** Here it is the encoded `UserNotFound` or `EmailTaken`
+  (a `_tag` and its fields), not a Problem Details document. A registry can return `{ code, title }` schemas
+  instead (`ai-docs/src/04_problems-and-access/fixtures/settings.ts`), but then converting the
+  domain error to that body is hand-written (spec 0005).
+- **The service is Effect, not a provider.** `Users` is a `Context.Service` with an in-memory `Layer`
+  (`examples/users/src/services.ts`), not a persistence layer. `UsersService` in the NestJS tab is in-memory
+  too, so the comparison covers the endpoint, not storage (spec 0008 is proposed).
+- **The `authorize` thunk is a handler parameter.** In NestJS the guard never appears in the handler's
+  signature. In effx it does, which is how the requirement stays visible in types.
+- **Generated code stays readable.** The two `generated` excerpts above are real compiler output, ordinary
+  `HttpApi` code. See [Generated code](/docs/introduction/generated-code).
+
+## Where to go next
+
+<Cards>
+  <Card title="HTTP" href="/docs/authoring/http">
+    Verbs, groups, group defaults and `.declare()`.
+  </Card>
+  <Card title="Http.Contract" href="/docs/authoring/http-contract">
+    Request channels, middleware markers and OpenAPI metadata.
+  </Card>
+  <Card title="Problems and access" href="/docs/authoring/problems-and-access">
+    `Http.Problems`, `Http.Access` and the generated guard interface.
+  </Card>
+  <Card title="Operations" href="/docs/authoring/operations">
+    `Query`, `Command`, `Errors`, `Requirements`.
+  </Card>
+</Cards>

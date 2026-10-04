@@ -1,0 +1,47 @@
+#!/usr/bin/env bun
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const staged = Bun.spawnSync({
+  cmd: ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+  cwd: root,
+  stdout: "pipe",
+  stderr: "pipe",
+});
+if (staged.exitCode !== 0) throw new Error(`pre-commit: git diff failed: ${staged.stderr.toString()}`);
+
+const files = staged.stdout
+  .toString()
+  .split("\0")
+  .filter((path) => path.length > 0);
+const formattedFiles = files.filter((path) =>
+  /\.(?:[cm]?[jt]sx?|jsonc?|mdx?|ya?ml)$/i.test(path),
+);
+const sourceFiles = files.filter((path) => /\.(?:[cm]?[jt]sx?)$/i.test(path));
+
+if (formattedFiles.length > 0) {
+  const oxfmt = resolve(root, "node_modules/.bin/oxfmt");
+  if (!existsSync(oxfmt)) throw new Error("pre-commit: dependencies are missing; run 'bun install --frozen-lockfile'.");
+  const result = Bun.spawnSync({
+    cmd: [oxfmt, "--no-error-on-unmatched-pattern", "--check", ...formattedFiles],
+    cwd: root,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (result.exitCode !== 0) throw new Error(`pre-commit: oxfmt --check failed with ${result.exitCode}.`);
+}
+
+if (sourceFiles.length > 0) {
+  const oxlint = resolve(root, "node_modules/.bin/oxlint");
+  if (!existsSync(oxlint)) throw new Error("pre-commit: dependencies are missing; run 'bun install --frozen-lockfile'.");
+  const result = Bun.spawnSync({
+    cmd: [oxlint, "--no-error-on-unmatched-pattern", "--deny-warnings", "--report-unused-disable-directives", ...sourceFiles],
+    cwd: root,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (result.exitCode !== 0) throw new Error(`pre-commit: oxlint failed with ${result.exitCode}.`);
+}

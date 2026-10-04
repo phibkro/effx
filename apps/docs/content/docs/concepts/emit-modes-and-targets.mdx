@@ -1,0 +1,112 @@
+---
+title: Emit modes and targets
+description: EmitMode chooses which files are written. TargetProfile chooses which Effect import paths they use. Both are output policy and never enter the IR or the semantic hash.
+---
+
+Two settings change the generated files without changing the IR.
+
+| Setting | Question it answers | Literals |
+| --- | --- | --- |
+| `EmitMode` | Which projections does this pass write? | `contract`, `handlers`, `all` |
+| `TargetProfile` | Which Effect package paths and API names do the files use? | `effect-4.0`, `effect-4.0-rc` |
+
+Source: `packages/compiler/src/Collected.ts` (`EmitMode`, `TargetProfile`, `ProjectResolution`, `ProjectConfig`), `packages/compiler/src/Extension.ts` (`GenerationContext`), `docs/specs/0010-target-profiles-and-emit-modes.md`.
+
+## Output policy never enters the IR
+
+`GenerationContext` carries the policy to generators. Its doc comment says: "Output policy never enters ApplicationIR or its semantic hash."
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `target` | `TargetProfile` | the Effect API profile |
+| `emit` | `EmitMode` | the projection choice |
+| `allowImportingTsExtensions` | boolean | emit `.ts` instead of `.js` in relative imports |
+| `canonicalImportBase` | string, optional | one output-independent base for local symbols |
+| `outputDir` | string, optional | where this pass writes |
+| `resolveEffectModule` | function, optional | runtime-only resolver for the target project's installed Effect modules |
+
+`defaultGenerationContext` is `target: "effect-4.0"`, `emit: "all"`, `allowImportingTsExtensions: false`. It applies when the pipeline runs without project resolution, for example in tests (`compileCollected`).
+
+Spec 0010 requires the same source to give a byte-identical canonical IR and the same [semantic hash](/docs/concepts/semantic-hash) in every mode, target and output directory.
+
+## Emit modes
+
+Pass `--emit` to [effx build](/docs/cli/build) or [effx check](/docs/cli/check). The default is `all`.
+
+| Mode | Writes | Source |
+| --- | --- | --- |
+| `contract` | `<group>-contract.ts` for each HTTP group. No handlers, no `http.ts`, `rpc.ts`, `cli.ts`, `client.ts`, `foldkit.ts` or `guards.ts`. | `packages/compiler/src/generate/http.ts` and the other generators, which return nothing unless `emit` is `all` |
+| `handlers` | `<group>-handlers.ts` for each declaration-only group. Nothing else. | `generate/http.ts` |
+| `all` | The contract and handlers files for declaration-only groups, plus the projections for locally implemented operations: `http.ts`, `rpc.ts`, `cli.ts`, `client.ts`, and when applicable `foldkit.ts` and `guards.ts`. | `generate/*.ts` |
+
+For an external-only group named `profile`, spec 0010 gives the exact outputs:
+
+| Mode | Output |
+| --- | --- |
+| `contract` | `profile-contract.ts` only |
+| `handlers` | `profile-handlers.ts` only |
+| `all` | both files, plus the usual projections for any locally implemented operations |
+
+Rules from spec 0010:
+
+| Rule | Detail |
+| --- | --- |
+| Equal group names under different roots | Both file names are prefixed with the root identifier. Files are never overwritten. |
+| Placeholders | No mode writes an empty placeholder file for a missing implementation. |
+| Manifest | `manifest.json` records the selected mode in `emit` and the exact files in `generated`. |
+| Mode change | Files the previous manifest owned and this pass does not write are removed. See [effx build](/docs/cli/build). |
+
+### Why two passes
+
+A backend package and a shared contract package can build from the same source with different modes. The contract pass writes the group the shared package exports. The handlers pass writes the factory the backend binds. Both passes see one IR.
+
+```
+ profile.effx.ts ──effx build --project <contract tsconfig> --emit=contract──▶ <contract dir>/.effx/generated/profile-contract.ts
+        │
+        └────────effx build --project <backend tsconfig> --emit=handlers──▶ <backend dir>/.effx/generated/profile-handlers.ts
+                         same IR, same semanticHash
+```
+
+The two projects set one shared source identity with `effx.projectRoot` in each `tsconfig`, a path relative to that tsconfig. `ProjectConfig.projectRoot` supplies the same value programmatically. Local symbols and StableIds use that root, not the output directory (spec 0010, `packages/frontend-ts/src/project.ts`).
+
+<Callout type="info">
+  The CLI has no `--out-dir` flag. The output directory comes from project resolution, `.effx/generated` next to the tsconfig by default. `ProjectConfig.outDir` exists for programmatic callers (`packages/compiler/src/Collected.ts`).
+</Callout>
+
+## Target profiles
+
+A target profile selects the Effect import paths of every generated file. One table covers all generators (`packages/compiler/src/generate/target.ts`).
+
+| Import | `effect-4.0` | `effect-4.0-rc` |
+| --- | --- | --- |
+| core | `effect` | `effect` |
+| http | `effect/http` | `effect/unstable/http` |
+| http api | `effect/http-api` | `effect/unstable/httpapi` |
+| net | `effect/net` | `effect/unstable/net` |
+| rpc | `effect/rpc` | `effect/unstable/rpc` |
+| cli | `effect/cli` | `effect/unstable/cli` |
+| sql | `effect/sql` | `effect/unstable/sql` |
+
+For the rc profile the spelling is `httpapi`, not `http-api`. An unsupported subpath is an error, not a guessed import (spec 0010).
+
+### How the target is chosen
+
+| Source | Rule |
+| --- | --- |
+| `--target <value>` | an explicit target wins |
+| Installed Effect | otherwise the frontend reads the target project's own `effect/package.json`. Version `4.0.0` selects `effect-4.0`. Version `4.0.0-rc.<n>` selects `effect-4.0-rc`. |
+| Neither works | an `EFFX2701` diagnostic with a location, and generation is skipped |
+
+The compiler does not use the CLI's own bundled Effect to choose the target. Source: `packages/frontend-ts/src/project.ts`, spec 0010.
+
+### Relative import suffix
+
+Relative imports in generated files end in `.js`, unless the target tsconfig sets `allowImportingTsExtensions`. With that option they keep `.ts`. This applies to generated-to-generated imports and to imports of your own schema and service symbols. The suffix never affects a StableId or the hash (spec 0010).
+
+## Status
+
+| Item | Status |
+| --- | --- |
+| `--emit contract`, `--emit handlers`, `--emit all` | implemented (`packages/cli/src/main.ts`). STATE.md: "Gate 3 compiler prerequisites (target/split emit)", build, DoD met locally. |
+| `--target` and rc profile | implemented, tested against an isolated Effect `4.0.0-rc.116` fixture (STATE.md) |
+| `effx.config.ts` | implemented (spec 0015): `emit`, `target`, `outDir`, `strictAccess` and `project` are optional config fields; precedence is flag, then config, then the tsconfig `effx` block, then the default ([CLI](/docs/cli)). |

@@ -1,0 +1,63 @@
+---
+title: Schema refs
+description: effx keeps Effect Schemas and symbols by reference. SchemaRef and SymbolRef name an export. Generated code imports the original value.
+---
+
+The IR never contains a Schema value. It contains a reference to an exported symbol. Generated code imports that symbol, so there is one definition of every schema (ADR 0004).
+
+Source: `packages/ir/src/Refs.ts`, `docs/decisions/0004-schemas-preserved-by-symbol-reference.md`, `docs/specs/0001-compiler-kernel.md`.
+
+## Why not serialize schemas
+
+`SchemaAST` is a runtime tree with declarations, suspensions, transformations and annotations. It has no faithful pure-JSON form. Running application modules at build time to introspect them would add side effects and ordering hazards (ADR 0004).
+
+## The two references
+
+| Type | Fields | Used for |
+| --- | --- | --- |
+| `SchemaRef` | `module: string`, `export: string`, `symbolId: StableId` | an Effect Schema value: operation input, success and error schemas, model views |
+| `SymbolRef` | `module: string`, `export: string`, `member?: string` | a value symbol: a handler method, a service class, a security middleware |
+
+`symbolId` of a `SchemaRef` is a `schema:` [StableId](/docs/concepts/stable-id). `member` names a static member, for example a handler method on a class.
+
+```ts title="packages/ir/src/Refs.ts (shape)"
+SchemaRef = { module, export, symbolId }
+SymbolRef = { module, export, member? }
+```
+
+`module` is an import specifier. The frontend guarantees it resolves from the generated directory, and generators emit it verbatim (spec 0001). The suffix rule for relative specifiers is in [Emit modes and targets](/docs/concepts/emit-modes-and-targets).
+
+## What generated code does with them
+
+Generated code imports the original value and passes it to Effect:
+
+```ts title="ADR 0004 (illustrative)"
+import { GetUserInput } from "../users/schemas"
+Rpc.make("User.Get", { payload: GetUserInput, ... })
+```
+
+Effect performs encoding and decoding at runtime. effx does not copy schemas into DTOs.
+
+## What it means for authors
+
+| Rule | Reason |
+| --- | --- |
+| Input, success and error schemas must be explicit symbol references in annotations | the frontend resolves them to exported symbols |
+| A referenced symbol must be exported | generated files import it. Spec 0010 lists unexported root symbols and hidden source symbols as errors that stop generation. |
+| Do not rely on build-time execution of your modules | schema introspection by execution is an explicit later feature (ADR 0004) |
+
+## Where refs appear
+
+| Place | Reference |
+| --- | --- |
+| `Operation.input`, `Operation.success`, `Operation.errors.values` | `SchemaRef` |
+| `Model.schema`, `Model.views[].schema` | `SchemaRef` |
+| `Schema` node | `ref: SchemaRef` |
+| `Operation.handler`, `Service.symbol`, `HttpGroup.rootSymbol` | `SymbolRef` |
+| `Operation.requirements.values` | StableIds of `service:` nodes, not refs |
+
+Source: `packages/ir/src/Node.ts`.
+
+## In the annotation layer
+
+Annotations carry the same references before interpretation. `AnnotationArg` has a `Schema` case (`ref: SchemaRef`, optional `fields`) and a `Symbol` case (`ref: SymbolRef`, optional `security`, `identifier`) (`packages/compiler/src/Collected.ts`). Decorators and builder chains lower to identical annotation arguments, which is what makes syntax equivalence testable.

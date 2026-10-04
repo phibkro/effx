@@ -1,0 +1,145 @@
+---
+title: Http.Contract
+description: Request channels, response shape, middleware and OpenAPI metadata for one HTTP operation.
+---
+
+`Http.Contract` states the request and response shape of one HTTP operation. It contributes an
+`HttpContract` extension node, linked to its operation by `ExtensionOf`. It attaches to an operation that
+has an HTTP verb annotation. It is explicit on every HTTP operation, even when a group supplies `root` and `group`.
+
+```ts
+// decorator
+@Http.Contract({ group: "users", params: Params, success: User.Public, metadata: { operationId: "users.get" } })
+
+// builder
+.http.contract({ group: "users", params: Params, success: User.Public, metadata: { operationId: "users.get" } })
+```
+
+Spec 0005 defines the contract; spec 0013 lets a group fill `root`, `group`, `success`, `middleware` and
+`metadata.annotator` ([HTTP](/docs/authoring/http#how-group-defaults-merge)).
+
+## `HttpContractOptions`
+
+| Field             | Type                               | Optional | Meaning                                                                                                                                  |
+| ----------------- | ---------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `root`            | `string`                           | yes      | Root API identifier. Default `"effx"`. Each distinct root emits a separate `HttpApi`.                                                     |
+| `group`           | `string`                           | yes      | `HttpApiGroup.make` identifier. **Required in the IR**: omit it only when a group association supplies it.                               |
+| `params`          | `Schema.Top`                       | yes      | Path parameters. Its fields must match the route's `:param` names exactly; present if and only if the path has parameters.               |
+| `query`           | `Schema.Top` or `true`             | yes      | Query channel. Emitted as the Effect v4 endpoint `query` option. `true` means the operation's `input`; only a GET Query in a group (see below). |
+| `headers`         | `Schema.Top`                       | yes      | Request header schema.                                                                                                                   |
+| `payload`         | `Schema.Top`                       | yes      | Request body schema. GET cannot declare one.                                                                                             |
+| `payloadIsQuery`  | `boolean`                          | yes      | Marks a POST body as read-only query input. Default `false`. See below.                                                                  |
+| `success`         | `Schema.Top`                       | yes      | Success response schema, independent of the operation's domain result. **Required in the IR**; a group association defaults it to the operation's `success`. |
+| `status`          | `number`                           | yes      | Success status. The IR requires an integer from 100 to 599.                                                                              |
+| `mediaType`       | `string`                           | yes      | Request media type. Requires an explicit `payload`.                                                                                      |
+| `responseHeaders` | `Schema.Top`                       | yes      | Response header schema. The handler must return the typed header-bearing response.                                                       |
+| `conditional`     | `boolean`                          | yes      | Default `false`. GET only: adds a bodyless 304 beside the header-bearing success. Requires `responseHeaders`. The handler owns ETag logic. |
+| `middleware`      | `ReadonlyArray<ServiceLike>`       | yes      | `HttpApiMiddleware.Service` marker classes, attached in declaration order. effx never instantiates them.                                 |
+| `metadata`        | object, table below                | yes      | OpenAPI fields and application hooks.                                                                                                    |
+
+Source: `packages/runtime/src/Annotation.ts` (`HttpContractOptions`); IR defaults and requirements in
+`packages/compiler/src/extensions/http-contract.ts`; semantics in
+`docs/specs/0005-http-contract-extension.md` §"Source syntax and lowering".
+
+### `metadata`
+
+| Field             | Type                       | Optional | Meaning                                                                                                              |
+| ----------------- | -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `annotator`       | `HttpOperationAnnotator`   | yes      | Exported application function. Gets `HttpOperationMetadata`, returns a `Context` merged onto the endpoint after the built-in `OpenApi.annotations`. Lowered to a `SymbolRef`, never evaluated. |
+| `operationId`     | `string`                   | yes      | OpenAPI operation ID. For a named endpoint it must be `<group>.<endpointKey>`; the key names the endpoint, raw binding, guard and client lookup. |
+| `commandIdentity` | `ExportedFunctionSymbol`   | yes      | Exported function for a typed client helper. Not sent to OpenAPI. Command only; headers must include `idempotency-key` and `if-match`. |
+| `summary`         | `string`                   | yes      | OpenAPI summary.                                                                                                     |
+| `description`     | `string`                   | yes      | OpenAPI description.                                                                                                 |
+| `tags`            | `ReadonlyArray<string>`    | yes      | OpenAPI tags.                                                                                                        |
+
+`HttpOperationMetadata`, the argument to `annotator`:
+
+| Field         | Type                    | Optional |
+| ------------- | ----------------------- | -------- |
+| `operationId` | `string`                | yes      |
+| `summary`     | `string`                | yes      |
+| `description` | `string`                | yes      |
+| `tags`        | `ReadonlyArray<string>` | yes      |
+
+Absent fields are omitted, not emitted as `undefined`. `HttpOperationAnnotator` is
+`(metadata: HttpOperationMetadata) => Context.Context<never>`.
+
+`ExportedFunctionSymbol` is `(request: never) => CommandIdentityValue`:
+
+| Field          | Type                    | Optional |
+| -------------- | ----------------------- | -------- |
+| `key`          | `string`                | no       |
+| `input`        | `object`                | no       |
+| `precondition` | `string` or `null`      | no       |
+
+The application owns key issuance, the original request and precondition, and retry. effx never mints a key,
+holds an identity in hidden state or retries (spec 0007 §"Stable command identity").
+
+Source: `packages/runtime/src/Annotation.ts` (`HttpOperationMetadata`, `HttpOperationAnnotator`,
+`CommandIdentityValue`, `ExportedFunctionSymbol`); `docs/specs/0010-target-profiles-and-emit-modes.md`.
+
+## Query over POST: `payloadIsQuery`
+
+A `@Query` may use POST only when its contract sets `payloadIsQuery: true` and declares a `payload`. The flag
+exists for read inputs that must not appear in a URL, such as an exact email address. The body stays in the
+request body, not in the URL or query channel.
+
+Illustrative snippet (the names are invented; the options are the real ones):
+
+```ts
+@Query({ name: "Org.LookupCandidate", input: LookupInput, success: Candidate })
+@Http.Post("/api/lookup")
+@Http.Contract({ group: "org", payload: LookupInput, payloadIsQuery: true, success: Candidate })
+```
+
+| Case                                                             | Result                            |
+| ---------------------------------------------------------------- | --------------------------------- |
+| Query, POST, `payload` present, `payloadIsQuery: true`           | allowed                           |
+| flag on a Command, on a non-POST method, or without `payload`    | `EFFX2402`                        |
+| Query over any other non-GET exposure, or POST without the flag  | `EFFX2401`                        |
+
+This is an opt-in declaration of intent. It is not permission to write, not an authorization decision, and
+not a purity guarantee. The handler stays responsible for read-only semantics (ADR 0010,
+`docs/decisions/0010-query-over-post.md`; ADR 0006).
+
+## `query: true`
+
+`query: true` resolves only through a group association. It means the operation's declared `input` on a GET
+Query, and is `EFFX2405` when the method or kind is wrong, `input` is already assigned to `params` or
+`headers`, or a `payload` is declared. The IR option schema accepts a schema for `query`, so without an
+association `true` is not rewritten (`group-defaults.ts`, `http-contract.ts`).
+
+## Middleware and security markers
+
+`middleware` entries must be exported `HttpApiMiddleware.Service` marker classes. The frontend records a
+security flag for markers that carry the `HttpApiMiddleware` security type stamp. That is what satisfies
+`EFFX2503` for a protected [`Http.Access`](/docs/authoring/problems-and-access). Root schema-error middleware
+cannot. The compiler checks presence and identity only, not that a Layer implements the marker.
+
+## Diagnostics
+
+| Code       | Condition                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------ |
+| `EFFX2402` | duplicate `Http.Contract`                                                                              |
+| `EFFX2402` | the operation does not have exactly one HTTP exposure                                                  |
+| `EFFX2402` | `payloadIsQuery` outside a Query over POST with a `payload`                                            |
+| `EFFX2402` | GET with an explicit `payload`                                                                         |
+| `EFFX2402` | `conditional` on a non-GET or without `responseHeaders`                                                |
+| `EFFX2402` | `mediaType` without `payload`                                                                          |
+| `EFFX2402` | `status` outside 100 to 599                                                                            |
+| `EFFX2402` | unsafe `root` or `group` identifier; root export name collision                                        |
+| `EFFX2402` | `params` fields differ from the route parameters, or one exists without the other                      |
+| `EFFX2402` | `commandIdentity` on a non-Command, or `headers` missing `idempotency-key` or `if-match`               |
+| `EFFX2402` | external group without `@Http.Group`, or without a concrete `HttpApi` root                             |
+| `EFFX2403` | `operationId` not `<group>.<identifier-safe key>`; duplicate endpoint key; missing for an external binding; mixed local and external bindings in a group |
+
+Source: `packages/compiler/src/extensions/http-contract.ts` (`validate`). A property is never silently
+dropped: a bad combination is a diagnostic before generation.
+
+## Generated shape
+
+Per spec 0005 §"Generation and compatibility": operations group by `(root, group)`, one group class per pair
+and one root class per root. Endpoint options use Effect v4 `params`, `query`, `headers`, `payload`,
+`success` and `error`. Status and media wrappers come from `HttpApiSchema`. Middleware and `OpenApi.annotations`
+attach after the endpoint is built. The handler is an ordinary Effect handler. This page does not claim the
+exact emitted text; inspect it with `effx build`.

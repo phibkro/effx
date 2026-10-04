@@ -1,0 +1,465 @@
+---
+title: Coming from Laravel
+description: Laravel 13.x concepts mapped to effx annotations and the Effect constructs underneath, with the gaps stated and one endpoint ported side by side.
+---
+
+effx gives a Laravel team a declarative surface it recognises: routes, request validation, policies, exception rendering, generated artifacts. The compiler reads that surface ahead of time and writes ordinary, inspectable Effect. You keep Effect's typed errors and requirements, and you can stop running the compiler and keep the output ([ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp), [Generated code](/docs/introduction/generated-code#ejecting)).
+
+effx is not Laravel for TypeScript. It does not ship a container, an ORM, a queue, an authorization engine or a scaffolder. Where Laravel has a first-party package for something, this page names the Effect package that covers it, or says **gap**.
+
+**Version pin.** Laravel claims on this page cite the Laravel **13.x** documentation. The documentation index at [laravel.com/docs](https://laravel.com/docs) listed 13.x as current on 2026-10-04. Links of the form `laravel.com/docs/13.x/<page>` redirect to `laravel.com/framework/docs/13.x/<page>`. Laravel's own first-party packages (Sanctum, Passport, Reverb, Telescope, Pulse) are documented on the same site.
+
+effx claims cite a spec (`spec 0005` is `docs/specs/0005-http-contract-extension.md`) or a source path. Effect claims cite the Effect v4 repository (`packages/effect/src/...`, `ai-docs/src/...`).
+
+| Status                | Meaning                                                                   |
+| --------------------- | ------------------------------------------------------------------------- |
+| supported             | implemented in effx; the row cites a spec or source path                  |
+| via ecosystem package | an Effect package does it; effx does not reimplement it                   |
+| gap                   | nothing today; not called planned unless a spec says so                   |
+
+## Concept map
+
+| Laravel concept (13.x docs) | effx annotation or construct | Underlying Effect construct | Status | Source |
+| --- | --- | --- | --- | --- |
+| Controllers and routing: [Routing](https://laravel.com/docs/13.x/routing), [Controllers](https://laravel.com/docs/13.x/controllers). `Route::patch(...)`, `make:controller`, `routes/api.php` | `@Query` or `@Command` plus `@Http.Get`, `@Http.Post`, `@Http.Put`, `@Http.Patch`, `@Http.Delete`; `@Http.Group` | `HttpApiEndpoint`, `HttpApiGroup`, `HttpApi`, `HttpApiBuilder.group`, `HttpRouter.serve` (all emitted into `http.ts`) | supported | `packages/runtime/src/decorators.ts`; `packages/compiler/src/generate/http.ts`; spec 0005; [HTTP](/docs/authoring/http) |
+| Form requests and validation: [Validation](https://laravel.com/docs/13.x/validation#creating-form-requests). `FormRequest::rules()`; a failed JSON request returns 422 with an error map | `input` schema on `@Query` or `@Command`; `@Http.Contract` channels `params`, `query`, `headers`, `payload` | `Schema` with filters such as `Schema.isMaxLength` and `Schema.isPattern`. The endpoint decodes before the handler runs. A decode failure is `HttpApiSchemaError`, rendered as an empty 400 unless you transform it with `HttpApiMiddleware.layerSchemaErrorTransform` | supported | `examples/users/src/schemas.ts`; `packages/compiler/src/generate/http.ts`; spec 0005; `packages/effect/src/http-api/HttpApiError.ts` |
+| Service container and providers: [Service Container](https://laravel.com/docs/13.x/container), [Service Providers](https://laravel.com/docs/13.x/providers). Type-hint autowiring, `bind`, `singleton`, `bootstrap/providers.php` | `@Requirements(Service)` asserts the handler's inferred `R`. There is no container and no autowiring (ADR 0012 rules out hidden DI) | `Context.Service`, `Layer`, `Effect.provide`. `R` stays in the handler's type | supported (the assertion); wiring is a plain `Layer` that the application owns | ADR 0005; spec 0002 (E/R inference); `EFFX2302`, `EFFX2303`; `examples/users/src/services.ts`; `examples/users/src/server-main.ts` |
+| Middleware: [Middleware](https://laravel.com/docs/13.x/middleware). `make:middleware`, global stack, groups, `->middleware()` | `@Http.Contract({ middleware: [Marker] })`; group `defaults.middleware` | `HttpApiMiddleware.Service` marker, attached as `.middleware(Marker)`. The implementation is a `Layer` the application writes. effx never instantiates a marker | supported (declaration only) | spec 0005 (`middleware`); spec 0013; `packages/compiler/src/generate/http.ts`; [Http.Contract](/docs/authoring/http-contract#middleware-and-security-markers) |
+| Authentication guards and first-party Sanctum and Passport: [Authentication](https://laravel.com/docs/13.x/authentication), [Sanctum](https://laravel.com/docs/13.x/sanctum), [Passport](https://laravel.com/docs/13.x/passport). `auth:sanctum`; Passport is an OAuth2 server | `@Http.Contract({ middleware: [SecurityMarker] })` plus `@Http.Access({ acceptedCredentials })`. `EFFX2503` requires a security marker on a protected operation | `HttpApiMiddleware.Service` with `security: { bearer: HttpApiSecurity.bearer }` (also `apiKey`, `basic`). The application's `Layer` validates the credential | via ecosystem package (`effect/http-api`) for the scheme and middleware. **Gap** for token issuing, abilities, revocation and an OAuth2 server | spec 0006; `packages/effect/src/http-api/HttpApiSecurity.ts`; `ai-docs/src/51_http-server/fixtures/{api,server}/Authorization.ts`. A search of the Effect clone's `packages/` found no token-issuing or OAuth module |
+| Gates and policies: [Authorization](https://laravel.com/docs/13.x/authorization). `Gate::define`, `make:policy`, `Gate::authorize`, the `can` middleware | `@Http.Access({ capabilities, requirements, canonicalScopeResolver, concealment, decisionTime })`; `@Authorize(Capability.make(...))`. The handler receives a required `authorize` thunk | An application `Effect` that the handler calls. `Http.Access` becomes `annotateMerge(annotator(...))` on the endpoint, using your annotator's `Context` | supported (declaration and typed guard binding). **Gap** for evaluation: effx never decides access | spec 0006; ADR 0007 (Cedar, deferred); `packages/compiler/src/generate/{http,guards}.ts`; [Problems and access](/docs/authoring/problems-and-access) |
+| Exception handling and JSON error responses: [Error Handling](https://laravel.com/docs/13.x/errors). `withExceptions`, `render`, `abort()`. A missing bound model gives 404 | `@Errors(...)` asserts `E`; `@Http.Problems({ registry, codes, map })` | The typed error channel `E`; the `error` option of `HttpApiEndpoint`; the `httpApiStatus` annotation (an error schema without one is encoded as 500) | supported (declaration and typed `E`). The registry, the response body and `ProblemBoundaryLive` are application code | spec 0005 (Problem responses); `packages/compiler/src/extensions/problem-contract.ts`; `packages/effect/src/http-api/HttpApiSchema.ts` (`getStatusError`) |
+| API resources: [Eloquent: API Resources](https://laravel.com/docs/13.x/eloquent-resources). `make:resource`, `JsonResource::toArray`. The outermost resource is wrapped in `data` by default | `success` schema; `@PersistentModel({ views })` for named views such as `User.Public` and `User.Self`. The handler builds the object. There is no transformer class | `Schema` struct, encoded by the endpoint's `success` schema | supported | `examples/users/src/{user,operations}.ts`; `packages/compiler/src/extensions/core.ts` |
+| OpenAPI. Laravel has no first-party OpenAPI feature: the [documentation index](https://laravel.com/docs) lists no OpenAPI page | `@Http.Contract({ metadata: { operationId, summary, description, tags } })` projects into `OpenApi.annotations`. effx writes no OpenAPI document | `OpenApi.fromApi`; `HttpApiBuilder.layer(Api, { openapiPath })`; `HttpApiScalar.layer`; `HttpApiSwagger.layer` | via ecosystem package (`effect/http-api`) | spec 0005 (Generation: "does not generate an OpenAPI document"); spec 0010; `packages/effect/src/http-api/OpenApi.ts`; `ai-docs/src/51_http-server/10_basics.ts` |
+| Client generation. Laravel has no first-party client generator: the [documentation index](https://laravel.com/docs) lists none | `effx build` writes `client.ts`: `Client.layerAt(url)`, one function per operation (for example `UserChangeEmail`), `operationIndex`, typed declared failures | `HttpApiClient.make` and `HttpApiClient.ForApi` | supported | spec 0007; `packages/compiler/src/generate/client.ts`; `examples/users/.effx/generated/client.ts` |
+| Configuration: [Configuration](https://laravel.com/docs/13.x/configuration). `.env`, `config/*.php`, `env()` | none. `ProjectConfig` configures the compiler, not your application | `Config`, `ConfigProvider` (the example reads `Config.Number("PORT")`) | via ecosystem package (`effect`) | `examples/users/src/server-main.ts`; `packages/compiler/src/Collected.ts` (`ProjectConfig`); `packages/effect/src/Config.ts` |
+| Eloquent ORM: [Eloquent](https://laravel.com/docs/13.x/eloquent). `make:model`, query builder, models as table classes | `@PersistentModel({ table, views, focus })` records `Model` and `Focus` facts only. No SQL is generated | `SqlClient`, `SqlSchema`, `SqlModel` from `effect/sql`; drivers such as `@effect/sql-pg` | via ecosystem package (`effect/sql`). **Gap** for effx SQL generation: spec 0008 is proposed, not frozen | spec 0008; `STATE.md` (Persistence is parked); [Persistence and authority](/docs/authoring/persistence-and-authority); `packages/effect/src/sql/`; `packages/sql/pg` |
+| Migrations: [Migrations](https://laravel.com/docs/13.x/migrations). `make:migration`, `migrate` | none | `Migrator` from `effect/sql` | via ecosystem package (`effect/sql`). **Gap** for deriving migrations from models | `packages/effect/src/sql/Migrator.ts`; spec 0008 (proposed only) |
+| Queues, jobs and scheduling: [Queues](https://laravel.com/docs/13.x/queues), [Task Scheduling](https://laravel.com/docs/13.x/scheduling). `make:job`, `ShouldQueue`, `Schedule::` | none. No job or schedule annotation exists in `@effx/runtime` or the compiler | `PersistedQueue` (`effect/persistence`); `Workflow`, `DurableQueue` (`effect/workflow`); `ClusterCron` (`effect/cluster`); `Schedule`, `Cron` | via ecosystem package. **Gap** for any effx annotation | `packages/runtime/src`, `packages/compiler/src/extensions` (no match for queue, schedule or cron); `packages/effect/src/persistence/PersistedQueue.ts`; `packages/effect/src/workflow/`; `packages/effect/src/cluster/ClusterCron.ts` |
+| Caching: [Cache](https://laravel.com/docs/13.x/cache). `Cache::` drivers | none. `Http.Contract.conditional` adds a 304 for a GET, and the handler owns ETag logic. It is HTTP conditional logic, not an application cache | `Cache`, `ScopedCache`; `PersistedCache` (`effect/persistence`) | via ecosystem package. **Gap** for any effx annotation | spec 0005 (`conditional`); `packages/effect/src/Cache.ts`; `packages/effect/src/persistence/PersistedCache.ts` |
+| Realtime: [Broadcasting](https://laravel.com/docs/13.x/broadcasting), [Reverb](https://laravel.com/docs/13.x/reverb) (a WebSocket server) | none. The generated RPC server uses the HTTP protocol only | `RpcServer.layerProtocolWebsocket` (`effect/rpc`); `Socket` (`effect/socket`); `Sse` (`effect/encoding`) | via ecosystem package. **Gap** for any effx annotation | `examples/users/.effx/generated/http.ts` (`protocol: "http"`); `packages/effect/src/rpc/RpcServer.ts`; `packages/effect/src/socket/Socket.ts`; `packages/effect/src/encoding/Sse.ts` |
+| Testing: [HTTP Tests](https://laravel.com/docs/13.x/http-tests), [Testing](https://laravel.com/docs/13.x/testing). Pest or PHPUnit | none. effx generates `OperationsClient.layerTest` for the RPC client. It ships no test harness | `@effect/vitest`; `HttpApiTest.groups`; `RpcTest` | via ecosystem package. **Gap** for an effx harness | `packages/compiler/src/generate/rpc.ts` (`layerTest`); `examples/users/test/e2e.test.ts`; `packages/vitest`; `ai-docs/src/51_http-server/20_testing.ts` |
+| CLI and scaffolding: [Artisan](https://laravel.com/docs/13.x/artisan). Custom commands, `make:*`, `stub:publish` | `@Cli("users change-email")` generates a command. `make:*` scaffolding has no equivalent | `Command` and `Flag` from `effect/cli` | supported for generated commands. **Gap** for `make:*` scaffolding: the `effx` CLI has only `check`, `build`, `inspect`, `graph` | `packages/compiler/src/generate/cli.ts`; `examples/users/.effx/generated/cli.ts`; `packages/cli/src/main.ts`; spec 0003 |
+| Observability: [Logging](https://laravel.com/docs/13.x/logging) (Monolog), [Telescope](https://laravel.com/docs/13.x/telescope), [Pulse](https://laravel.com/docs/13.x/pulse). Nightwatch appears in [Error Handling](https://laravel.com/docs/13.x/errors) as a reporting destination and has no page of its own in the 13.x index | none. The generators emit no log calls and no spans | `Effect.log`, `Logger`; `Otlp` (`effect/observability`); `@effect/opentelemetry` | via ecosystem package | `packages/compiler/src/generate/` (no match for `Effect.log`, `withSpan`, `Tracer`); `packages/effect/src/observability/Otlp.ts`; `ai-docs/src/08_observability/` |
+
+## Gaps today
+
+These are things a Laravel team will look for and will not find in effx. None is called planned. Where a spec exists, it is cited.
+
+- **SQL persistence and migrations.** `@PersistentModel` records facts. Spec 0008 (SqlProjection) is proposed, not frozen, and `STATE.md` parks it. `examples/users` keeps users in an in-memory `Ref<HashMap>` (`examples/users/src/services.ts`). Use `effect/sql` directly.
+- **Authorization evaluation.** effx records the access declaration and requires a typed guard binding. It never resolves a credential, interprets a policy or chooses a principal (spec 0006). Cedar and leases are deferred past the MVP kernel (ADR 0007). A required binding is not proof the handler called it. The real security gate is the application's own journey.
+- **Authentication products.** Nothing in effx or in the Effect clone issues tokens, manages abilities or revocation, or runs an OAuth2 server. Effect supplies the security scheme and middleware slot (`HttpApiSecurity`, `HttpApiMiddleware`), not a Sanctum or Passport.
+- **Jobs, queues, scheduling, caching, realtime.** No annotation. The Effect packages in the table cover the runtime side.
+- **Scaffolding and generators.** No `make:*`. The `effx` CLI compiles and inspects; it does not write source.
+- **Testing harness.** No effx test helpers beyond the generated RPC `layerTest`.
+- **Implicit route model binding.** There is no equivalent. The handler or a service loads the entity and fails with a typed error such as `UserNotFound` (`examples/users/src/services.ts`).
+- **Problem Details builder.** effx ships no RFC 9457 envelope. `Http.Problems` calls a registry function that your application exports. Domain-error to problem conversion and `ProblemBoundaryLive` are hand-written (spec 0005).
+- **Validation error shape.** There is no 422 error map by default. A failed decode is an empty 400 (`HttpApiSchemaError`) until you transform it.
+- **Application-wide middleware.** There is no annotation. Middleware attaches per operation or through a group default. For app-wide behaviour use raw Effect (`effect/http`), which can coexist in the same program (ADR 0012).
+- **Maturity.** Evidence for access, problems and the client is compiler and fixture level. The mono-web migration gates in `STATE.md` are separate and several are unlanded. Treat this page's port as a design translation, not a production claim.
+
+## Port one endpoint
+
+The endpoint is `PATCH /users/{id}/email`, for an authenticated user:
+
+1. The body is `{ "email": "..." }` with a format rule and a length limit.
+2. Only the user themselves may change their email. This rule is invented for the page. The effx example does not state who may change an email.
+3. An unknown user returns 404 and an email held by another user returns 409, both as JSON problem-style bodies.
+
+All code below that is not an `include` is **pasted and illustrative**. It was not compiled, generated or run for this page. The effx snippets follow fixtures that the repository tests (named under each block).
+
+<Tabs items={["Laravel", "effx"]}>
+<Tab value="Laravel">
+
+**Route.** `routes/api.php` is created by `install:api`. Its routes are stateless, belong to the `api` middleware group and get the `/api` prefix, so the live path is `/api/users/{user}/email`. `auth:sanctum` protects a route. ([Routing](https://laravel.com/docs/13.x/routing#api-routes), [Sanctum](https://laravel.com/docs/13.x/sanctum#protecting-routes))
+
+```php title="routes/api.php"
+use App\Http\Controllers\UserEmailController;
+use Illuminate\Support\Facades\Route;
+
+Route::patch('/users/{user}/email', [UserEmailController::class, 'update'])
+    ->middleware('auth:sanctum');
+```
+
+**Form request.** A form request has `authorize` and `rules`. It is validated before the controller method runs. If `authorize` returns `false`, Laravel returns 403 and the controller does not run. A failed JSON request returns 422 with the errors. The `route` method reads the URI parameters. ([Validation: form requests](https://laravel.com/docs/13.x/validation#creating-form-requests), [Authorizing form requests](https://laravel.com/docs/13.x/validation#authorizing-form-requests))
+
+```php title="app/Http/Requests/ChangeEmailRequest.php"
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ChangeEmailRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        // The policy check. `user` is the bound User model from the route.
+        return $this->user()->can('updateEmail', $this->route('user'));
+    }
+
+    /** @return array<string, array<int, string>> */
+    public function rules(): array
+    {
+        return [
+            'email' => ['required', 'string', 'email', 'max:255'],
+        ];
+    }
+}
+```
+
+**Policy.** Laravel finds `UserPolicy` for the `User` model by naming convention when it sits in a `Policies` directory at or above the models. Policy method names are free. `make:policy` generates the class. ([Authorization: creating policies](https://laravel.com/docs/13.x/authorization#creating-policies), [writing policies](https://laravel.com/docs/13.x/authorization#writing-policies))
+
+```php title="app/Policies/UserPolicy.php"
+namespace App\Policies;
+
+use App\Models\User;
+
+class UserPolicy
+{
+    public function updateEmail(User $actor, User $target): bool
+    {
+        return $actor->id === $target->id;
+    }
+}
+```
+
+**Controller, service and resource.** The controller receives its dependencies by type-hint. With implicit binding, a missing `User` produces a 404 before the controller runs. A resource class shapes the JSON, and by default the outermost resource is wrapped in a `data` key. ([Controllers](https://laravel.com/docs/13.x/controllers), [Routing: implicit binding](https://laravel.com/docs/13.x/routing#implicit-binding), [Service container](https://laravel.com/docs/13.x/container), [API resources](https://laravel.com/docs/13.x/eloquent-resources))
+
+```php title="app/Http/Controllers/UserEmailController.php"
+namespace App\Http\Controllers;
+
+use App\Http\Requests\ChangeEmailRequest;
+use App\Http\Resources\UserSelfResource;
+use App\Models\User;
+use App\Services\UserDirectory;
+
+class UserEmailController extends Controller
+{
+    public function update(ChangeEmailRequest $request, User $user, UserDirectory $users): UserSelfResource
+    {
+        return new UserSelfResource(
+            $users->changeEmail($user, $request->validated()['email']),
+        );
+    }
+}
+```
+
+```php title="app/Services/UserDirectory.php"
+namespace App\Services;
+
+use App\Exceptions\EmailAlreadyTaken;
+use App\Models\User;
+
+class UserDirectory
+{
+    public function changeEmail(User $user, string $email): User
+    {
+        $other = User::where('email', $email)->where('id', '!=', $user->id)->first();
+
+        if ($other !== null) {
+            throw new EmailAlreadyTaken($email);
+        }
+
+        $user->email = $email;
+        $user->save();
+
+        return $user;
+    }
+}
+```
+
+([Eloquent: retrieving and updating models](https://laravel.com/docs/13.x/eloquent#updates) for `where`, `first` and `save`.)
+
+```php title="app/Http/Resources/UserSelfResource.php"
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class UserSelfResource extends JsonResource
+{
+    /** @return array<string, mixed> */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'email' => $this->email,
+            'displayName' => $this->display_name,
+        ];
+    }
+}
+```
+
+**Exception rendering.** `bootstrap/app.php` registers `render` closures through `withExceptions`. The closure may return `response()->json([...], 404)`, and the docs show overriding `NotFoundHttpException` for `api/*` requests. The response object has a `header` method for setting `Content-Type`. The Laravel documentation does not describe RFC 9457 Problem Details, so the problem-style body below is application-defined. ([Error Handling: rendering exceptions](https://laravel.com/docs/13.x/errors#rendering-exceptions), [Responses: JSON](https://laravel.com/docs/13.x/responses#json-responses), [Responses](https://laravel.com/docs/13.x/responses))
+
+```php title="app/Exceptions/EmailAlreadyTaken.php"
+namespace App\Exceptions;
+
+use Exception;
+
+class EmailAlreadyTaken extends Exception
+{
+    public function __construct(public readonly string $email)
+    {
+        parent::__construct("The email {$email} belongs to another user.");
+    }
+}
+```
+
+```php title="bootstrap/app.php (the withExceptions part)"
+use App\Exceptions\EmailAlreadyTaken;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+
+->withExceptions(function (Exceptions $exceptions): void {
+    $exceptions->render(function (EmailAlreadyTaken $e, Request $request) {
+        return response()->json([
+            'type' => 'https://example.com/problems/email-taken',
+            'title' => 'Email already in use',
+            'status' => 409,
+            'detail' => $e->getMessage(),
+        ], 409)->header('Content-Type', 'application/problem+json');
+    });
+
+    $exceptions->render(function (NotFoundHttpException $e, Request $request) {
+        if ($request->is('api/*')) {
+            return response()->json([
+                'type' => 'https://example.com/problems/user-not-found',
+                'title' => 'User not found',
+                'status' => 404,
+            ], 404)->header('Content-Type', 'application/problem+json');
+        }
+    });
+})
+```
+
+What Laravel does without extra code on this route, per the cited pages: a denied form-request `authorize` gives 403; a failed validation on a JSON request gives 422 with errors; a missing bound model gives 404.
+
+</Tab>
+<Tab value="effx">
+
+**Real files, unchanged.** The error classes and the `Users` service below are the real example files. `UserNotFound` and `EmailTaken` are the typed failures. `setEmail` fails with `UserNotFound` for an unknown id and with `EmailTaken` when another user holds the email, and does the check and the write in one `Ref.modify`.
+
+<include cwd lang="ts" meta='title="examples/users/src/schemas.ts"'>../../examples/users/src/schemas.ts</include>
+
+<include cwd lang="ts" meta='title="examples/users/src/services.ts"'>../../examples/users/src/services.ts</include>
+
+The unprotected declaration of `User.ChangeEmail` is in `examples/users/src/operations.ts` (shown on [Operations](/docs/authoring/operations#example)). It has `@Authorize(ChangeEmail)`, which records a capability fact and enforces nothing. The sections below extend it.
+
+**Pasted: the schema changes.** The example's `Email` is `Schema.NonEmptyString`, which does not check a format. This replaces it with a length limit and a simplified pattern. The pattern is not Laravel's `email` rule. It also adds the two request channels.
+
+```ts title="examples/users/src/schemas.ts (changes, pasted)"
+export const Email = Schema.String.check(
+  Schema.isMaxLength(255),
+  Schema.isPattern(/^[^@\s]+@[^@\s]+$/),
+);
+
+export const ChangeEmailParams = Schema.Struct({ id: UserId });
+export const ChangeEmailBody = Schema.Struct({ email: Email });
+```
+
+**Pasted: access and problem support.** The annotator, the scope resolver, the security marker and the problem registry are application code that the declaration refers to by symbol. The compiler never runs them. The shapes follow `packages/frontend-ts/test/fixtures/users/src/access-support.ts` and `contract-support.ts`; the `httpApiStatus` annotations follow the fixture's `AccessDenied` and `UserProblemResponses`. `"BearerToken"` is an application-chosen credential name.
+
+```ts title="examples/users/src/access.ts (pasted, illustrative)"
+import type { HttpAccessAnnotationSpec } from "@effx/runtime";
+import { Context, Schema } from "effect";
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/http-api";
+import { EmailTaken, UserId, UserNotFound } from "./schemas.ts";
+
+export type Principal = { readonly userId: typeof UserId.Type };
+
+export class AccessDenied extends Schema.TaggedError<AccessDenied>()("AccessDenied", {
+  message: Schema.String,
+}) {}
+
+/** The "policy": a plain function, because it is a total calculation. */
+export const canChangeEmail = (principal: Principal, target: typeof UserId.Type): boolean =>
+  principal.userId === target;
+
+export const UserSelfScope = { id: "user.self" } as const;
+
+export class UserAccessAnnotation extends Context.Service<
+  UserAccessAnnotation,
+  HttpAccessAnnotationSpec
+>()("users/UserAccessAnnotation") {}
+
+export const userAccessAnnotations = (spec: HttpAccessAnnotationSpec) =>
+  Context.make(UserAccessAnnotation, spec);
+
+/** Declares the bearer scheme. A Layer the application writes validates the token. */
+export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
+  "users/PersonSecurity",
+  { security: { bearer: HttpApiSecurity.bearer }, error: AccessDenied },
+) {}
+
+const problems = {
+  "user.not-found": UserNotFound.pipe(Schema.annotate({ httpApiStatus: 404 })),
+  "user.email-taken": EmailTaken.pipe(Schema.annotate({ httpApiStatus: 409 })),
+  "authority.denied": AccessDenied.pipe(Schema.annotate({ httpApiStatus: 403 })),
+} as const;
+
+export const UserProblemResponses = (_identifier: string, codes: ReadonlyArray<keyof typeof problems>) =>
+  codes.map((code) => problems[code]);
+```
+
+**Pasted: the extended declaration.** The handler takes the `authorize` thunk as its second argument, as the fixture's `Profile.Update` does (`packages/frontend-ts/test/fixtures/users/src/operations.access.ts`). `@Rpc` and `@Cli` are dropped: their generated callers pass one argument (`examples/users/.effx/generated/rpc.ts`, `cli.ts`), and this handler now takes two.
+
+```ts title="examples/users/src/operations.ts (changeEmail, extended, pasted)"
+import { Capability, Command, Concealment, Errors, Http, Requirements } from "@effx/runtime";
+import { Effect } from "effect";
+import {
+  AccessDenied,
+  canChangeEmail,
+  type Principal,
+  PersonSecurity,
+  UserProblemResponses,
+  UserSelfScope,
+  userAccessAnnotations,
+} from "./access.ts";
+import {
+  ChangeEmailBody,
+  ChangeEmailInput,
+  ChangeEmailParams,
+  EmailTaken,
+  UserNotFound,
+} from "./schemas.ts";
+import { Users } from "./services.ts";
+import { User } from "./user.ts";
+
+export class UserOperations {
+  @Command({ name: "User.ChangeEmail", input: ChangeEmailInput, success: User.Self })
+  @Http.Patch("/users/:id/email")
+  @Http.Contract({
+    group: "users",
+    params: ChangeEmailParams,
+    payload: ChangeEmailBody,
+    success: User.Self,
+    middleware: [PersonSecurity],
+    metadata: { operationId: "users.changeEmail" },
+  })
+  @Http.Access({
+    annotator: userAccessAnnotations,
+    exposure: "External",
+    acceptedCredentials: ["BearerToken"],
+    principalKinds: ["Person"],
+    capabilities: Capability.one("user.change-email"),
+    requirements: [{ id: "user.self" }],
+    canonicalScopeResolver: UserSelfScope,
+    concealment: Concealment.reveal,
+    decisionTime: "Transaction",
+  })
+  @Http.Problems({
+    registry: UserProblemResponses,
+    codes: ["user.not-found", "user.email-taken", "authority.denied"],
+    map: {
+      UserNotFound: "user.not-found",
+      EmailTaken: "user.email-taken",
+      AccessDenied: "authority.denied",
+    },
+  })
+  @Errors(UserNotFound, EmailTaken, AccessDenied)
+  @Requirements(Users)
+  static changeEmail(
+    input: typeof ChangeEmailInput.Type,
+    authorize: () => Effect.Effect<Principal, AccessDenied>,
+  ) {
+    return Effect.gen(function* () {
+      const principal = yield* authorize();
+
+      if (!canChangeEmail(principal, input.id)) {
+        return yield* new AccessDenied({ message: "Only the user may change their own email." });
+      }
+
+      const users = yield* Users;
+
+      return yield* users.setEmail(input.id, input.email);
+    });
+  }
+}
+```
+
+The handler is the whole controller, policy call and service call. `Concealment.reveal` declares that a denial is visible. `Concealment.notFound(...)` declares that a denial is concealed as not found, the analogue of Laravel's `Response::denyAsNotFound()` ([Authorization: policy responses](https://laravel.com/docs/13.x/authorization#policy-responses)). effx records both and enforces neither.
+
+**Pasted: the guard binding.** `effx build` generates `guards.ts` with one required function per protected operation. The application supplies the record. `authenticate` is application code: it turns the request into a `Principal` or fails with `AccessDenied`.
+
+```ts title="examples/users/src/guards.ts (pasted, illustrative)"
+import type { AppGuards } from "../.effx/generated/guards.ts";
+import { authenticate } from "./authentication.ts";
+
+export const userGuards: AppGuards = {
+  "effx/users": {
+    changeEmail: (request) => authenticate(request),
+  },
+};
+```
+
+`server.ts` and `server-main.ts` change with it: `AppRoutes` becomes a function of the guards, `AppRoutes(userGuards)`, and a `Layer` for `PersonSecurity` must be provided.
+
+**Real generated output (Profile fixture).** The repository pins the generated output of a protected `Profile` operation under `packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/`. It is not generated from the snippets above. The shape is what effx emits for any protected HTTP operation.
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/guards.ts"'>../../packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/guards.ts</include>
+
+```ts title="packages/frontend-ts/test/fixtures/users/.effx/client-foldkit-generated/http.ts (excerpt)"
+export const ProfileHandlers = (guards: ProfileGuards) => HttpApiBuilder.group(
+  Api,
+  "profile",
+  Effect.fn(function* (handlers) {
+    return handlers.handleAll({
+      "update": ({ request, headers, payload }) => ClientFoldkitProfileOperations.update({ ...headers, ...payload }, () => guards["update"](request)),
+    });
+  }),
+);
+
+export const AppRoutes = (guards: AppGuards) => HttpRouter.serve(/* ... */);
+```
+
+The handler gets a thunk, `() => guards["update"](request)`. Nothing runs until the handler calls `authorize()`. The fixture's endpoint also takes its `error:` from a registry call, `ProfileProblemResponses("updateProblem", [...])`, in that file's `HttpApiEndpoint.patch("update", ...)`. For an operation with `Http.Problems`, the generated line has the form `error: Registry("<key>Problem", [...codes])` (spec 0005).
+
+</Tab>
+</Tabs>
+
+### How the layers line up
+
+| Layer | Laravel | effx declaration | Effect underneath |
+| --- | --- | --- | --- |
+| Route | `Route::patch('/users/{user}/email', ...)` | `@Http.Patch("/users/:id/email")` | `HttpApiEndpoint.patch("changeEmail", "/users/:id/email", { ... })` |
+| Authentication | `->middleware('auth:sanctum')` | `@Http.Contract({ middleware: [PersonSecurity] })` plus `acceptedCredentials` | `.middleware(PersonSecurity)` with `HttpApiSecurity.bearer` |
+| Validation | `ChangeEmailRequest::rules()` | `ChangeEmailBody` and `ChangeEmailParams` schemas in `@Http.Contract` | `params` and `payload` decoded by the endpoint before the handler |
+| Policy | `ChangeEmailRequest::authorize()` calling `UserPolicy::updateEmail` | `@Http.Access({ ... })`, the `authorize` thunk and the handler's `canChangeEmail` check | `guards["changeEmail"](request)` and a plain function |
+| Service | `UserDirectory` injected by the container | `@Requirements(Users)` | `Context.Service` and `Layer` (`examples/users/src/services.ts`) |
+| Not found, conflict | `ModelNotFoundException` as 404; `EmailAlreadyTaken` rendered as 409 | `@Errors(...)` and `@Http.Problems({ registry, codes, map })` | typed `E`; `error:` with `httpApiStatus` 404, 409, 403 |
+| Response | `UserSelfResource` | `success: User.Self` | the `success` schema encodes the result |
+
+Source for the effx column: spec 0005, spec 0006, `packages/compiler/src/generate/{http,guards}.ts`, `docs/specs/0006-access-contract-extension.md` §"HTTP lowering and guard interface".
+
+### What the port preserves
+
+- The route, the method and a declared bearer-protected contract.
+- Validation of params and body at the boundary, before handler code runs. Params and body are decoded in `HttpApiBuilder` before the handler is called (`packages/effect/src/http-api/HttpApiBuilder.ts`).
+- Three outcomes with fixed statuses: 404, 409 and 403. Unlike Laravel's `render` closures, each is a typed member of the operation's error channel, so the generated client (`DeclaredFailures` in `client.ts`) and the OpenAPI document see them.
+- The service's typed failures. `examples/users/test/e2e.test.ts` asserts `EmailTaken` through the generated RPC client.
+
+### What the port does not preserve
+
+- **Access evaluation stays application code.** effx records the `Http.Access` declaration and requires a typed `authorize` binding. It does not run the policy, resolve the token or pick the principal (spec 0006). A required binding is not proof that the handler called it, and the real gate is the application's own journey. Cedar and leases are deferred (ADR 0007). In Laravel the framework calls `FormRequest::authorize()` for you before the controller. Here the handler must call `authorize()` itself.
+- **Problem responses follow spec 0005, not RFC 9457.** `Http.Problems` imports your registry and emits `error: Registry(...)`. The registry above only attaches statuses to the existing error classes, so the 409 body is the encoded form of the `EmailTaken` schema, not the `type`, `title`, `status`, `detail` body of the PHP version. To emit RFC 9457 bodies the application writes that derivation, as spec 0005 describes for mono-web. effx has no Problem Details builder, and `ProblemBoundaryLive` is hand-written.
+- **Validation failures differ.** Laravel returns 422 with an error map. A failed decode here is an empty 400 until you transform `HttpApiSchemaError`.
+- **No route model binding.** Laravel returns 404 before the controller runs. Here the service fails `UserNotFound` inside the handler, after the guard.
+- **Persistence is not the same.** The PHP service checks and then saves, so only a unique index stops a concurrent writer. The effx example does both in one atomic `Ref.modify` on an in-memory store that does not survive a restart (`STATE.md`, Deferred notes). Neither is a port of SQL behaviour.
+- **Response wrapping.** Laravel wraps the outermost resource in `data` by default. The effx response is the schema-encoded `User.Self`.
+- **Dropped exposures.** The protected variant is HTTP-only. `@Rpc` and `@Cli` would need the guard argument too.
+- **Wiring changes.** `AppRoutes` becomes `AppRoutes(guards)`. The security marker needs a `Layer`.
+- **Unverified here.** The pasted effx snippets were not compiled or built for this page. Run `effx build` and the TypeScript check on your copy to confirm. If the declaration and the handler disagree, the compiler reports `EFFX2201` or `EFFX2202` (errors), `EFFX2205` or `EFFX2206` (problem mapping), or `EFFX2503` (a protected operation without a security marker).
+
+## Where to go next
+
+<Cards>
+  <Card title="HTTP contract" href="/docs/authoring/http-contract">
+    `Http.Contract`: params, payload, middleware and metadata.
+  </Card>
+  <Card title="Problems and access" href="/docs/authoring/problems-and-access">
+    `Http.Problems`, `Http.Access`, guards and strict access.
+  </Card>
+  <Card title="Generated code" href="/docs/introduction/generated-code">
+    What `effx build` writes and how to eject.
+  </Card>
+</Cards>

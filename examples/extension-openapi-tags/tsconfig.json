@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "experimentalDecorators": false,
+    "types": ["bun"],
+    "paths": {
+      "@effx/runtime": ["../../packages/runtime/src/index.ts"],
+      "@effx/compiler": ["../../packages/compiler/src/index.ts"],
+      "@effx/ir": ["../../packages/ir/src/index.ts"],
+      "@effx/cli/config": ["../../packages/cli/src/config.ts"]
+    }
+  },
+  "include": ["src/operations.ts"]
+}

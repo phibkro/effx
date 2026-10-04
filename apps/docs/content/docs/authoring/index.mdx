@@ -1,0 +1,128 @@
+---
+title: Authoring overview
+description: Decorators and builder chains record the same Annotations. Pick the syntax that fits the declaration.
+---
+
+effx has two source syntaxes with one meaning. Decorators and builder chains both record
+`Annotation` values. The compiler reads those annotations, never the syntax that wrote them.
+
+<Callout type="info">
+  **decorator = contribution to IR, never generated behaviour.** A decorator returns `undefined`,
+  never replaces the method, and generates nothing at runtime. Generated code is ordinary Effect:
+  AOT analysis is authoritative and generated code is `HttpApi`, `Rpc`, `Command`, with no effx
+  runtime DI (`docs/decisions/0001-aot-compilation-is-authoritative.md`,
+  `docs/decisions/0008-generated-code-is-ordinary-effect.md`).
+</Callout>
+
+```
+decorators ──┐
+             ├─▶ Annotation[] ─▶ collector ─▶ interpreters ─▶ IR ─▶ analyses ─▶ generators ─▶ ordinary Effect
+builder ─────┘   (name, args)    (frontend)    (extensions)
+```
+
+Source: `packages/runtime/src/Annotation.ts`, `packages/runtime/src/decorators.ts`,
+`packages/runtime/src/builder.ts`, `docs/specs/0002-source-frontend.md`.
+
+## The Annotation record
+
+| Field  | Type                            | Meaning                                                                       |
+| ------ | ------------------------------- | ----------------------------------------------------------------------------- |
+| `name` | `string`                        | Annotation name, for example `Query`, `Http.Get`, `Http.Contract`.            |
+| `args` | `ReadonlyArray<AnnotationValue>` | Live argument values. `AnnotationValue` is `string`, `number`, `boolean` or `object`. |
+
+Source: `packages/runtime/src/Annotation.ts` (`Annotation`, `AnnotationValue`).
+
+Live values (a real `Schema`, a real service class) stay live at runtime. The source frontend lowers
+them to `SchemaRef` and `SymbolRef` references; no schema or function is serialized into the IR
+(`docs/decisions/0004-schemas-preserved-by-symbol-reference.md`, `docs/specs/0002-source-frontend.md`).
+
+## Reading annotations at runtime
+
+`Reflect.annotationsOf(target)` returns the recorded annotations, or an empty array. It is exported as
+`Reflect` from `@effx/runtime`.
+
+```ts
+import { Reflect } from "@effx/runtime";
+
+Reflect.annotationsOf(UserOperations.get); // ReadonlyArray<Annotation>
+```
+
+Decorators are applied bottom-up but written top-down. `record` prepends, so the recorded order equals
+source order, which is also the order a builder chain produces. The registry is a module-level
+`WeakMap` keyed by the decorated class or static method function (`context.metadata` exists under Bun,
+`Symbol.metadata` does not).
+
+Law (spec 0002): for the same operation written both ways,
+`Reflect.annotationsOf(Class.method)` deep-equals `builderValue.annotations`.
+The compiled IR is identical except the handler `SymbolRef` (`UserOperations.get` versus `getUser.handler`).
+
+Source: `packages/runtime/src/Annotation.ts` (`record`, `annotationsOf`),
+`packages/runtime/src/reflect.ts`, `docs/specs/0002-source-frontend.md` §Registry, §Law.
+
+## Decorator to builder map
+
+Every decorator has a builder step that appends exactly the annotation the decorator records.
+
+| Decorator                                      | Builder step                               | Recorded annotation                                 | Page                                                  |
+| ---------------------------------------------- | ------------------------------------------ | --------------------------------------------------- | ----------------------------------------------------- |
+| `@Query(options)`                              | `Operation.query(options)`                 | `Query [options]`                                   | [Operations](/docs/authoring/operations)              |
+| `@Command(options)`                            | `Operation.command(options)`               | `Command [options]`                                 | [Operations](/docs/authoring/operations)              |
+| `@Errors(...schemas)`                          | `.errors(...schemas)`                      | `Errors [...schemas]`                               | [Operations](/docs/authoring/operations)              |
+| `@Requirements(...services)`                   | `.requirements(...services)`               | `Requirements [...services]`                        | [Operations](/docs/authoring/operations)              |
+| `@Authorize(capability)`                       | `.authorize(capability)`                   | `Authorize [capability]`                            | [Operations](/docs/authoring/operations)              |
+| `@Rpc(name)`                                   | `.rpc(name)`                               | `Rpc [name]`                                        | [Operations](/docs/authoring/operations)              |
+| `@Cli(words)`                                  | `.cli(words)`                              | `Cli [words]`                                       | [Operations](/docs/authoring/operations)              |
+| `@Http.Get(path)` to `@Http.Delete(path)`      | `.http.get(path)` to `.http.delete(path)`  | `Http.Get [path]` to `Http.Delete [path]`           | [HTTP](/docs/authoring/http)                          |
+| `@Http.Group(options)` on a class              | `Http.group(options)` value                | `Http.Group [options]`                              | [HTTP](/docs/authoring/http)                          |
+| (class-level group, no per-method decorator)   | `.in(group)`                               | `Http.In [group]` (builder only; never persisted)   | [HTTP](/docs/authoring/http)                          |
+| `@Http.Contract(options)`                      | `.http.contract(options)`                  | `Http.Contract [options]`                           | [HTTP contract](/docs/authoring/http-contract)        |
+| `@Http.Problems(options)`                      | `.http.problems(options)`                  | `Http.Problems [options]`                           | [Problems and access](/docs/authoring/problems-and-access) |
+| `@Http.Access(options)`                        | `.http.access(options)`                    | `Http.Access [options]`                             | [Problems and access](/docs/authoring/problems-and-access) |
+| `@Foldkit.Command(options)`                    | `.foldkit.command(options)`                | `Foldkit.Command [options]`                         | [Foldkit](/docs/authoring/foldkit)                    |
+| `@PersistentModel(options)` on a class `C`     | `Model.persistent(C, options)`             | `PersistentModel [{ ...options, schema: C }]`       | [Persistence and authority](/docs/authoring/persistence-and-authority) |
+| the decorated static method itself             | `.handler(fn)`                             | handler recorded by the collector                   | this page                                             |
+| none                                           | `.declare()`                               | operation with `binding: "external"`, no handler    | [HTTP](/docs/authoring/http)                          |
+
+Source: `packages/runtime/src/decorators.ts`, `packages/runtime/src/builder.ts`,
+`docs/specs/0002-source-frontend.md` §"Runtime annotation record".
+
+## Choosing a syntax
+
+| Situation                                                                              | Use                                | Why                                                                                                           |
+| -------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| The operation has a local Effect handler written as a `static` method                  | Decorators                         | The method is the handler; `E` and `R` are inferred from its return type.                                     |
+| The operation is value-shaped, or composed in a single exported expression             | Builder chain                      | The chain ends in `.handler(fn)` and evaluates to `{ _tag: "Operation", annotations, handler }`.              |
+| The contract lives apart from its implementation (another package binds the handler)   | Builder chain with `.declare()`    | Decorators need a real method. A declaration-only operation has no callable handler (spec 0009, spec 0010).   |
+| Several operations share root, group, middleware, problem registry, access defaults    | `@Http.Group` class, or `.in(group)` | Group defaults are merged per field into each operation (spec 0013).                                        |
+| The model schema class is yours to decorate                                            | `@PersistentModel`                 | The decorated class is recorded as `schema`.                                                                  |
+| The model schema class cannot be decorated                                             | `Model.persistent(C, options)`     | Same annotation, passed as a value.                                                                           |
+
+Rules the collector enforces for both syntaxes (spec 0002 §Recognition):
+
+- A decorated non-static method, a decorated field, or a builder chain not ending in `.handler(fn)` or
+  `.declare()` is `EFFX1104` (error); the declaration is skipped.
+- A handler that does not return `Effect<A, E, R>` is `EFFX1105` (error).
+- An `Http.*`, `Errors`, `Requirements`, `Rpc`, `Cli`, `Authorize`, `Foldkit.Command` annotation on a
+  declaration with no `Query` or `Command` has no operation to attach to: `EFFX1103`
+  (`packages/compiler/src/extensions/core.ts`).
+
+## One operation, two syntaxes
+
+Decorators, from the users example:
+
+<include cwd lang="ts" meta='title="examples/users/src/operations.ts"'>../../examples/users/src/operations.ts</include>
+
+The same declaration as a builder chain (compiler test fixture; it adds an `Audit` service):
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/users/src/operations.builder.ts"'>../../packages/frontend-ts/test/fixtures/users/src/operations.builder.ts</include>
+
+## In this section
+
+<Cards>
+  <Card title="Operations" href="/docs/authoring/operations">Query, Command, Errors, Requirements, Rpc, Cli, Authorize.</Card>
+  <Card title="HTTP" href="/docs/authoring/http">Verbs, groups, defaults, .in, .declare().</Card>
+  <Card title="HTTP contract" href="/docs/authoring/http-contract">Http.Contract field table.</Card>
+  <Card title="Problems and access" href="/docs/authoring/problems-and-access">Http.Problems, Http.Access, strict access.</Card>
+  <Card title="Foldkit" href="/docs/authoring/foldkit">Foldkit.Command.</Card>
+  <Card title="Persistence and authority" href="/docs/authoring/persistence-and-authority">PersistentModel, Capability, Focus.</Card>
+</Cards>

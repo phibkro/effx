@@ -1,0 +1,4 @@
+{
+  "title": "Concepts",
+  "pages": ["index", "ir", "stable-id", "semantic-hash", "emit-modes-and-targets", "external-bindings", "schema-refs"]
+}

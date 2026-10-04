@@ -1,0 +1,71 @@
+name: Docs
+
+# Builds apps/docs as a static export and deploys it to GitHub Pages.
+# One-time operator setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+# The URL is https://<owner>.github.io/<repo>/ (project site); see CONTRIBUTING.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/docs/**
+      - docs/**
+      - ai-docs/**
+      - packages/*/src/**
+      - LLMS.md
+      - scripts/docs-*.ts
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up Bun 1.3.13
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.3.13
+      # Next.js runs under Node; pin it instead of relying on the runner image.
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      # Fails here, with a clear message, when Pages is not enabled for the repository. Reads the
+      # site's base path ("/<repo>" for a project site, "" for a user site or custom domain) and
+      # origin; it does not edit the Next.js config.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build docs
+        run: bun run docs:build
+        env:
+          DOCS_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          DOCS_SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: apps/docs/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346

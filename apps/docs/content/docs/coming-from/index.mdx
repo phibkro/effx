@@ -1,0 +1,30 @@
+---
+title: Coming from…
+description: Concept maps from NestJS, ASP.NET Core and Laravel to effx annotations and the Effect constructs underneath.
+---
+
+effx keeps a declarative surface that teams on enterprise frameworks already know, and generates
+ordinary Effect underneath ([ADR 0012](/docs/decisions/0012-positioning-enterprise-on-ramp)). These
+pages map each framework's concepts to effx and say, row by row, what is **supported**, what comes
+**via an ecosystem package**, and what is a **gap**.
+
+| Status                | Meaning                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| supported             | implemented in effx; the row cites a spec or source path                       |
+| via ecosystem package | an Effect package does it; effx does not reimplement it                        |
+| gap                   | nothing today; not called "planned" unless a spec says so                      |
+
+<Cards>
+  <Card title="NestJS" href="/docs/coming-from/nestjs">
+    Controllers, pipes, guards and filters to operations, contracts and access.
+  </Card>
+  <Card title="ASP.NET Core" href="/docs/coming-from/aspnet-core">
+    Controllers, policies and ProblemDetails to operations, access and problems.
+  </Card>
+  <Card title="Laravel" href="/docs/coming-from/laravel">
+    Form requests, policies and exception rendering to operations, access and problems.
+  </Card>
+</Cards>
+
+Each framework claim cites that framework's official documentation. Each effx claim cites a spec or
+a source path.

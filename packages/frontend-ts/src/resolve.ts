@@ -1,0 +1,120 @@
+import { type SchemaRef, StableId, type SymbolRef } from "@effx/ir";
+import type { Project } from "./project.ts";
+import {
+  KEY_TYPE_ID,
+  SCHEMA_TYPE_ID,
+  SERVICE_TYPE_ID,
+  aliased,
+  declarationOf,
+  isExported,
+  ts,
+  typeHasProperty,
+} from "./ts.ts";
+
+export interface Resolver {
+  readonly project: Project;
+  /** Local import as seen from <projectRoot>/.effx/generated, independent of the chosen outDir. */
+  readonly moduleOf: (file: string) => string;
+  /** StableId identity path relative to the source projectRoot, independent of emission. */
+  readonly idPathOf: (file: string) => string;
+}
+
+/** Where a symbol is declared, after following import aliases. */
+export const origin = (
+  resolver: Resolver,
+  symbol: ts.Symbol,
+):
+  | { readonly symbol: ts.Symbol; readonly declaration: ts.Declaration; readonly file: string }
+  | undefined => {
+  const target = aliased(resolver.project.checker, symbol);
+  const declaration = declarationOf(target);
+
+  if (declaration === undefined) return undefined;
+
+  return { symbol: target, declaration, file: declaration.getSourceFile().fileName };
+};
+
+/** Is this symbol declared inside the resolved `@effx/runtime` package? Never a name-string test. */
+export const isFromRuntime = (resolver: Resolver, symbol: ts.Symbol): boolean => {
+  const root = resolver.project.runtimeRoot;
+
+  if (root === undefined) return false;
+  const found = origin(resolver, symbol);
+
+  return found !== undefined && found.file.startsWith(root);
+};
+
+/** Original export name of a runtime symbol (robust to `import { Query as Q }`). */
+export const runtimeName = (resolver: Resolver, symbol: ts.Symbol): string =>
+  aliased(resolver.project.checker, symbol).name;
+
+export interface Exported {
+  readonly ref: SymbolRef;
+  readonly idPath: string;
+  readonly declaration: ts.Declaration;
+}
+
+/**
+ * An exported value symbol as an import target: `{ module, export, member? }`.
+ * Static class members (`User.Public`) resolve to their class with `member`.
+ */
+export const exportedSymbol = (resolver: Resolver, symbol: ts.Symbol): Exported | undefined => {
+  const found = origin(resolver, symbol);
+
+  if (found === undefined) return undefined;
+  const { declaration } = found;
+  const module = resolver.moduleOf(found.file);
+  const idPath = resolver.idPathOf(found.file);
+
+  if (ts.isPropertyDeclaration(declaration) && ts.isClassDeclaration(declaration.parent)) {
+    const owner = declaration.parent;
+
+    if (owner.name === undefined || !isExported(owner)) return undefined;
+
+    return {
+      ref: { module, export: owner.name.text, member: declaration.name.getText() },
+      idPath,
+      declaration,
+    };
+  }
+
+  if (!isExported(declaration)) return undefined;
+
+  if (ts.isClassDeclaration(declaration) && declaration.name !== undefined) {
+    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+  }
+
+  if (ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name)) {
+    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+  }
+
+  return undefined;
+};
+
+/** `schema:<idPath>/<export>[.<member>]` — identity is `rootDir`-relative, never `outDir`-relative. */
+export const schemaRefOf = (exported: Pick<Exported, "ref" | "idPath">): SchemaRef => ({
+  module: exported.ref.module,
+  export: exported.ref.export,
+  symbolId: StableId.make(
+    "schema",
+    `${exported.idPath}/${exported.ref.export}${exported.ref.member === undefined ? "" : `.${exported.ref.member}`}`,
+  ),
+});
+
+export const serviceIdOf = (ref: SymbolRef): StableId.StableId =>
+  StableId.make("service", ref.export);
+
+/** The value side of a symbol (for classes: the constructor type, where Effect stamps its ids). */
+export const staticTypeOf = (resolver: Resolver, symbol: ts.Symbol): ts.Type | undefined => {
+  const declaration = declarationOf(symbol);
+
+  return declaration === undefined
+    ? undefined
+    : resolver.project.checker.getTypeOfSymbolAtLocation(symbol, declaration);
+};
+
+export const isSchemaValueType = (type: ts.Type): boolean => typeHasProperty(type, SCHEMA_TYPE_ID);
+
+export const isServiceValueType = (type: ts.Type): boolean =>
+  typeHasProperty(type, SERVICE_TYPE_ID) ||
+  (typeHasProperty(type, KEY_TYPE_ID) && typeHasProperty(type, "key"));

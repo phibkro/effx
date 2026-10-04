@@ -1,0 +1,17 @@
+{
+  "srcDir": "../../../../packages/ir/src",
+  "outDir": "out",
+  "projectHomepage": "about:blank",
+  "srcLink": "about:blank",
+  "enforceVersion": false,
+  "runExamples": true,
+  "exclude": ["../../../../packages/ir/src/**/index.ts", "../../../../packages/ir/src/**/internal/**"],
+  "parseCompilerOptions": {
+    "noEmit": true, "strict": true, "skipLibCheck": true, "moduleResolution": "Bundler", "module": "ESNext", "target": "ES2023", "allowImportingTsExtensions": true, "lib": ["ES2023", "DOM"],
+    "paths": { "@effx/ir": ["../../../../packages/ir/src/index.ts"], "@effx/runtime": ["../../../../packages/runtime/src/index.ts"] }
+  },
+  "examplesCompilerOptions": {
+    "noEmit": true, "strict": true, "skipLibCheck": true, "moduleResolution": "Bundler", "module": "ESNext", "target": "ES2023", "allowImportingTsExtensions": true, "lib": ["ES2023", "DOM"], "types": ["bun"],
+    "paths": { "@effx/ir": ["../../../../../../packages/ir/src/index.ts"], "@effx/compiler": ["../../../../../../packages/compiler/src/index.ts"], "@effx/runtime": ["../../../../../../packages/runtime/src/index.ts"] }
+  }
+}

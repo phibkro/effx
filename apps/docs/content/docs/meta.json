@@ -1,0 +1,17 @@
+{
+  "title": "effx",
+  "pages": [
+    "index",
+    "introduction",
+    "getting-started",
+    "coming-from",
+    "authoring",
+    "cli",
+    "concepts",
+    "extensions",
+    "diagnostics",
+    "decisions",
+    "specs",
+    "api"
+  ]
+}

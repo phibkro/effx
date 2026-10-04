@@ -1,0 +1,186 @@
+---
+title: HTTP
+description: HTTP verbs, groups, group defaults, .in association and .declare() external operations.
+---
+
+HTTP exposure is one annotation per verb. Request and response shape is a separate
+[`Http.Contract`](/docs/authoring/http-contract). Shared values live on a group.
+
+## Verbs
+
+| Decorator                | Builder step           | Signature        | Records                                              |
+| ------------------------ | ---------------------- | ---------------- | ---------------------------------------------------- |
+| `@Http.Get(path)`        | `.http.get(path)`      | `(path: string)` | an `Exposure` with transport `http`, method `GET`    |
+| `@Http.Post(path)`       | `.http.post(path)`     | `(path: string)` | method `POST`                                        |
+| `@Http.Put(path)`        | `.http.put(path)`      | `(path: string)` | method `PUT`                                         |
+| `@Http.Patch(path)`      | `.http.patch(path)`    | `(path: string)` | method `PATCH`                                       |
+| `@Http.Delete(path)`     | `.http.delete(path)`   | `(path: string)` | method `DELETE`                                      |
+
+Source: `packages/runtime/src/decorators.ts`, `packages/runtime/src/builder.ts`,
+`packages/compiler/src/extensions/transports.ts`.
+
+A `@Query` exposed over any method except GET is `EFFX2401`. The one exception is POST with an explicit
+`payloadIsQuery` contract (ADR 0010; see [HTTP contract](/docs/authoring/http-contract)).
+
+Without `Http.Contract` or a group, an operation keeps the default root `effx` and group `operations`
+(spec 0005 §Generation and compatibility).
+
+## Groups
+
+A group is source metadata. It does not depend on the operations that name it, and it produces one
+`HttpGroup` node `group:<root>/<group>`.
+
+### `HttpGroupOptions`
+
+| Field         | Type                                         | Optional | Meaning                                                                                      |
+| ------------- | -------------------------------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `root`        | `string` or `{ readonly identifier: string }` | no       | A legacy root name, or an exported concrete `HttpApi` value with a literal `identifier`.     |
+| `group`       | `string`                                     | no       | `HttpApiGroup` identifier.                                                                   |
+| `title`       | `string`                                     | yes      | OpenAPI group title.                                                                         |
+| `description` | `string`                                     | yes      | OpenAPI group description.                                                                   |
+| `displayName` | `string`                                     | yes      | OpenAPI `x-displayName`.                                                                     |
+| `defaults`    | object, table below                          | yes      | Values merged into the group's operations at compile time. Never serialized to the IR.       |
+
+`defaults`:
+
+| Field                          | Type                                              | Optional | Fills                                                         |
+| ------------------------------ | ------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `defaults.middleware`          | `ReadonlyArray<ServiceLike>`                      | yes      | `Http.Contract.middleware`                                    |
+| `defaults.metadata`            | `{ readonly annotator?: HttpOperationAnnotator }` | yes      | `Http.Contract.metadata.annotator`                            |
+| `defaults.problems`            | `{ readonly registry?: ProblemRegistry }`         | yes      | `Http.Problems.registry`                                      |
+| `defaults.access`              | `Partial<Pick<HttpAccessOptions, "annotator" \| "exposure" \| "acceptedCredentials" \| "principalKinds" \| "concealment">>` | yes | the same-named `Http.Access` fields |
+
+Source: `packages/runtime/src/Annotation.ts` (`HttpGroupOptions`); IR decoding in
+`packages/compiler/src/extensions/http-group.ts`.
+
+A string `root` is valid for local declarations. An external (declaration-only) group needs a concrete
+root symbol instead (see [`.declare()`](#declare-external-operations)). The root identifier must match the
+`Http.Contract.root` string of the group's operations (spec 0010).
+
+### Class form and builder form
+
+```ts
+// class decorator: every static HTTP operation in the class belongs to the group
+@Http.Group({ root: ExternalDirectoryApi, group: "directory", defaults: { /* ... */ } })
+export class DirectoryMethods {
+  @Query({ /* ... */ }) @Http.Get("/api/schools") static listSchools(/* ... */) { /* ... */ }
+}
+
+// builder: an exported value; each operation joins with .in(group)
+export const DirectoryGroup = Http.group({ root: ExternalDirectoryApi, group: "directory" });
+export const listSchools = Operation.query({ /* ... */ }).in(DirectoryGroup).http.get("/api/schools") /* ... */;
+```
+
+| Item                  | Decorator form                            | Builder form                                  |
+| --------------------- | ----------------------------------------- | --------------------------------------------- |
+| Declare the group     | `@Http.Group(options)` on an exported class | `Http.group(options)` exported value          |
+| Associate an operation | static methods of the decorated class     | `.in(group)` on the operation builder         |
+| Recorded annotation   | `Http.Group [options]` on the class       | `Http.Group [options]` on the group value     |
+
+`Http.group` is the same function as the builder's `group`. `Http.group(options)` returns
+`{ _tag: "HttpGroup", annotations }`.
+
+### `.in(group)` (`Http.In`)
+
+`.in(group: HttpGroupReference)` records `Http.In [group]`. `HttpGroupReference` is a `HttpGroupValue` or a class
+decorated with `@Http.Group`. There is no `@Http.In` decorator: in the class form the enclosing class is the
+association.
+
+- `.in` does not execute the group and writes no IR edge. The collector resolves the reference statically to
+  one exported group declaration in the same project.
+- `Http.In` is stripped before interpretation, even for an invalid association.
+- An association supplies `root` and `group` to the operation's `Http.Contract`. `Http.Contract` stays
+  an explicit annotation on every HTTP operation. An associated HTTP operation without one is `EFFX2405`.
+
+Source: `packages/runtime/src/builder.ts` (`in`, `group`, `HttpGroupReference`),
+`packages/compiler/src/group-defaults.ts`, `docs/specs/0013-group-defaults.md`.
+
+### How group defaults merge
+
+Defaults are source syntax. `expandGroupDefaults` rewrites ordinary annotations before the existing
+interpreters run, and calls no application function.
+
+| Target                                    | Rule                                                                                                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| per field                                 | Fields merge individually, never by replacing the `metadata`, `problems` or `access` object. A field present on the operation wins, including an empty array.         |
+| `Http.Contract.root`, `.group`            | Filled from the group when absent. A different explicit value is `EFFX2405`.                                                                                          |
+| `Http.Contract.success`                   | Defaults to the operation's declared `success`.                                                                                                                       |
+| `Http.Contract.query: true`               | On a GET Query only, means the operation's declared `input` schema. Otherwise `EFFX2405`.                                                                             |
+| `Http.Contract.payload`                   | For a POST or PATCH Command, defaults to `input` unless `input` is already assigned to `params`, `query` or `headers` (`EFFX2405`). An explicit `payload` always wins. |
+| `Http.Contract.middleware`                | Filled from `defaults.middleware` when absent.                                                                                                                        |
+| `Http.Contract.metadata.annotator`        | Filled from `defaults.metadata.annotator` when absent. Other explicit metadata fields are kept.                                                                       |
+| `Http.Contract.metadata.operationId`      | When absent and the operation `name` is exactly `<group>.<key>` with an identifier-safe `key`, the name is the ID. An explicit ID wins.                              |
+| `Http.Problems.registry` and other fields | `defaults.problems` fills an **existing** `Http.Problems`. It never creates one: `codes` stays operation-specific.                                                    |
+| `Http.Access` fields                      | `defaults.access` fills an **existing** `Http.Access`. It never invents capabilities, requirements, scope, decision time, or authorizes a missing operation.          |
+
+Shorter source must not change meaning: a dense and a verbose declaration produce identical canonical IR,
+semantic hash and generated files (spec 0013 §Diagnostics and safety).
+
+Source: `packages/compiler/src/group-defaults.ts`, `docs/specs/0013-group-defaults.md`.
+
+| Code       | Severity | Condition                                                                                                                                  |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EFFX2404` | error    | association is unresolved, not exported, not a group, repeated, multiple (class group plus `.in`), or the declaration has no operation.   |
+| `EFFX2405` | error    | explicit `root` or `group` conflicts with the group; incompatible `query: true`; ambiguous Command input; associated HTTP operation without `Http.Contract`. |
+| `EFFX2406` | error    | two distinct raw group IDs in one root normalize to the same generated export name (spec 0013 addendum; `http-group.ts`).                  |
+| `EFFX2402` | error    | duplicate `@Http.Group`, unsafe root or group identifier, group on something other than an exported class or builder, conflicting definitions. |
+
+### Example: dense builder declarations
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts</include>
+
+### Example: class decorator form
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts</include>
+
+## `.declare()`: external operations
+
+`.handler(fn)` ends a chain with a local operation. `.declare()` ends it with a declaration-only operation:
+no callable handler, no fake stub, no backend import into the contract package.
+
+| Terminal        | Returns                                                                | IR `binding`          | Handler                      |
+| --------------- | ---------------------------------------------------------------------- | --------------------- | ---------------------------- |
+| `.handler(fn)`  | `OperationValue<Handler>`: `{ _tag, annotations, handler }`            | local                 | authored, typed `Effect`     |
+| `.declare()`    | `ExternalOperationValue`: `{ _tag: "Operation", annotations }`         | `"external"`          | none; the application binds it |
+
+Source: `packages/runtime/src/builder.ts` (`OperationValue`, `ExternalOperationValue`, `handler`, `declare`),
+`docs/specs/0010-target-profiles-and-emit-modes.md` §"Declaration-only operations and group metadata".
+
+There is no decorator equivalent. A decorated static method needs a real implementation, and a stub
+would misstate executable behavior (`docs/specs/0009-profile-proving-slice.md`).
+
+Rules for external operations:
+
+| Rule                                                                                                 | Diagnostic |
+| ---------------------------------------------------------------------------------------------------- | ---------- |
+| An external operation must not carry a local handler or signature; a local one needs a typed handler | `EFFX1106` |
+| External operations cannot have RPC, CLI or `Foldkit.Command` projections                            | `EFFX1107` |
+| An external HTTP operation needs `Http.Contract` and `metadata.operationId`                          | `EFFX2403` |
+| `operationId` must be `<group>.<identifier-safe key>`; duplicate `(root, group, key)` is an error     | `EFFX2403` |
+| One `(root, group)` cannot mix local and external bindings                                           | `EFFX2403` |
+| The group needs `@Http.Group` / `Http.group` with a concrete `HttpApi` root symbol                   | `EFFX2402` |
+
+`@Errors` and `@Requirements` stay declarations on an external operation (see
+[Operations](/docs/authoring/operations#external-operations)). The generated raw callbacks restrict typed
+failures to endpoint problems but infer the requirement channel from the backend binding. A declared
+`@Requirements` service is never an upper bound (spec 0010).
+
+### External bindings and emit modes
+
+An external group generates a contract and a handler factory that the backend binds. `effx build
+--emit=contract|handlers|all` selects the projection; the default is `all`. Emit mode is a projection
+choice. It is not an annotation and does not enter the semantic hash.
+
+| Mode       | Output for an external-only `profile` group | Notes                                                                                           |
+| ---------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `contract` | `profile-contract.ts`                       | Endpoint constants and the exported `ProfileApi` group. Imports no backend handler and no root. |
+| `handlers` | `profile-handlers.ts`                       | Imports the concrete root symbol. Exports `ProfileApiHandlers({ raw, guards })` using `handleRaw`. |
+| `all`      | both files, plus projections for local operations | No external operation gains an invented handler call.                                  |
+
+Source: `docs/specs/0010-target-profiles-and-emit-modes.md` §"Emit modes and raw bindings";
+`--emit` flag in `packages/cli/src/main.ts`.
+
+<Callout type="info">
+  Evidence for external bindings is compiler and fixture level (rc.116 Profile twin). Mono-web's own
+  backend typecheck and browser/PostgreSQL journeys are separate gates (STATE.md, specs 0009-0012).
+</Callout>

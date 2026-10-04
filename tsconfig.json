@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/@effect/tsgo/schema.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2023", "DOM"],
+    "types": ["bun"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@effx/ir": ["./packages/ir/src/index.ts"],
+      "@effx/compiler": ["./packages/compiler/src/index.ts"],
+      "@effx/frontend-ts": ["./packages/frontend-ts/src/index.ts"],
+      "@effx/runtime": ["./packages/runtime/src/index.ts"],
+      "@effx/cli/config": ["./packages/cli/src/config.ts"],
+      "@effx/cli": ["./packages/cli/src/index.ts"]
+    },
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnostics": false
+      }
+    ]
+  },
+  "include": ["packages/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts", "ai-docs/**/*.ts"],
+  "exclude": ["**/node_modules/**", "**/.effx/**", "**/test/fixtures/**", "packages/*/ai-docs/**"]
+}

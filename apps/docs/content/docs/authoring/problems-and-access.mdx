@@ -1,0 +1,209 @@
+---
+title: Problems and access
+description: Http.Problems and ProblemRegistry, Http.Access and its field tables, Capability and Concealment constructors, strict access.
+---
+
+Both annotations are **source-only declarations**. They contribute JSON contracts to the IR. effx never
+runs a registry, an annotator, a scope resolver or an access value during compilation.
+
+## Http.Problems
+
+`Http.Problems` names the typed problem responses of one HTTP operation. The generated endpoint imports your
+exported registry function and calls it. effx keeps no code or status table.
+
+```ts
+// decorator
+@Http.Problems({ registry: UserProblemResponses, codes: ["user.not-found"], map: { UserNotFound: "user.not-found" } })
+
+// builder
+.http.problems({ registry: UserProblemResponses, codes: ["user.not-found"], map: { UserNotFound: "user.not-found" } })
+```
+
+### `HttpProblemsOptions<Code extends string = string>`
+
+| Field        | Type                              | Optional | Meaning                                                                                                                           |
+| ------------ | --------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `registry`   | `ProblemRegistry<Code>`           | yes      | Exported derivation function. **Required in the IR**: omit it only when the group supplies `defaults.problems.registry`.         |
+| `codes`      | `ReadonlyArray<Code>`             | no       | Problem codes. The IR requires at least one non-empty, unique code.                                                               |
+| `identifier` | `string`                          | yes      | Overrides the generated schema name only, not the endpoint key or operation ID. Must be a safe identifier.                        |
+| `map`        | `Readonly<Record<string, string>>` | yes      | Domain error tag to problem code. Keys are error schema export names (`_tag` for `Schema.TaggedError`). Values must occur in `codes`. |
+
+`ProblemRegistry<Code extends string = string>`:
+
+```ts
+type ProblemRegistry<Code extends string = string> = (
+  identifier: string,
+  codes: readonly [Code, ...Code[]],
+) => ReadonlyArray<Schema.Top>;
+```
+
+Source: `packages/runtime/src/Annotation.ts` (`HttpProblemsOptions`, `ProblemRegistry`);
+`packages/compiler/src/extensions/problem-contract.ts` (`ProblemsArgs`, `ProblemContractData`).
+
+The generated endpoint calls `Registry("<endpointKey>Problem", [...codes])`, or uses `identifier` as the first
+argument when given. The schemas it returns replace the default direct domain-error list for that
+operation (spec 0005 §Problem responses; spec 0010).
+
+| Code       | Condition                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| `EFFX2402` | duplicate `Http.Problems`; no HTTP exposure; duplicate codes; unsafe `identifier`              |
+| `EFFX2205` | an operation error has neither a `map` entry nor a sourced HTTP status; or `map` names a tag that is not an operation error |
+| `EFFX2206` | `map` points to a code absent from `codes`                                                     |
+
+<Callout type="warn">
+  The generated handler is an ordinary Effect handler. Its domain-error to Problem conversion and
+  `ProblemBoundaryLive` are **hand-written** until an explicit runtime mapping contract exists (spec 0005).
+  A typed generated API that does not accept that handler is a failure, not a reason to weaken the error union.
+</Callout>
+
+## Http.Access
+
+`Http.Access` records one operation's protection policy: credentials, principals, capabilities,
+requirements, scope resolver, concealment and decision time.
+
+```ts
+// decorator
+@Http.Access({
+  annotator: profileAccessAnnotations,
+  exposure: "External",
+  acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
+  principalKinds: ["Person"],
+  capabilities: Capability.one("profile.read-self"),
+  requirements: [{ id: "profile.owner" }],
+  canonicalScopeResolver: ProfileCurrentPerson,
+  concealment: Concealment.reveal,
+  decisionTime: "SnapshotRead",
+})
+
+// builder
+.http.access({ /* same options */ })
+```
+
+It is allowed once per operation (`EFFX2500` otherwise).
+
+### `HttpAccessOptions`
+
+`HttpAccessOptions` is `HttpAccessAnnotationSpec` with `exposure`, `acceptedCredentials`, `principalKinds` and
+`concealment` made optional, plus an optional `annotator`.
+
+| Field                    | Type                                                  | Optional | Meaning                                                                                  |
+| ------------------------ | ----------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `annotator`              | `(spec: HttpAccessAnnotationSpec) => Context.Context<never>` | yes | Exported function, lowered as a `SymbolRef`, never called by the decorator or compiler. |
+| `exposure`               | `"External"` or `"Internal"`                          | yes      | An `Internal` root is excluded from the published client and index.                      |
+| `acceptedCredentials`    | `NonEmptyStrings`                                     | yes      | Named credential alternatives.                                                           |
+| `principalKinds`         | `NonEmptyStrings`                                     | yes      | Allowed principal kinds.                                                                 |
+| `capabilities`           | `AccessCapabilities`                                  | no       | Capability expression.                                                                   |
+| `requirements`           | `ReadonlyArray<{ id: string; parameters?: Readonly<Record<string, AccessJson>> }>` | no | Application-defined typed requirements with JSON-only parameters. |
+| `canonicalScopeResolver` | `object`                                              | no       | Application-exported value, lowered to a `SymbolRef`. effx implements no scope lookup.   |
+| `concealment`            | `AccessConcealment`                                   | yes      | What a denied caller sees.                                                               |
+| `decisionTime`           | `"SnapshotRead"` or `"Transaction"`                   | no       | Where the application decides authority.                                                 |
+
+`HttpAccessAnnotationSpec` is the value passed unchanged to your annotator in generated code. All its fields
+are required: `exposure`, `acceptedCredentials`, `principalKinds`, `capabilities`, `requirements`,
+`canonicalScopeResolver`, `concealment`, `decisionTime`, with the types above.
+
+Source: `packages/runtime/src/Annotation.ts` (`HttpAccessOptions`, `HttpAccessAnnotationSpec`, `AccessJson`,
+`NonEmptyStrings`); IR shape in `packages/compiler/src/extensions/access-contract.ts` (`AccessOptions`).
+
+Every field is **required in the IR**. The five optional fields that a group can default
+(`annotator`, `exposure`, `acceptedCredentials`, `principalKinds`, `concealment`) must come from
+`defaults.access` when the operation omits them, or the arguments fail to decode (`EFFX1102`). See
+[HTTP](/docs/authoring/http#how-group-defaults-merge).
+
+### Value constraints the IR enforces
+
+The TypeScript types are looser than the IR in two places.
+
+| Field                 | TypeScript type   | IR accepts                                                                                         |
+| --------------------- | ----------------- | -------------------------------------------------------------------------------------------------- |
+| `principalKinds`      | `NonEmptyStrings` | non-empty unique array of `Anonymous`, `Person`, `ServicePrincipal`, `CapabilityHolder`            |
+| `acceptedCredentials` | `NonEmptyStrings` | non-empty unique array of non-empty strings. Spec 0006 names `None`, `BetterAuthCookie`, `OAuthUserBearer`, `OAuthServiceBearer`, `ObjectCapability`; later names stay data, validated by your annotator. |
+| `requirements[].parameters` | `Readonly<Record<string, AccessJson>>` | a JSON object                                                                          |
+
+`NonEmptyStrings` is `readonly [string, ...string[]]`. `AccessJson` is `null`, `string`, `number`, `boolean`,
+an array of `AccessJson`, or a record of `AccessJson`.
+
+### `AccessCapabilities` and `Capability` constructors
+
+| Tagged value                                           | Constructor                          | Shape                                                                  |
+| ------------------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
+| `{ _tag: "None" }`                                     | `Capability.none` (a value)          | no capability required                                                 |
+| `{ _tag: "One", capability: string }`                  | `Capability.one(cap)`                | one capability                                                         |
+| `{ _tag: "Any", capabilities: NonEmptyStrings }`       | `Capability.any(first, ...rest)`     | any of several                                                         |
+| `{ _tag: "All", capabilities: NonEmptyStrings }`       | `Capability.all(first, ...rest)`     | all of several                                                         |
+
+### `AccessConcealment` and `Concealment` constructors
+
+| Tagged value                                         | Constructor                                | Meaning                                                                       |
+| ---------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `{ _tag: "Reveal" }`                                 | `Concealment.reveal` (a value)             | the denial is visible                                                         |
+| `{ _tag: "NotFound", stages: NonEmptyStrings }`      | `Concealment.notFound(firstStage, ...rest)` | denial is concealed as not found; `stages` are application-defined strings    |
+
+The constructors return exactly the tagged values. Writing the tagged literal instead is still accepted and
+produces identical canonical IR, semantic hash and generated bytes. The source frontend recognizes the
+constructors only after resolving their root symbol to `@effx/runtime` (including renamed imports); a
+non-static argument is a source diagnostic. Source: `packages/runtime/src/authority.ts`;
+`docs/specs/0013-group-defaults.md` §"source constructors for tagged access values".
+
+`Capability` here is the same export as `Capability.make` on the
+[Persistence and authority](/docs/authoring/persistence-and-authority) page.
+
+### Analyses
+
+| Code       | Severity                                       | Condition                                                                                              |
+| ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `EFFX2500` | error                                          | duplicate `Http.Access`, or malformed access contract data                                             |
+| `EFFX2501` | error                                          | a Command declares `decisionTime: "SnapshotRead"`                                                      |
+| `EFFX2502` | warning                                        | a Query declares `decisionTime: "Transaction"`                                                         |
+| `EFFX2503` | error                                          | `acceptedCredentials` has any entry other than `None` but `Http.Contract.middleware` has no security marker |
+| `EFFX2504` | warning; error with `strictAccess: true`       | an operation with HTTP exposure has no `Http.Access`                                                   |
+
+Source: `packages/compiler/src/extensions/access-contract.ts` (`analyzeAccess`).
+
+### Strict access
+
+`ProjectConfig.strictAccess?: boolean` defaults to `false`. The CLI exposes it as `--strict-access` on
+`effx check` and `effx build`. It changes **only** `EFFX2504` from warning to error; generation is skipped
+under strict mode. Warnings alone do not block generation. The value travels through an immutable
+`AnalysisContext`; no module-level mode or environment variable changes severity.
+
+```
+effx check --strict-access
+effx build --strict-access
+```
+
+Source: `packages/compiler/src/Collected.ts` (`strictAccess`), `packages/compiler/src/Extension.ts`,
+`packages/cli/src/main.ts` (`Flag.Boolean("strict-access")`), `docs/specs/0006-access-contract-extension.md`.
+Spec 0006 states that the CLI's other commands do not claim an access gate.
+
+### Generated shape: guards
+
+The generator calls `endpoint.annotateMerge(Annotator({ ... }))` after the endpoint's middleware and other
+annotations. For a protected operation it also requires an application guard:
+
+- `guards.ts` exports one `Guards` record type per HTTP group with protected operations, keyed by qualified
+  operation ID. It is emitted only in emit mode `all`.
+- Each guard has the type of the handler's authored second argument: a lazy `authorize: () => Effect<Principal, Problem, R>`.
+- The generated handler passes a thunk `() => guards[operationId](request)` as that argument. The handler
+  calls it inside its own read snapshot or committing transaction. No generated preflight grants authority.
+- A missing or non-Effect callback makes the generated code fail TypeScript checking.
+
+Source: `docs/specs/0006-access-contract-extension.md` §"HTTP lowering and guard interface";
+`packages/compiler/src/generate/guards.ts`.
+
+<Callout type="warn">
+  **Runtime enforcement is app-owned.** effx never executes an `Http.Access` value, resolves a credential,
+  interprets relationship facts, chooses a principal or issues a lease. A required typed binding is not
+  proof that the handler called it. Spec 0006 states the real security gate is the application's own
+  journey: a static annotation cannot substitute for observing a transaction denial, replay or revocation.
+  Cedar authorization and leases are deferred (ADR 0007).
+</Callout>
+
+## Examples
+
+Class-decorator form with group defaults for problems and access:
+
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts</include>
+
+Builder form with `Capability.one`, `Concealment.reveal` and `.declare()`: see
+[`profile.effx.ts`](/docs/authoring/http#example-dense-builder-declarations).
