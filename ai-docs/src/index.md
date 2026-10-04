@@ -5,7 +5,7 @@ operations with TC39 decorators or builder chains. A source frontend turns both
 into identical annotations, extensions interpret them into a Schema-defined
 intermediate representation (IR), analyses check the IR graph, and generators
 emit **ordinary Effect** (`HttpApi`, `Rpc`, CLI commands, typed clients,
-Foldkit commands).
+Foldkit commands, persistence ports and adapter conformance suites).
 
 effx is the on-ramp from enterprise frameworks (NestJS, ASP.NET Core, Laravel) to
 full-stack Effect: a familiar declarative surface on top, ordinary inspectable
@@ -91,6 +91,7 @@ Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags
 | Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment                   |
 | Foldkit commands            | `Foldkit.Command` and command identity                                                   |
 | Custom annotations          | `effx.config.ts`, `@Annotate`, and typed `Annotation.define` + `implement` / `extension` |
+| Persistence ports           | `Persist.Port`, generated leaf services, adapter Layers and shared conformance scenarios |
 
 **Note**: the examples contain comments for illustration. In practice you
 would not include these comments in your code.

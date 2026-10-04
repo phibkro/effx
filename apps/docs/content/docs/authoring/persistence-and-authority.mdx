@@ -1,17 +1,61 @@
 ---
 title: Persistence and authority
-description: PersistentModel, Model.persistent, views and focus, Focus.key and Capability.make. What is recorded, and what is deferred.
+description: Typed persistence ports, adapter conformance, PersistentModel and recorded authority.
 ---
 
-Models and capabilities are **recorded facts** in the IR. effx generates no persistence code and no
-authorization runtime from them yet.
+Persistence ports generate typed services and adapter conformance suites. Models and capabilities remain **recorded facts** in the IR; they do not generate SQL or an authorization runtime.
 
 | Area                         | Status                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `PersistentModel`, views, focus | Recorded as `Model` and `Focus` nodes (implemented, `packages/compiler/src/extensions/core.ts`).                                      |
 | `Capability`, `Authorize`    | Recorded as `Capability` and `Focus` nodes with `AuthorizedBy` and `Focuses` edges (implemented).                                       |
-| SQL projection from `table`  | Spec 0008 is **proposed, not frozen**. STATE.md lists persistence as parked. `examples/users` uses an in-memory `Ref<HashMap>` store.   |
+| Persistence ports | Optional `@effx/persistence` extension: leaf services and conformance suites; application-owned Effect SQL and Drizzle adapter Layers (spec 0022). |
+| SQL projection from `table` | Spec 0008 is superseded in scope by spec 0022. No SQL, migrations, ORM schema or CRUD repository is generated. |
 | Cedar authorization, leases  | **Deferred past the MVP kernel** (ADR 0007). Optics are a later runtime mechanism, never the identity.                                  |
+
+## Persistence ports
+
+```ts
+import { Operation } from "@effx/runtime";
+import { Persist } from "@effx/persistence/syntax";
+
+export const FindUser = Operation.query({
+  name: "Users.find", input: FindUserInput, success: User,
+})
+  .errors(UserNotFound)
+  .with(Persist.Port({ port: "Users" }))
+  .declare();
+```
+
+Register the compiler half in your project config:
+
+```ts
+import { defineConfig } from "@effx/cli/config";
+import { persistenceExtension } from "@effx/persistence/compiler";
+
+export default defineConfig({ extensions: [persistenceExtension] });
+```
+
+A port operation has no local handler and no HTTP, RPC or CLI exposure. The
+operation name must begin with `<port>.`; the remainder names the service method.
+The compiler emits `<port>-port.ts` and `<port>-conformance.ts`, using the original
+Schema references. Method requirements are `never`; adapter requirements belong
+to the Layer selected at the composition root. Core packages do not import the
+optional persistence package (spec 0022 §§2–3, 7; ADR 0004/0008).
+
+The generated suite checks closed success/error channels, query purity and
+repeatability, command rollback, and shared transaction rollback/commit. Supply
+domain scenarios for seed data, expected successes, which inputs raise declared
+errors, and the commit observer. The harness owns isolation and the common
+transaction owner; the compiler cannot derive domain expectations (spec 0022 §4).
+
+`examples/persistence` provides Effect SQL and patched drizzle-effect adapters on
+PGlite, the real PostgreSQL engine compiled to WASM. They share the ambient Effect
+SQL transaction. PGlite is single-connection: scenarios marked
+`requiresConcurrentConnections` are skipped, and lock contention/isolation are
+not certified. Interruption tests record outcomes without promising rollback in
+advance. effx generates no SQL, migrations, repository, ORM schema or transport
+transaction wrapper (spec 0022 §§5–6).
 
 ## PersistentModel
 

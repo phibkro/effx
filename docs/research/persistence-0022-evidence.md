@@ -1,0 +1,46 @@
+# Persistence ports — spec 0022 evidence
+
+## Contract and design resolutions
+
+The implementation starts from `origin/main` commit
+`179af0890124a4dbccf1d16b15b05cf1b43479f2`, after spec 0020 landed. The binding
+contract is `docs/specs/0022-persistence-ports.md` (spec-frozen,
+operator-approved). Nothing in this work authorizes a mono-web migration,
+production database use, publishing or deployment.
+
+| Ambiguity or conflict | Resolution |
+| --- | --- |
+| The initial brief requested spawned PostgreSQL, while spec 0022 §5 (`docs/specs/0022-persistence-ports.md:99`) explicitly chooses PGlite. | The operator corrected the brief: the spec wins. Use fresh PGlite instances only; do not spawn PostgreSQL. PGlite runs the PostgreSQL engine, not a mock. |
+| Spec 0022 §6.9 (`docs/specs/0022-persistence-ports.md:113`) includes ff-merge, while the assignment forbids this worker from merging. | The operator clarified that ff-merge is the separate landing step, ordered after review and run by a landing worker. This branch is committed but not merged or pushed. |
+| The generated-output sketch says “two files per project” but names files by port (`docs/specs/0022-persistence-ports.md:42–45`). | Emit a port/conformance pair for each declared port; methods are sorted by name, and filenames are determined by the port name. No adapter choice enters that derivation. |
+| The schema-expression helpers used by HTTP emission are internal (`packages/compiler/src/generate/emit.ts`), while spec 0022 §3 requires reuse and §7 forbids a core dependency on persistence. | Expose a curated generator-facing subset from the public compiler package and reuse the same helper implementations. The optional persistence package depends on core, never the reverse. |
+
+The existing annotation definition/implementation API and generator helpers are
+reused rather than introducing another annotation convention or SchemaRef
+resolver. `examples/users` remains unchanged; the sibling
+`examples/persistence` supplies the port and adapters and includes the original
+operation source in its project. SQL statements and the Drizzle table belong to
+the example adapters, not generated output.
+
+## Drizzle patch provenance
+
+Pinned packages: `effect@4.0.0`, `@effect/sql-pglite@4.0.0`,
+`@electric-sql/pglite@0.5.8`, `drizzle-orm@1.0.0-rc.4`.
+
+The patch was generated with
+`bunx @yielded/drizzle-effect-v4-patch@0.1.0-beta.14 patch` (exit 0). The tool is
+MIT-licensed; spec 0022 §5 identifies upstream `yielded-dev/auth` commit
+`68a4679`. The generated file is committed at
+`patches/drizzle-orm@1.0.0-rc.4.patch`, registered in `patchedDependencies`, and
+resolved in `bun.lock`. It adapts the named prerelease to stable Effect v4.
+Retire the patch when Drizzle ships a stable-v4-compatible effect driver;
+version changes reopen this compatibility decision.
+
+## Scope limits
+
+PGlite is single-connection. Concurrent connection scenarios are marked
+`requiresConcurrentConnections` and skipped rather than presented as evidence
+of row-lock contention or transaction isolation. No Prisma or TypeORM adapter
+is shipped. The optional Prisma probe was not run: no PostgreSQL/Prisma/database
+URL variable was configured and no `prisma` executable was found in this worker's
+environment (the discovery command printed no names or executable path).

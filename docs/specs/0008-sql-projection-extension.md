@@ -1,6 +1,6 @@
 # Spec 0008 — SQL projection extension
 
-Status: **proposed, not frozen**. This research/design does not authorize a mono-web migration, a SQL rewrite, or a production action.
+Status: **superseded in scope by [spec 0022](0022-persistence-ports.md)** (2026-10-04). Persistence ports and adapter conformance replace this proposed codec-only projection. The boundary remains: no generated SQL, migrations, CRUD repositories, or transactions. This research does not authorize a mono-web migration, a SQL rewrite, or a production action.
 
 ## Decision and evidence
 
