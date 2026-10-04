@@ -225,6 +225,17 @@ describe("persistence compiler", () => {
     assert.strictEqual(imports.add("third", "User"), "ThirdUser");
   });
 
+  it("explicit root aliases do not replace a free legacy schema import binding", () => {
+    const imports = new GeneratedImports();
+    const schema = { ...ref("Namespace.User"), module: "shared" };
+    assert.strictEqual(imports.addAliased("shared", "Namespace", "ApiRoot"), "ApiRoot");
+    assert.strictEqual(schemaExpr(imports, schema), "Namespace.User");
+    assert.strictEqual(imports.add("shared", "Namespace"), "Namespace");
+    assert.deepStrictEqual(imports.render(), [
+      'import { Namespace, Namespace as ApiRoot } from "shared";',
+    ]);
+  });
+
   it.effect(
     "same error exports from different modules use stable identities, not import aliases, as scenario keys",
     () =>

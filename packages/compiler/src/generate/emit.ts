@@ -69,9 +69,11 @@ export class Imports {
       (binding) => binding.module === specifier && binding.exported === name,
     );
 
-    if (alias !== undefined) return alias.local;
+    const occupied = this.occupied(name);
 
-    if (this.occupied(name)) return this.addAliased(module, name, name);
+    if (alias !== undefined && (alias.local === name || occupied)) return alias.local;
+
+    if (occupied) return this.addAliased(module, name, name);
 
     if (names === undefined) {
       this.modules.set(specifier, new Set([name]));
