@@ -7,6 +7,7 @@ import { Console, Effect } from "effect";
 import cliPackage from "../packages/cli/package.json";
 import compilerPackage from "../packages/compiler/package.json";
 import irPackage from "../packages/ir/package.json";
+import persistencePackage from "../packages/persistence/package.json";
 import runtimePackage from "../packages/runtime/package.json";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -29,12 +30,15 @@ const irName = `effx-ir-${irPackage.version}-${revision}.tgz`;
 
 const compilerName = `effx-compiler-${compilerPackage.version}-${revision}.tgz`;
 
+const persistenceName = `effx-persistence-${persistencePackage.version}-${revision}.tgz`;
+
 const cliName = `effx-cli-${cliPackage.version}-${revision}.tgz`;
 
 const packageTarballs = [
   { packageName: runtimePackage.name, filename: runtimeName },
   { packageName: irPackage.name, filename: irName },
   { packageName: compilerPackage.name, filename: compilerName },
+  { packageName: persistencePackage.name, filename: persistenceName },
   { packageName: cliPackage.name, filename: cliName },
 ];
 
@@ -53,6 +57,11 @@ const cliConfigTypes = join(root, "packages/cli/dist/config.d.ts");
 const cliHasConfig = Object.keys(cliPackage.exports).includes("./config");
 
 const bundles = [runtimeBundle, irBundle, compilerBundle, cliBundle];
+
+for (const entry of ["index", "syntax", "compiler"]) {
+  bundles.push(join(root, `packages/persistence/dist/${entry}.js`));
+  bundles.push(join(root, `packages/persistence/dist/${entry}.d.ts`));
+}
 
 if (cliHasConfig) bundles.push(cliConfigBundle, cliConfigTypes);
 
@@ -135,6 +144,37 @@ try {
   });
   await $`bun pm pack --filename ${join(artifacts, compilerName)} --quiet`
     .cwd(compilerStage)
+    .quiet();
+
+  const persistenceStage = join(stage, "persistence");
+  await mkdir(persistenceStage);
+  await cp(join(root, "packages/persistence/dist"), join(persistenceStage, "dist"), {
+    recursive: true,
+  });
+  await cp(join(root, "packages/persistence/LICENSE"), join(persistenceStage, "LICENSE"));
+  await copyPackageDocs("packages/persistence", persistenceStage);
+
+  const persistenceExports = Object.fromEntries(
+    Object.entries(persistencePackage.exports).map(([key, value]) => [
+      key,
+      { types: value.types, default: value.default },
+    ]),
+  );
+
+  await writePackage(persistenceStage, {
+    name: persistencePackage.name,
+    version: persistencePackage.version,
+    repository: persistencePackage.repository,
+    license: persistencePackage.license,
+    type: "module",
+    files: ["dist", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
+    exports: persistenceExports,
+    dependencies: persistencePackage.dependencies,
+    peerDependencies: persistencePackage.peerDependencies,
+    publishConfig: persistencePackage.publishConfig,
+  });
+  await $`bun pm pack --filename ${join(artifacts, persistenceName)} --quiet`
+    .cwd(persistenceStage)
     .quiet();
 
   // The CLI bundle includes the private TypeScript frontend; config declarations reuse public compiler types.

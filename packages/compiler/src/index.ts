@@ -93,3 +93,13 @@ export { findAnnotation, SchemaArg, SymbolArg } from "./args.ts";
 export { argsSchemaOf, decodeSchemaOf, decoderOf, schemaOfPlan } from "./annotation.ts";
 
 export type { ArgsCodec } from "./annotation.ts";
+
+// Symbol-preserving, target-aware primitives for third-party file generators.
+export {
+  Imports as GeneratedImports,
+  HEADER as GENERATED_HEADER,
+  identifier as generatedIdentifier,
+  schemaExpr,
+  errorsExpr,
+  render as renderGenerated,
+} from "./generate/emit.ts";

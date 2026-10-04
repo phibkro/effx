@@ -51,6 +51,17 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: "persistence-integration",
+          include: [
+            "packages/persistence/test/**/*.test.ts",
+            "examples/persistence/test/**/*.test.ts",
+          ],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: "default",
           include: [
             "packages/*/test/**/*.test.ts",
@@ -61,6 +72,8 @@ export default defineConfig({
             "packages/frontend-ts/test/**/*.test.ts",
             "packages/cli/test/**/*.test.ts",
             "examples/extension-openapi-tags/test/extension.test.ts",
+            "packages/persistence/test/**/*.test.ts",
+            "examples/persistence/test/**/*.test.ts",
           ],
           testTimeout: 5_000,
         },
@@ -71,6 +84,13 @@ export default defineConfig({
       "@effx/compiler": new URL("./packages/compiler/src/index.ts", import.meta.url).pathname,
       "@effx/frontend-ts": new URL("./packages/frontend-ts/src/index.ts", import.meta.url).pathname,
       "@effx/runtime": new URL("./packages/runtime/src/index.ts", import.meta.url).pathname,
+      "@effx/persistence/syntax": new URL("./packages/persistence/src/syntax.ts", import.meta.url)
+        .pathname,
+      "@effx/persistence/compiler": new URL(
+        "./packages/persistence/src/compiler.ts",
+        import.meta.url,
+      ).pathname,
+      "@effx/persistence": new URL("./packages/persistence/src/index.ts", import.meta.url).pathname,
       "@effx/cli/config": new URL("./packages/cli/src/config.ts", import.meta.url).pathname,
       "@effx/cli": new URL("./packages/cli/src/index.ts", import.meta.url).pathname,
     },

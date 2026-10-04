@@ -1,0 +1,317 @@
+import { errorsExpr, generatedIdentifier, schemaExpr, type GeneratedImports } from "@effx/compiler";
+import type { PersistencePort, PortMethod } from "./ports.ts";
+
+const quote = JSON.stringify;
+
+const typeOf = (expression: string): string => `typeof ${expression}.Type`;
+
+const pairsOf = (
+  commands: ReadonlyArray<PortMethod>,
+): ReadonlyArray<readonly [PortMethod, PortMethod]> =>
+  commands.flatMap((first, index) =>
+    commands.slice(index + 1).map((second) => [first, second] as const),
+  );
+
+/** Scenarios are derived method by method, including a required case for every declared error. */
+export const conformanceBody = (
+  port: PersistencePort,
+  imports: GeneratedImports,
+): ReadonlyArray<string> => {
+  const base = generatedIdentifier(port.name);
+  const service = `${base}Port`;
+  const fn = `${base[0]!.toLowerCase()}${base.slice(1)}Conformance`;
+  const commands = port.methods.filter((method) => method.operation.kind === "Command");
+  const pairs = pairsOf(commands);
+
+  const methodSchemas = port.methods.map(({ name, operation }, index) => ({
+    name,
+    operation,
+    local: `m${index}`,
+    input: schemaExpr(imports, operation.input),
+    success: schemaExpr(imports, operation.success),
+    errors: errorsExpr(imports, operation.errors.values),
+    members: operation.errors.values.map((ref) => ({
+      key: ref.export,
+      expression: schemaExpr(imports, ref),
+    })),
+  }));
+
+  const methodTypes = methodSchemas.flatMap((method) => [
+    `    readonly ${quote(method.name)}: {`,
+    `      readonly success: NonEmpty<DomainCase<${typeOf(method.input)}, ${typeOf(method.success)}, E, ${service} | R>>;`,
+    "      readonly errors: {",
+    ...method.members.map(
+      (error) =>
+        `        readonly ${quote(error.key)}: NonEmpty<DomainCase<${typeOf(method.input)}, ${typeOf(error.expression)}, E, ${service} | R>>;`,
+    ),
+    "      };",
+    "    };",
+  ]);
+
+  const pairTypes = pairs.map(([first, second]) => {
+    const a = schemaExpr(imports, first.operation.input);
+    const b = schemaExpr(imports, second.operation.input);
+
+    return `    readonly ${quote(`${first.name}+${second.name}`)}: NonEmpty<TransactionCase<${typeOf(a)}, ${typeOf(b)}, E, ${service} | R>>;`;
+  });
+
+  const constants = methodSchemas.flatMap((method) => [
+    `const ${method.local}Input = Schema.toType(${method.input});`,
+    `const ${method.local}Success = Schema.is(Schema.toType(${method.success}));`,
+    `const ${method.local}Errors = ${method.errors};`,
+    `const ${method.local}Error = Schema.is(Schema.toType(${method.local}Errors));`,
+    `const ${method.local}EncodeSuccess = Schema.encodeUnknownEffect(${method.success});`,
+    ...(method.operation.kind === "Query"
+      ? [`const ${method.local}EncodeError = Schema.encodeUnknownEffect(${method.local}Errors);`]
+      : []),
+    "",
+  ]);
+
+  const tests: Array<string> = [];
+
+  for (const method of methodSchemas) {
+    const key = quote(method.name);
+    const call = `port[${key}](input)`;
+    const closed = `assertClosed(result, ${method.local}Success, ${method.local}Error);`;
+    tests.push(
+      `    it.effect.prop(${quote(`G1 closed error channel: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
+      "      isolated(Effect.gen(function* () {",
+      `        const port = yield* ${service};`,
+      `        const result = yield* Effect.exit(${call});`,
+      `        ${closed}`,
+      "      })),",
+      "      { arbitrary: { runs: 10 } },",
+      "    );",
+      "",
+    );
+
+    if (method.operation.kind === "Query") {
+      tests.push(
+        `    it.effect.prop(${quote(`G2 query purity: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
+        "      isolated(Effect.gen(function* () {",
+        `        const port = yield* ${service};`,
+        "        const before = yield* snapshot;",
+        `        const first = yield* Effect.exit(${call});`,
+        `        assertClosed(first, ${method.local}Success, ${method.local}Error);`,
+        "        assert.deepStrictEqual(yield* snapshot, before);",
+        `        const second = yield* Effect.exit(${call});`,
+        `        assertClosed(second, ${method.local}Success, ${method.local}Error);`,
+        "        assert.deepStrictEqual(yield* snapshot, before);",
+        "        assert.strictEqual(first._tag, second._tag);",
+        `        const firstValue = Exit.isSuccess(first) ? yield* ${method.local}EncodeSuccess(first.value) : yield* ${method.local}EncodeError(failureValue(first));`,
+        `        const secondValue = Exit.isSuccess(second) ? yield* ${method.local}EncodeSuccess(second.value) : yield* ${method.local}EncodeError(failureValue(second));`,
+        "        assert.deepStrictEqual(firstValue, secondValue);",
+        "      })),",
+        "      { arbitrary: { runs: 10 } },",
+        "    );",
+        "",
+      );
+    } else {
+      tests.push(
+        `    it.effect.prop(${quote(`G3 rollback atomicity: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
+        "      isolated(Effect.gen(function* () {",
+        `        const port = yield* ${service};`,
+        "        const before = yield* snapshot;",
+        "        const rolledBack = yield* Effect.exit(harness.transact(Effect.gen(function* () {",
+        `          const result = yield* Effect.exit(${call});`,
+        `          ${closed}`,
+        "          return yield* Effect.fail(rollback);",
+        "        })));",
+        "        assertRollback(rolledBack);",
+        "        assert.deepStrictEqual(yield* snapshot, before);",
+        "      })),",
+        "      { arbitrary: { runs: 10 } },",
+        "    );",
+        "",
+      );
+    }
+
+    tests.push(
+      `    for (const scenario of scenarios.methods[${key}].success) {`,
+      "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
+      `      test(${quote(`G1 domain success: ${method.name} / `)} + scenario.name, () =>`,
+      "        isolated(Effect.gen(function* () {",
+      "          if (scenario.seed !== undefined) yield* scenario.seed;",
+      `          assert.isTrue(Schema.is(${method.local}Input)(scenario.input));`,
+      `          const port = yield* ${service};`,
+      `          const actual = yield* port[${key}](scenario.input);`,
+      `          assert.isTrue(${method.local}Success(actual));`,
+      `          assert.deepStrictEqual(yield* ${method.local}EncodeSuccess(actual), yield* ${method.local}EncodeSuccess(scenario.expected));`,
+      "        })),",
+      "      );",
+    );
+
+    if (method.operation.kind === "Command") {
+      tests.push(
+        `      test(${quote(`G3 rollback successful command: ${method.name} / `)} + scenario.name, () =>`,
+        "        isolated(Effect.gen(function* () {",
+        "          if (scenario.seed !== undefined) yield* scenario.seed;",
+        `          const port = yield* ${service};`,
+        "          const before = yield* snapshot;",
+        "          const rolledBack = yield* Effect.exit(harness.transact(Effect.gen(function* () {",
+        `            const actual = yield* port[${key}](scenario.input);`,
+        `            assert.isTrue(${method.local}Success(actual));`,
+        "            return yield* Effect.fail(rollback);",
+        "          })));",
+        "          assertRollback(rolledBack);",
+        "          assert.deepStrictEqual(yield* snapshot, before);",
+        "        })),",
+        "      );",
+      );
+    }
+
+    tests.push("    }", "");
+
+    for (const member of method.members) {
+      tests.push(
+        `    for (const scenario of scenarios.methods[${key}].errors[${quote(member.key)}]) {`,
+        "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
+        `      test(${quote(`G1 domain error: ${method.name}.${member.key} / `)} + scenario.name, () =>`,
+        "        isolated(Effect.gen(function* () {",
+        "          if (scenario.seed !== undefined) yield* scenario.seed;",
+        `          assert.isTrue(Schema.is(${method.local}Input)(scenario.input));`,
+        `          const port = yield* ${service};`,
+        `          const result = yield* Effect.exit(port[${key}](scenario.input));`,
+        `          ${closed}`,
+        "          const actual = failureValue(result);",
+        `          assert.isTrue(Schema.is(Schema.toType(${member.expression}))(actual));`,
+        `          const encode = Schema.encodeUnknownEffect(${member.expression});`,
+        "          assert.deepStrictEqual(yield* encode(actual), yield* encode(scenario.expected));",
+        "        })),",
+        "      );",
+        "    }",
+        "",
+      );
+    }
+  }
+
+  for (const [first, second] of pairs) {
+    const a = methodSchemas.find((method) => method.name === first.name)!;
+    const b = methodSchemas.find((method) => method.name === second.name)!;
+    const key = `${first.name}+${second.name}`;
+    tests.push(
+      `    it.effect.prop(${quote(`G4 shared transaction rollback: ${key}`)}, [${a.local}Input, ${b.local}Input], ([a, b]) =>`,
+      "      isolated(Effect.gen(function* () {",
+      `        const port = yield* ${service};`,
+      "        const before = yield* snapshot;",
+      "        const rolledBack = yield* Effect.exit(harness.transact(Effect.gen(function* () {",
+      `          const first = yield* Effect.exit(port[${quote(first.name)}](a));`,
+      `          assertClosed(first, ${a.local}Success, ${a.local}Error);`,
+      `          const second = yield* Effect.exit(port[${quote(second.name)}](b));`,
+      `          assertClosed(second, ${b.local}Success, ${b.local}Error);`,
+      "          return yield* Effect.fail(rollback);",
+      "        })));",
+      "        assertRollback(rolledBack);",
+      "        assert.deepStrictEqual(yield* snapshot, before);",
+      "      })),",
+      "      { arbitrary: { runs: 10 } },",
+      "    );",
+      "",
+      `    for (const scenario of scenarios.sharedTransactions[${quote(key)}]) {`,
+      "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
+      "      const pair = Effect.gen(function* () {",
+      `        const port = yield* ${service};`,
+      `        const first = yield* port[${quote(first.name)}](scenario.inputs[0]);`,
+      `        assert.isTrue(${a.local}Success(first));`,
+      `        const second = yield* port[${quote(second.name)}](scenario.inputs[1]);`,
+      `        assert.isTrue(${b.local}Success(second));`,
+      "      });",
+      `      test(${quote(`G4 shared transaction rollback scenario: ${key} / `)} + scenario.name, () =>`,
+      "        isolated(Effect.gen(function* () {",
+      "          if (scenario.seed !== undefined) yield* scenario.seed;",
+      "          const before = yield* snapshot;",
+      "          const rolledBack = yield* Effect.exit(harness.transact(pair.pipe(Effect.andThen(Effect.fail(rollback)))));",
+      "          assertRollback(rolledBack);",
+      "          assert.deepStrictEqual(yield* snapshot, before);",
+      "        })),",
+      "      );",
+      `      test(${quote(`G4 shared transaction commit: ${key} / `)} + scenario.name, () =>`,
+      "        isolated(Effect.gen(function* () {",
+      "          if (scenario.seed !== undefined) yield* scenario.seed;",
+      "          yield* harness.transact(pair);",
+      "          yield* scenario.observe;",
+      "        })),",
+      "      );",
+      "    }",
+      "",
+    );
+  }
+
+  return [
+    "/** Each sample owns a new Layer scope. Layer acquisition must create fresh storage, not capture a live store. */",
+    `export interface ${base}Harness<E, R> {`,
+    "  readonly name: string;",
+    `  readonly layer: Layer.Layer<${service} | R, E>;`,
+    "  readonly transact: <A, X, Rx>(effect: Effect.Effect<A, X, Rx>) => Effect.Effect<A, X | E, Rx | R>;",
+    "  readonly snapshot: Effect.Effect<Schema.Json, E, R>;",
+    "  readonly supportsConcurrentConnections: boolean;",
+    "}",
+    "",
+    "type NonEmpty<A> = readonly [A, ...A[]];",
+    "interface DomainCase<I, A, E, R> {",
+    "  readonly name: string;",
+    "  readonly input: I;",
+    "  readonly expected: A;",
+    "  readonly seed?: Effect.Effect<void, E, R>;",
+    "  readonly requiresConcurrentConnections?: boolean;",
+    "}",
+    ...(pairs.length === 0
+      ? []
+      : [
+          "interface TransactionCase<A, B, E, R> {",
+          "  readonly name: string;",
+          "  readonly inputs: readonly [A, B];",
+          "  readonly seed?: Effect.Effect<void, E, R>;",
+          "  /** Runs outside the committed transaction; must assert both writes are visible. */",
+          "  readonly observe: Effect.Effect<void, E, R>;",
+          "  readonly requiresConcurrentConnections?: boolean;",
+          "}",
+        ]),
+    "",
+    `export interface ${base}Scenarios<E = never, R = never> {`,
+    `  readonly seed: Effect.Effect<void, E, ${service} | R>;`,
+    "  readonly methods: {",
+    ...methodTypes,
+    "  };",
+    "  readonly sharedTransactions: {",
+    ...pairTypes,
+    "  };",
+    "}",
+    "",
+    ...constants,
+    "const failureValue = (exit: Exit.Exit<unknown, unknown>): unknown => {",
+    '  if (Exit.isSuccess(exit)) assert.fail("Expected a declared failure, not success");',
+    '  assert.strictEqual(exit.cause.reasons.length, 1, "Expected one typed failure, never a defect or interruption");',
+    "  const reason = exit.cause.reasons[0];",
+    '  if (reason === undefined || !Cause.isFailReason(reason)) assert.fail("Defect or interruption escaped the port");',
+    "  return reason.error;",
+    "};",
+    "",
+    "const assertClosed = (exit: Exit.Exit<unknown, unknown>, success: (value: unknown) => boolean, error: (value: unknown) => boolean): void => {",
+    '  if (Exit.isSuccess(exit)) assert.isTrue(success(exit.value), "Value does not satisfy the declared success Schema");',
+    '  else assert.isTrue(error(failureValue(exit)), "Undeclared error escaped the port");',
+    "};",
+    ...(commands.length === 0
+      ? []
+      : [
+          "",
+          'const rollback = { _tag: "ConformanceRollback" } as const;',
+          "const assertRollback = (exit: Exit.Exit<unknown, unknown>): void => {",
+          '  assert.strictEqual(failureValue(exit), rollback, "Transaction did not preserve the intentional rollback failure");',
+          "};",
+        ]),
+    "",
+    `export const ${fn} = <E, R>(harness: ${base}Harness<E, R>, scenarios: ${base}Scenarios<E, R>): void => {`,
+    "  const snapshot = harness.snapshot.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)));",
+    `  const isolated = <A, X>(program: Effect.Effect<A, X, ${service} | R>) =>`,
+    "    Effect.scoped(Effect.gen(function* () {",
+    "      yield* scenarios.seed;",
+    "      return yield* program;",
+    "    }).pipe(Effect.provide(Layer.fresh(harness.layer))));",
+    "",
+    `  describe(${quote(`${port.name} adapter conformance / `)} + harness.name, () => {`,
+    ...tests,
+    "  });",
+    "};",
+  ];
+};

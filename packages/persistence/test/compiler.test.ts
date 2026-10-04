@@ -1,0 +1,329 @@
+import { assert, describe, expectTypeOf, it } from "@effect/vitest";
+import { Effect, Option, Schema } from "effect";
+import {
+  CompilerFault,
+  Extensions,
+  compileCollected,
+  defaultGenerationContext,
+  type Annotation,
+  type Collected,
+  type Declaration,
+  type GeneratedFile,
+} from "@effx/compiler";
+import {
+  ApplicationIR,
+  IRGraph,
+  StableId,
+  make,
+  semanticHash,
+  type OperationNode,
+  type SchemaRef,
+} from "@effx/ir";
+import { persistenceExtension } from "@effx/persistence/compiler";
+import { persistenceGenerator } from "../src/generate.ts";
+import { portsOf } from "../src/ports.ts";
+
+const ref = (name: string): SchemaRef => ({
+  module: "schemas",
+  export: name.split(".")[0] ?? name,
+  symbolId: StableId.make("schema", `schemas/${name}`),
+});
+
+const schema = (name: string) => ({ _tag: "Schema" as const, ref: ref(name) });
+
+const declaration = (
+  name: string,
+  kind: "Query" | "Command" = "Command",
+  errors: ReadonlyArray<string> = ["UserNotFound"],
+): Declaration => ({
+  id: name,
+  kind: "builder",
+  module: "operations",
+  export: name.replaceAll(".", ""),
+  binding: "external",
+  annotations: [
+    {
+      name: kind,
+      args: [{ name, input: schema(`${name.split(".")[1]}Input`), success: schema("User.Public") }],
+    },
+    { name: "Errors", args: errors.map(schema) },
+    { name: "persistence.Port", args: [{ port: "Users" }] },
+  ],
+});
+
+const declarations = [
+  declaration("Users.setEmail", "Command", ["UserNotFound", "EmailTaken"]),
+  declaration("Users.find", "Query"),
+  declaration("Users.setDisplayName"),
+];
+
+const extensions = [...Extensions.builtin, persistenceExtension];
+
+const collected = (items: ReadonlyArray<Declaration> = declarations): Collected => ({
+  declarations: items,
+  diagnostics: [],
+});
+
+const files = (result: {
+  readonly files: { readonly value: Option.Option<ReadonlyArray<GeneratedFile>> };
+}) => Option.getOrThrow(result.files.value).filter((file) => file.path.startsWith("users-"));
+
+const annotated = (item: Declaration, annotation: Annotation): Declaration => ({
+  ...item,
+  annotations: [...item.annotations, annotation],
+});
+
+// Each test pins a specific compiler regression, not database adapter behaviour.
+describe("persistence compiler", () => {
+  it.effect(
+    "records Schema-valid Extension/ExtensionOf contributions without introducing a core node kind",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* compileCollected(collected(), extensions);
+        assert.deepStrictEqual(result.diagnostics, []);
+        const ir = Option.getOrThrow(result.ir.value);
+        yield* Schema.decodeEffect(ApplicationIR)(ir);
+
+        const nodes = ir.nodes.filter(
+          (node) => node._tag === "Extension" && node.extension === "persistence",
+        );
+
+        assert.strictEqual(nodes.length, 3);
+        assert.isTrue(
+          nodes.every(
+            (node) =>
+              node._tag === "Extension" &&
+              node.tag === "Port" &&
+              Schema.is(Schema.Struct({ port: Schema.Literal("Users") }))(node.data),
+          ),
+        );
+        assert.strictEqual(
+          ir.edges.filter((edge) => edge.kind === "ExtensionOf" && edge.qualifier === "Port")
+            .length,
+          3,
+        );
+        assert.isFalse(ir.nodes.some((node) => node._tag === "Exposure"));
+      }),
+  );
+
+  it.effect(
+    "emits sorted leaf methods and preserves static Schema members and per-method errors",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* compileCollected(collected(), extensions);
+        const [port, suite] = files(result);
+        assert.isDefined(port);
+        assert.isDefined(suite);
+        assert.strictEqual(port!.path, "users-port.ts");
+        assert.strictEqual(suite!.path, "users-conformance.ts");
+        assert.include(
+          port!.contents,
+          "export class UsersPort extends Context.Service<UsersPort, {",
+        );
+        assert.include(port!.contents, '}>()("effx/port/Users")');
+        assert.include(port!.contents, "typeof UserNotFound.Type");
+        assert.include(port!.contents, "typeof EmailTaken.Type");
+        assert.isBelow(
+          port!.contents.indexOf('readonly "find"'),
+          port!.contents.indexOf('readonly "setDisplayName"'),
+        );
+        assert.isBelow(
+          port!.contents.indexOf('readonly "setDisplayName"'),
+          port!.contents.indexOf('readonly "setEmail"'),
+        );
+        assert.notInclude(port!.contents, "SqlClient");
+        assert.notInclude(port!.contents, "@effx/");
+        assert.include(suite!.contents, "export interface UsersHarness<E, R>");
+        assert.include(suite!.contents, "readonly snapshot: Effect.Effect<Schema.Json, E, R>");
+        assert.include(
+          suite!.contents,
+          'readonly "EmailTaken": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof EmailTaken.Type',
+        );
+        assert.include(suite!.contents, 'readonly "setDisplayName+setEmail"');
+        assert.include(suite!.contents, "Layer.fresh(harness.layer)");
+        assert.include(suite!.contents, "Effect.scoped(");
+        assert.include(suite!.contents, "G1 closed error channel: find");
+        assert.include(suite!.contents, "G1 domain error: setEmail.EmailTaken");
+        assert.include(suite!.contents, "G2 query purity: find");
+        assert.include(suite!.contents, "G3 rollback successful command: setEmail");
+        assert.include(suite!.contents, "G4 shared transaction rollback: setDisplayName+setEmail");
+        assert.include(suite!.contents, "G4 shared transaction commit: setDisplayName+setEmail");
+        assert.include(suite!.contents, "yield* scenario.observe");
+        assert.include(
+          suite!.contents,
+          "scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections",
+        );
+        assert.notInclude(suite!.contents, "Effect.ignore");
+        assert.notInclude(suite!.contents, "Effect.catchCause");
+      }),
+  );
+
+  it.effect(
+    "output and semantic hash are independent of declaration ordering, generation mode and target",
+    () =>
+      Effect.gen(function* () {
+        const a = yield* compileCollected(collected(), extensions);
+        const b = yield* compileCollected(collected(declarations.toReversed()), extensions);
+        assert.deepStrictEqual(files(a), files(b));
+        assert.strictEqual(
+          yield* semanticHash(Option.getOrThrow(a.ir.value)),
+          yield* semanticHash(Option.getOrThrow(b.ir.value)),
+        );
+        const ir = Option.getOrThrow(a.ir.value);
+
+        const rc = yield* persistenceGenerator(ir, IRGraph.toGraph(ir), {
+          ...defaultGenerationContext,
+          target: "effect-4.0-rc",
+          emit: "contract",
+        });
+
+        assert.deepStrictEqual(files(a), rc);
+      }),
+  );
+
+  it.effect("EFFX3401 rejects local handlers and EFFX3402 rejects each exposure transport", () =>
+    Effect.gen(function* () {
+      const external = declaration("Users.setEmail");
+      const { binding: _binding, ...localFields } = external;
+
+      const local: Declaration = {
+        ...localFields,
+        member: "setEmail",
+        handlerSignature: {
+          success: { _tag: "Schema", ref: ref("User.Public") },
+          errors: [{ _tag: "Schema", ref: ref("UserNotFound") }],
+          requirements: [],
+        },
+      };
+
+      const localResult = yield* compileCollected(collected([local]), extensions);
+      assert.include(
+        localResult.diagnostics.map((diagnostic) => diagnostic.code),
+        "EFFX3401",
+      );
+      assert.isTrue(Option.isNone(localResult.files.value));
+
+      for (const exposure of [
+        { name: "Http.Patch", args: ["/users/:id"] },
+        { name: "Rpc", args: ["Users.setEmail"] },
+        { name: "Cli", args: ["users set-email"] },
+      ] satisfies ReadonlyArray<Annotation>) {
+        const result = yield* compileCollected(
+          collected([annotated(external, exposure)]),
+          extensions,
+        );
+
+        assert.include(
+          result.diagnostics.map((diagnostic) => diagnostic.code),
+          "EFFX3402",
+        );
+        assert.isTrue(Option.isNone(result.files.value));
+      }
+    }),
+  );
+
+  it.effect(
+    "EFFX3403 rejects wrong prefixes, empty method names, duplicate annotations and colliding methods",
+    () =>
+      Effect.gen(function* () {
+        for (const item of [
+          declaration("Other.find"),
+          declaration("Users."),
+          annotated(declaration("Users.find", "Query"), {
+            name: "persistence.Port",
+            args: [{ port: "Users" }],
+          }),
+        ]) {
+          const result = yield* compileCollected(collected([item]), extensions);
+          assert.include(
+            result.diagnostics.map((diagnostic) => diagnostic.code),
+            "EFFX3403",
+          );
+          assert.isTrue(Option.isNone(result.files.value));
+        }
+
+        const result = yield* compileCollected(collected(), extensions);
+        const ir = Option.getOrThrow(result.ir.value);
+
+        const original = ir.nodes.find(
+          (node): node is OperationNode => node._tag === "Operation" && node.name === "Users.find",
+        );
+
+        assert.isDefined(original);
+        const duplicateId = StableId.make("ext", "persistence/duplicate");
+
+        const duplicate = make(
+          [
+            ...ir.nodes,
+            {
+              _tag: "Extension",
+              id: duplicateId,
+              extension: "persistence",
+              tag: "Port",
+              data: { port: "Users" },
+            },
+          ],
+          [
+            ...ir.edges,
+            { kind: "ExtensionOf", from: duplicateId, to: original!.id, qualifier: "Port" },
+          ],
+        );
+
+        assert.include(
+          portsOf(duplicate, IRGraph.toGraph(duplicate)).diagnostics.map(
+            (diagnostic) => diagnostic.code,
+          ),
+          "EFFX3403",
+        );
+      }),
+  );
+
+  it.effect(
+    "query-only ports warn once without blocking generation; an empty error set stays never",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* compileCollected(
+          collected([declaration("Users.find", "Query", [])]),
+          extensions,
+        );
+
+        assert.deepStrictEqual(
+          result.diagnostics.map(({ code, severity }) => ({ code, severity })),
+          [{ code: "EFFX3404", severity: "warning" }],
+        );
+        const [port, suite] = files(result);
+        assert.include(port!.contents, "Effect.Effect<typeof User.Public.Type, never>");
+        assert.include(suite!.contents, "Schema.Never");
+        assert.notInclude(suite!.contents, "G3 rollback");
+        assert.notInclude(suite!.contents, "G4 shared transaction");
+      }),
+  );
+
+  it.effect(
+    "generator construction is suspended and keeps its exact success/error/requirement channels",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* compileCollected(collected(), extensions);
+        const ir = Option.getOrThrow(result.ir.value);
+        const index = IRGraph.toGraph(ir);
+        let reads = 0;
+
+        const probe = {
+          ...ir,
+          get nodes() {
+            reads++;
+
+            return ir.nodes;
+          },
+        };
+
+        const program = persistenceGenerator(probe, index);
+        expectTypeOf(program).toEqualTypeOf<
+          Effect.Effect<ReadonlyArray<GeneratedFile>, CompilerFault>
+        >();
+        assert.strictEqual(reads, 0);
+        assert.strictEqual((yield* program).length, 2);
+        assert.isAbove(reads, 0);
+      }),
+  );
+});

@@ -1,0 +1,54 @@
+{
+  "name": "@effx/persistence",
+  "version": "0.1.0",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phibkro/effx.git",
+    "directory": "packages/persistence"
+  },
+  "files": [
+    "dist",
+    "src",
+    "AGENTS.md",
+    "ai-docs/**/*",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./syntax": {
+      "source": "./src/syntax.ts",
+      "types": "./dist/syntax.d.ts",
+      "default": "./dist/syntax.js"
+    },
+    "./compiler": {
+      "source": "./src/compiler.ts",
+      "types": "./dist/compiler.d.ts",
+      "default": "./dist/compiler.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@effx/compiler": "0.1.0",
+    "@effx/ir": "0.1.0",
+    "@effx/runtime": "0.1.0"
+  },
+  "devDependencies": {
+    "effect": "4.0.0"
+  },
+  "peerDependencies": {
+    "effect": ">=4.0.0-rc.116 <5"
+  }
+}

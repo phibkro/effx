@@ -23,6 +23,9 @@
       "@effx/compiler": ["./packages/compiler/src/index.ts"],
       "@effx/frontend-ts": ["./packages/frontend-ts/src/index.ts"],
       "@effx/runtime": ["./packages/runtime/src/index.ts"],
+      "@effx/persistence/syntax": ["./packages/persistence/src/syntax.ts"],
+      "@effx/persistence/compiler": ["./packages/persistence/src/compiler.ts"],
+      "@effx/persistence": ["./packages/persistence/src/index.ts"],
       "@effx/cli/config": ["./packages/cli/src/config.ts"],
       "@effx/cli": ["./packages/cli/src/index.ts"]
     },
