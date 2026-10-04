@@ -76,3 +76,8 @@ the frozen String argument algebra and existing StableId rules, test empty
 annotation data/total filename handling instead of an invalid source program,
 and provide native BunCrypto.layer as the existing IR hash tests do. This failed
 run is not runtime evidence for either database adapter.
+
+The director explicitly ordered a confirmation rerun of the same light command
+inside granted custody. On committed `169ad91`, it exited 0 with **2 files and
+17 tests passed**; both observed failures above were repaired. The fresh archive
+copy was removed by its EXIT finalizer.
