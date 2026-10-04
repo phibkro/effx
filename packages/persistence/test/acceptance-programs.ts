@@ -347,12 +347,15 @@ import { SqlClient } from "effect/sql";
 import { usersConformance } from "./.effx/generated/users-conformance.ts";
 import { usersSqlHarness } from "./src/harness.ts";
 import { sharedUsersScenarios } from "./src/scenarios.ts";
+import { UserId } from "../users/src/schemas.ts";
+import { encodeId } from "./src/storage.ts";
 usersConformance({
   ...usersSqlHarness,
   name: "broken incomplete reset",
   reset: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql\`DELETE FROM users WHERE id <> '1'\`;
+    const encodedId = yield* encodeId(UserId.make("1")).pipe(Effect.orDie);
+    yield* sql\`DELETE FROM users WHERE id <> \${encodedId}\`;
   }),
 }, sharedUsersScenarios);
 `;
