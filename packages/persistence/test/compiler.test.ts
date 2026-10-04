@@ -1,5 +1,5 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Order, Schema } from "effect";
 import {
   CompilerFault,
   Extensions,
@@ -111,7 +111,7 @@ describe("persistence compiler", () => {
     () =>
       Effect.gen(function* () {
         const result = yield* compileCollected(collected(), extensions);
-        const [port, suite] = files(result);
+        const [suite, port] = files(result);
         assert.isDefined(port);
         assert.isDefined(suite);
         assert.strictEqual(port!.path, "users-port.ts");
@@ -177,7 +177,10 @@ describe("persistence compiler", () => {
           emit: "contract",
         });
 
-        assert.deepStrictEqual(files(a), rc);
+        assert.deepStrictEqual(
+          files(a),
+          rc.toSorted((a, b) => Order.String(a.path, b.path)),
+        );
       }),
   );
 
@@ -291,7 +294,7 @@ describe("persistence compiler", () => {
           result.diagnostics.map(({ code, severity }) => ({ code, severity })),
           [{ code: "EFFX3404", severity: "warning" }],
         );
-        const [port, suite] = files(result);
+        const [suite, port] = files(result);
         assert.include(port!.contents, "Effect.Effect<typeof User.Public.Type, never>");
         assert.include(suite!.contents, "Schema.Never");
         assert.notInclude(suite!.contents, "G3 rollback");
