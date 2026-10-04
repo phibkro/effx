@@ -144,10 +144,15 @@ describe("built-in definitions: derived Live types equal the legacy hand-written
       | undefined
     >();
   });
-  it("Http.Problems", () => {
-    same<First<typeof Builtins.HttpProblems>, LegacyHttpProblemsOptions<string>>();
-    same<HttpProblemsOptions, LegacyHttpProblemsOptions<string>>();
-    same<HttpProblemsOptions<"a" | "b">, LegacyHttpProblemsOptions<"a" | "b">>();
+  // T2: `codes` is a non-empty tuple (the compiler already rejected an empty list), so the derived types
+  // are narrower than the legacy `ReadonlyArray<Code>`.
+  it("Http.Problems (tightened)", () => {
+    narrower<First<typeof Builtins.HttpProblems>, LegacyHttpProblemsOptions<string>>();
+    narrower<HttpProblemsOptions, LegacyHttpProblemsOptions<string>>();
+    narrower<HttpProblemsOptions<"a" | "b">, LegacyHttpProblemsOptions<"a" | "b">>();
+    expectTypeOf<HttpProblemsOptions<"a">["codes"]>().toEqualTypeOf<
+      readonly ["a", ...Array<"a">]
+    >();
   });
   it("Foldkit.Command", () => {
     same<First<typeof Builtins.FoldkitCommand>, LegacyFoldkitCommandOptions>();

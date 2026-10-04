@@ -98,7 +98,12 @@ const contract = {
   metadata: { operationId: "users.get", summary: "Read user", tags: ["users"] },
 };
 
-const problems = { registry, codes: ["user.not-found"], map: { UserNotFound: "user.not-found" } };
+// T2 (spec 0020 §0.1): `codes` is a non-empty tuple at the type level too, matching the compiler decode.
+const problems = {
+  registry,
+  codes: ["user.not-found"] as const,
+  map: { UserNotFound: "user.not-found" },
+};
 
 class ContractOperations {
   @Query({ name: "User.Get", input: GetUserInput, success: User.Public })

@@ -262,14 +262,8 @@ export const A = {
    */
   sugar: <L, R, S>(arg: Arg<L, R>, _sugar: Arg<S, unknown>): Arg<L | S, R> => arg,
 
-  /**
-   * Overrides the written type without changing the plan. A recorded, temporary divergence (the
-   * hand-written runtime type is stricter or looser than the decode schema); tightening removes it.
-   */
-  live:
-    <Live>() =>
-    <L, R>(arg: Arg<L, R>): Arg<Live, R> =>
-      make<Live, R>(arg.plan),
+  /** A type-only operand for `sugar`: the written type it adds; it has no plan of its own. */
+  typed: <L>(): Arg<L, never> => make<L, never>({ _tag: "Json" }),
 
   /**
    * A transformation-free Effect Schema over the algebra's node kinds, as an argument (spec 0020 §2.2).

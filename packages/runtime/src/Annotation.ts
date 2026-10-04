@@ -71,7 +71,7 @@ export type HttpProblemsOptions<Code extends string = string> = Omit<
   "registry" | "codes"
 > & {
   readonly registry?: ProblemRegistry<Code>;
-  readonly codes: ReadonlyArray<Code>;
+  readonly codes: readonly [Code, ...Code[]];
 };
 
 /** `PersistentModel` options; the collector (or the decorator) supplies `schema`. */

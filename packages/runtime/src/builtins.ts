@@ -15,7 +15,8 @@ import { defineBuiltin, rest } from "./define/define.js";
 /**
  * The built-in annotations, re-expressed with `define` (spec 0020 §3). Each definition reproduces the
  * hand-written option type of `Annotation.ts` and the compiler `Schema` it replaces one-for-one,
- * including their disagreements (`A.sourceOptional`, `A.sugar`, `A.live`); T1 below tightened the group defaults.
+ * including the deliberate source sugar (`A.sourceOptional`, `A.sugar`); the strict value sets and the
+ * non-empty `codes` tuple are the tightening of spec 0020 §0.1.
  */
 
 const callableAnnotator = A.symbol<HttpOperationAnnotator>({
@@ -184,7 +185,7 @@ export const HttpProblems = defineBuiltin({
           message: "registry must be an exported value symbol",
         }),
       ),
-      codes: A.array(A.nonEmptyString, { nonEmpty: true }),
+      codes: A.nonEmptyArray(A.nonEmptyString),
       identifier: A.optional(A.string),
       map: A.optional(A.record(A.nonEmptyString)),
     }),
@@ -296,7 +297,8 @@ export const PersistentModel = defineBuiltin({
     table: A.string,
     schema: A.injected(A.schema()),
     views: A.optional(A.record(A.schema())),
-    focus: A.optional(A.record(A.live<FocusValue | ReadonlyArray<string>>()(A.array(A.string)))),
+    // `Focus.key(...)` lowers to the same string path as a literal array (frontend `runtimeCall`).
+    focus: A.optional(A.record(A.sugar(A.array(A.string), A.typed<FocusValue>()))),
   },
 });
 
