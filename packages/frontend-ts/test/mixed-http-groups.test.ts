@@ -66,9 +66,9 @@ import { Http, Operation } from "@effx/runtime";
 import { Root, ReadInput, CommandInput, Denied } from "./root.ts";
 export const Onboarding = Http.group({ root: Root, group: "onboarding" });
 export const readBoard = Operation.query({ name: "readBoard", input: ReadInput, success: Schema.String })
-  .in(Onboarding).http.get("/board").http.contract({ query: ReadInput }).errors(Denied).declare();
+  .in(Onboarding).http.get("/board").http.contract({ query: ReadInput, metadata: { operationId: "onboarding.readBoard" } }).errors(Denied).declare();
 export const command = Operation.command({ name: "command", input: CommandInput, success: Schema.String })
-  .in(Onboarding).http.post("/command").http.contract({ payload: CommandInput }).errors(Denied).declare();
+  .in(Onboarding).http.post("/command").http.contract({ payload: CommandInput, metadata: { operationId: "onboarding.command" } }).errors(Denied).declare();
 `;
 
 const bindingsSource = ({ http }: Target) => `
@@ -247,6 +247,18 @@ describe("mixed-ownership HTTP group completion", () => {
           yield* fs.writeFileString(path.join(directory, "bindings.ts"), bindingsSource(target));
           const positive = path.join(directory, "positive.ts");
           yield* fs.writeFileString(positive, positiveSource(target));
+          const typeOnly = path.join(directory, "type-only.ts");
+          yield* fs.writeFileString(
+            typeOnly,
+            `import type { OnboardingApiHandlers, OnboardingGuards, OnboardingRawHandlers } from "./.effx/generated/onboarding-handlers.ts";
+import type { HttpApiGroup } from "${target.api}";
+import type { Root } from "./root.ts";
+type Endpoints = HttpApiGroup.Endpoints<(typeof Root)["groups"]["onboarding"]>;
+export type Factory = typeof OnboardingApiHandlers;
+export type Guards = OnboardingGuards<Endpoints>;
+export type Raw = OnboardingRawHandlers<Endpoints, Guards>;
+`,
+          );
 
           const parsed = yield* tryTs("mixed-http-group-config", () => {
             const json = ts.parseConfigFileTextToJson(tsconfigPath, configText);
@@ -255,6 +267,7 @@ describe("mixed-ownership HTTP group completion", () => {
           });
 
           assert.deepStrictEqual(parsed.errors, []);
+          assert.deepStrictEqual(yield* diagnostics(parsed.options, [typeOnly]), []);
           assert.deepStrictEqual(yield* diagnostics(parsed.options, [positive]), []);
           const negativeRoots: Array<string> = [];
 

@@ -7,6 +7,7 @@ import {
   type GenerationContext,
   type Generator,
 } from "../Extension.ts";
+import { findHttpApiGroupInventory } from "../http-api-inventory.ts";
 import {
   type Exposed,
   type RpcTransport,
@@ -409,7 +410,11 @@ const externalTypes = (imports: Imports, group: HttpGroup): ReadonlyArray<string
 };
 
 /** Bind on the exported concrete application root; no generic partial root can prove endpoint keys. */
-const externalHandlersLines = (imports: Imports, group: HttpGroup): ReadonlyArray<string> => {
+const externalHandlersLines = (
+  imports: Imports,
+  group: HttpGroup,
+  mixed: boolean,
+): ReadonlyArray<string> => {
   const typeLines = externalTypes(imports, group);
   const apiGroup = imports.add("effect/http-api", "HttpApiGroup");
   const endpoint = imports.add("effect/http-api", "HttpApiEndpoint");
@@ -428,6 +433,51 @@ const externalHandlersLines = (imports: Imports, group: HttpGroup): ReadonlyArra
   const rawServices = group.items.map((_, index) => `RawR${index}`);
   const guardBindings = `${name}GuardBindings<${endpoints}, ${authorizations.join(", ")}>`;
   const raw = `${name}RawHandlers`;
+
+  // Infer pending handlers from native registration so its requirement markers survive.
+  if (mixed) {
+    const layer = imports.add("effect", "Layer");
+    const scope = imports.add("effect", "Scope");
+    const concreteGroup = `(typeof ${root})["groups"][${JSON.stringify(group.group)}]`;
+
+    return [
+      ...typeLines,
+      "",
+      `type ${endpoints} = ${apiGroup}.Endpoints<${concreteGroup}>;`,
+      "",
+      `export const ${groupApiHandlersName(group.group)} = <`,
+      ...group.items.map(
+        (item, index) =>
+          `  Authorization${index} extends ${effect}.Effect<unknown, ${endpoint}.ErrorsWithIdentifier<${endpoints}, ${JSON.stringify(endpointKey(item))}>, unknown>,`,
+      ),
+      ...rawServices.map((service) => `  ${service},`),
+      ">(",
+      `  { raw, guards }: { readonly raw: ${raw}<${endpoints}, ${guardBindings}, ${rawServices.join(", ")}>; readonly guards: ${guardBindings} },`,
+      ") => {",
+      `  const register = (handlers: ${builder}.Handlers.FromGroup<${concreteGroup}>) =>`,
+      "    handlers",
+      ...group.items.map((item, index) => {
+        const key = JSON.stringify(endpointKey(item));
+        const guard = JSON.stringify(`${group.group}.${endpointKey(item)}`);
+        const end = index === group.items.length - 1 ? ";" : "";
+
+        return `      .handleRaw(${key}, (input) => raw[${key}](input, () => guards[${guard}](input.request)))${end}`;
+      }),
+      "",
+      "  return <Return>(",
+      `    complete: (handlers: ReturnType<typeof register>) => ${builder}.Handlers.ValidateReturn<Return>,`,
+      `  ): ${layer}.Layer<`,
+      `    ${apiGroup}.Service<(typeof ${root})["identifier"], ${JSON.stringify(group.group)}>,`,
+      `    ${builder}.Handlers.Error<Return>,`,
+      `    Exclude<${builder}.Handlers.Context<Return>, ${scope}.Scope>`,
+      `  > => ${builder}.group<(typeof ${root})["identifier"], (typeof ${root})["groups"][keyof (typeof ${root})["groups"]], ${JSON.stringify(group.group)}, Return>(`,
+      `    ${root},`,
+      `    ${JSON.stringify(group.group)},`,
+      "    (handlers) => complete(register(handlers)),",
+      "  );",
+      "};",
+    ];
+  }
 
   return [
     ...typeLines,
@@ -595,11 +645,35 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
 
     if (context.emit !== "contract") {
       for (const group of externalGroups) {
+        const root = group.metadata?.rootSymbol;
+
+        const inventory =
+          root === undefined
+            ? undefined
+            : findHttpApiGroupInventory(root, group.group, context.httpApiGroups);
+
+        // compileCollected diagnoses this precondition; direct generators must stay safe too.
+        if (
+          inventory === undefined ||
+          group.items.some((item) => !inventory.endpoints.includes(endpointKey(item)))
+        )
+          continue;
+
         const imports = new Imports(context);
         files.push(
           generated(
             filename(group, "handlers"),
-            render(header(group.items), imports, externalHandlersLines(imports, group)),
+            render(
+              header(group.items),
+              imports,
+              externalHandlersLines(
+                imports,
+                group,
+                inventory.endpoints.some(
+                  (key) => !group.items.some((item) => endpointKey(item) === key),
+                ),
+              ),
+            ),
           ),
         );
       }
