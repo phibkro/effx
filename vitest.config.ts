@@ -40,7 +40,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: "compiler-integration",
-          include: ["packages/frontend-ts/test/**/*.test.ts", "packages/cli/test/**/*.test.ts"],
+          include: [
+            "packages/frontend-ts/test/**/*.test.ts",
+            "packages/cli/test/**/*.test.ts",
+            "examples/extension-openapi-tags/test/extension.test.ts",
+          ],
           testTimeout: 60_000,
         },
       },
@@ -53,7 +57,11 @@ export default defineConfig({
             "examples/*/test/**/*.test.ts",
             "tools/conventions/tests/**/*.test.ts",
           ],
-          exclude: ["packages/frontend-ts/test/**/*.test.ts", "packages/cli/test/**/*.test.ts"],
+          exclude: [
+            "packages/frontend-ts/test/**/*.test.ts",
+            "packages/cli/test/**/*.test.ts",
+            "examples/extension-openapi-tags/test/extension.test.ts",
+          ],
           testTimeout: 5_000,
         },
       },
