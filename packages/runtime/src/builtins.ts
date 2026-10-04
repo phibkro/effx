@@ -5,7 +5,6 @@ import type {
   Focus as FocusValue,
   HttpAccessAnnotationSpec,
   HttpOperationAnnotator,
-  NonEmptyStrings,
   ProblemRegistry,
   ServiceLike,
 } from "./Annotation.js";
@@ -16,7 +15,7 @@ import { defineBuiltin, rest } from "./define/define.js";
 /**
  * The built-in annotations, re-expressed with `define` (spec 0020 §3). Each definition reproduces the
  * hand-written option type of `Annotation.ts` and the compiler `Schema` it replaces one-for-one,
- * including their disagreements (`A.sourceOptional`, `A.sugar`, `A.live`); tightening is a later step.
+ * including their disagreements (`A.sourceOptional`, `A.sugar`, `A.live`); T1 below tightened the group defaults.
  */
 
 const callableAnnotator = A.symbol<HttpOperationAnnotator>({
@@ -33,18 +32,15 @@ const securityMarkers = A.array(A.symbol<ServiceLike>({ check: "security-marker"
 
 const exposure = A.literal("External", "Internal");
 
-const names = A.live<NonEmptyStrings>()(
-  A.array(A.nonEmptyString, { unique: true, nonEmpty: true }),
+/** Non-empty, duplicate-free names: one definition for Access and for the group defaults (spec 0020 §0.1). */
+const names = A.nonEmptyArray(A.nonEmptyString, { unique: true });
+
+const principalKinds = A.nonEmptyArray(
+  A.literal("Anonymous", "Person", "ServicePrincipal", "CapabilityHolder"),
+  { unique: true },
 );
 
-const looseNames = A.live<NonEmptyStrings>()(A.array(A.string));
-
-const concealment = A.taggedUnion({
-  Reveal: {},
-  NotFound: {
-    stages: A.live<NonEmptyStrings>()(A.array(A.nonEmptyString, { unique: true, nonEmpty: true })),
-  },
-});
+const concealment = A.taggedUnion({ Reveal: {}, NotFound: { stages: names } });
 
 const exportedValue = A.symbol<(spec: HttpAccessAnnotationSpec) => Context.Context<never>>({
   check: "exported-value",
@@ -205,14 +201,7 @@ export const HttpAccess = defineBuiltin({
       annotator: A.sourceOptional(exportedValue),
       exposure: A.sourceOptional(exposure),
       acceptedCredentials: A.sourceOptional(names),
-      principalKinds: A.sourceOptional(
-        A.live<NonEmptyStrings>()(
-          A.array(A.literal("Anonymous", "Person", "ServicePrincipal", "CapabilityHolder"), {
-            unique: true,
-            nonEmpty: true,
-          }),
-        ),
-      ),
+      principalKinds: A.sourceOptional(principalKinds),
       capabilities: A.taggedUnion({
         None: {},
         One: { capability: A.nonEmptyString },
@@ -272,14 +261,9 @@ export const HttpGroup = defineBuiltin({
             A.struct({
               annotator: A.optional(exportedValue),
               exposure: A.optional(exposure),
-              acceptedCredentials: A.optional(looseNames),
-              principalKinds: A.optional(looseNames),
-              concealment: A.optional(
-                A.taggedUnion({
-                  Reveal: {},
-                  NotFound: { stages: A.live<NonEmptyStrings>()(A.array(A.string)) },
-                }),
-              ),
+              acceptedCredentials: A.optional(names),
+              principalKinds: A.optional(principalKinds),
+              concealment: A.optional(concealment),
             }),
           ),
         }),

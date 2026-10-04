@@ -593,6 +593,49 @@ describe("group defaults expansion", () => {
       assert.isTrue(Option.isNone(result.files.value));
     }),
   );
+
+  // T1 (spec 0020 §0.1): group defaults use the same strict access value sets as `Http.Access`.
+  for (const [label, access] of [
+    ["empty acceptedCredentials", { acceptedCredentials: [] }],
+    ["duplicate acceptedCredentials", { acceptedCredentials: ["None", "None"] }],
+    ["empty principalKinds", { principalKinds: [] }],
+    ["unknown principal kind", { principalKinds: ["Robot"] }],
+    ["duplicate principal kinds", { principalKinds: ["Person", "Person"] }],
+    ["empty NotFound stages", { concealment: { _tag: "NotFound", stages: [] } }],
+  ] as const) {
+    it.effect(`group defaults reject ${label}`, () =>
+      Effect.gen(function* () {
+        const s = source(true);
+
+        const strict: Collected = {
+          ...s,
+          declarations: [
+            {
+              ...s.declarations[0]!,
+              annotations: [
+                {
+                  name: "Http.Group",
+                  args: [
+                    {
+                      root,
+                      group: "directory",
+                      defaults: { access: { ...defaults.access, ...access } },
+                    },
+                  ],
+                },
+              ],
+            },
+            s.declarations[1]!,
+          ],
+        };
+
+        const result = yield* compileCollected(strict, Extensions.builtin);
+        assert.include(errors(result), "EFFX1102");
+        assert.isTrue(Option.isNone(result.files.value));
+      }),
+    );
+  }
+
   it.effect("PUT Commands and POST Queries keep explicit request-shape rules", () =>
     Effect.sync(() => {
       const s = source(true);

@@ -113,6 +113,9 @@ const same = <A, B>(
   ..._witness: [A] extends [B] ? ([B] extends [A] ? [] : [never]) : [never]
 ) => {};
 
+/** `A` is assignable to `B`, but not (necessarily) the reverse. */
+const narrower = <A, B>(..._witness: [A] extends [B] ? [] : [never]): void => {};
+
 describe("built-in definitions: derived Live types equal the legacy hand-written option types", () => {
   it("Query/Command", () => {
     same<First<typeof Builtins.Query>, LegacyOperationOptions>();
@@ -123,13 +126,23 @@ describe("built-in definitions: derived Live types equal the legacy hand-written
     same<First<typeof Builtins.HttpContract>, LegacyHttpContractOptions>();
     same<HttpContractOptions, LegacyHttpContractOptions>();
   });
-  it("Http.Group", () => {
-    same<First<typeof Builtins.HttpGroup>, LegacyHttpGroupOptions>();
-    same<HttpGroupOptions, LegacyHttpGroupOptions>();
+  // T1 (spec 0020 §0.1): `principalKinds` is the closed literal set everywhere, including the group
+  // defaults. The derived types are therefore STRICTLY narrower than the legacy ones: every derived
+  // value is a legacy value, not the reverse.
+  it("Http.Group (tightened)", () => {
+    narrower<First<typeof Builtins.HttpGroup>, LegacyHttpGroupOptions>();
+    narrower<HttpGroupOptions, LegacyHttpGroupOptions>();
   });
-  it("Http.Access", () => {
-    same<First<typeof Builtins.HttpAccess>, LegacyHttpAccessOptions>();
-    same<HttpAccessOptions, LegacyHttpAccessOptions>();
+  it("Http.Access (tightened)", () => {
+    narrower<First<typeof Builtins.HttpAccess>, LegacyHttpAccessOptions>();
+    narrower<HttpAccessOptions, LegacyHttpAccessOptions>();
+    expectTypeOf<HttpAccessOptions["principalKinds"]>().toEqualTypeOf<
+      | readonly [
+          "Anonymous" | "Person" | "ServicePrincipal" | "CapabilityHolder",
+          ...Array<"Anonymous" | "Person" | "ServicePrincipal" | "CapabilityHolder">,
+        ]
+      | undefined
+    >();
   });
   it("Http.Problems", () => {
     same<First<typeof Builtins.HttpProblems>, LegacyHttpProblemsOptions<string>>();
