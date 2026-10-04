@@ -207,7 +207,7 @@ or that PATCH has run inside a real transaction
 `apps/backend/src/profile/http.ts:202-354`, installed rc
 `HttpApiEndpoint.HandlerRawWithIdentifier` and `HttpApiBuilder.handleRaw`).
 
-### Amendment: mixed-ownership concrete groups
+### Amendment (2026-10-04) — mixed-ownership concrete groups
 
 Effx must never emit a handler module that fails native group completeness,
 even when an application imports only its raw or guard types. The frontend
