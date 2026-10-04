@@ -1,0 +1,16 @@
+{
+  "extends": "../users/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@effx-examples/users/schemas": ["../users/src/schemas.ts"],
+      "@effx-examples/users/user": ["../users/src/user.ts"],
+      "@effx-examples/users/services": ["../users/src/services.ts"],
+      "@effx/runtime": ["../../packages/runtime/src/index.ts"],
+      "@effx/persistence": ["../../packages/persistence/src/index.ts"],
+      "@effx/persistence/syntax": ["../../packages/persistence/src/syntax.ts"],
+      "@effx/persistence/compiler": ["../../packages/persistence/src/compiler.ts"],
+      "@effx/cli/config": ["../../packages/cli/src/config.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "../users/src/operations.ts", ".effx/generated/**/*.ts"]
+}

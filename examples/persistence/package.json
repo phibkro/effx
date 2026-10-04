@@ -1,0 +1,22 @@
+{
+  "name": "@effx-examples/persistence",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun ../../packages/cli/src/main.ts build",
+    "start": "bun src/server-main.ts"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0",
+    "@effect/sql-pglite": "4.0.0",
+    "@effx-examples/users": "workspace:*",
+    "@effx/persistence": "workspace:*",
+    "@effx/runtime": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0",
+    "@effx/cli": "workspace:*"
+  }
+}

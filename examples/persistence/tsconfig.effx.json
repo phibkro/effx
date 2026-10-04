@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/ports.ts", "../users/src/operations.ts"],
+  "effx": { "projectRoot": ".." }
+}
