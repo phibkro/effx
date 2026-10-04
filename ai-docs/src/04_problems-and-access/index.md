@@ -34,17 +34,18 @@ application code.
 
 `@Http.Access(opts)` / `.http.access(opts)`; type `HttpAccessOptions`.
 
-| Field                    | Shape                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `annotator`              | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed) |
-| `exposure`               | `"External"` or `"Internal"`                                                                    |
-| `acceptedCredentials`    | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                      |
-| `principalKinds`         | nonempty names (`Anonymous`, `Person`, ...)                                                     |
-| `capabilities`           | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                  |
-| `requirements`           | `{ id, parameters? }[]` with JSON-only parameters                                               |
-| `canonicalScopeResolver` | exported symbol; the annotator maps it to the app's resolver id                                 |
-| `concealment`            | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                      |
-| `decisionTime`           | `"SnapshotRead"` or `"Transaction"`                                                             |
+| Field                        | Shape                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| `annotator`                  | exported `(spec) => Context`; merged onto the endpoint after middleware (group default allowed) |
+| `exposure`                   | `"External"` or `"Internal"`                                                                    |
+| `acceptedCredentials`        | nonempty names (`None`, `BetterAuthCookie`, ... application-owned strings)                      |
+| `principalKinds`             | nonempty names (`Anonymous`, `Person`, ...)                                                     |
+| `capabilities`               | `Capability.one(c)`, `.any(a, ...)`, `.all(a, ...)` or `.none`                                  |
+| `requirements`               | `{ id, parameters? }[]` with JSON-only parameters                                               |
+| `canonicalScopeResolver`     | exported symbol; the annotator maps it to the app's resolver id                                 |
+| `concealment`                | `Concealment.reveal` or `Concealment.notFound(stage, ...)`                                      |
+| `decisionTime`               | `"SnapshotRead"` or `"Transaction"`                                                             |
+| `snapshotDecisionForCommand` | optional `true`; compiler-only claim for a capability-only Command (ADR 0013)                   |
 
 `Capability.make(name, { resource, focus? })` is a different thing: it builds a
 **model** capability for `@Authorize` / `.authorize(...)`. The access
@@ -72,14 +73,22 @@ needs a real end-to-end run.
 
 | Code       | Condition                                                                                             | Severity                              |
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `EFFX2501` | a `Command` declares `SnapshotRead`                                                                   | error                                 |
+| `EFFX2501` | a `Command` declares `SnapshotRead` without an accepted `snapshotDecisionForCommand` claim            | error                                 |
 | `EFFX2502` | a `Query` declares `Transaction`                                                                      | warning                               |
 | `EFFX2503` | a credential other than sole `None` is accepted but `Http.Contract.middleware` has no security marker | error                                 |
 | `EFFX2504` | an HTTP operation has no `Http.Access`                                                                | warning; error with `--strict-access` |
 | `EFFX2500` | duplicate `Http.Access`                                                                               | error                                 |
+| `EFFX2506` | `snapshotDecisionForCommand: true` is declared outside the one allowed shape (see below)              | error                                 |
 
 A **security marker** is an `HttpApiMiddleware.Service` class that carries
 Effect's `security` option. Any other middleware does not satisfy `EFFX2503`.
+
+`snapshotDecisionForCommand: true` (ADR 0013) lifts `EFFX2501` for a `Command` only when it also declares
+`SnapshotRead`, empty `requirements`, `acceptedCredentials: ["ObjectCapability"]` and
+`principalKinds: ["CapabilityHolder"]`. Any other use, including on a `Query` or beside `Transaction`, is
+`EFFX2506`. The claim is compiler-only: the annotator never receives it, and `false` is the same as absent.
+It asserts a declared shape, not that the resolver only routes or that your guard compares the token
+correctly; the application middleware and guard own that.
 
 Read-only queries over POST: `@Http.Contract({ payloadIsQuery: true, payload })`
 on a `Query` with `@Http.Post` (ADR 0010); it is rejected unless the operation

@@ -97,6 +97,7 @@ It is allowed once per operation (`EFFX2500` otherwise).
 | `canonicalScopeResolver` | `object`                                              | no       | Application-exported value, lowered to a `SymbolRef`. effx implements no scope lookup.   |
 | `concealment`            | `AccessConcealment`                                   | yes      | What a denied caller sees.                                                               |
 | `decisionTime`           | `"SnapshotRead"` or `"Transaction"`                   | no       | Where the application decides authority.                                                 |
+| `snapshotDecisionForCommand` | `boolean`                                         | yes      | Compiler-only claim (ADR 0013). Only `true` has meaning; the annotator never receives it. |
 
 `HttpAccessAnnotationSpec` is the value passed unchanged to your annotator in generated code. All its fields
 are required: `exposure`, `acceptedCredentials`, `principalKinds`, `capabilities`, `requirements`,
@@ -153,10 +154,11 @@ non-static argument is a source diagnostic. Source: `packages/runtime/src/author
 | Code       | Severity                                       | Condition                                                                                              |
 | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `EFFX2500` | error                                          | duplicate `Http.Access`, or malformed access contract data                                             |
-| `EFFX2501` | error                                          | a Command declares `decisionTime: "SnapshotRead"`                                                      |
+| `EFFX2501` | error                                          | a Command declares `decisionTime: "SnapshotRead"` without an accepted `snapshotDecisionForCommand` claim |
 | `EFFX2502` | warning                                        | a Query declares `decisionTime: "Transaction"`                                                         |
 | `EFFX2503` | error                                          | `acceptedCredentials` has any entry other than `None` but `Http.Contract.middleware` has no security marker |
 | `EFFX2504` | warning; error with `strictAccess: true`       | an operation with HTTP exposure has no `Http.Access`                                                   |
+| `EFFX2506` | error                                          | `snapshotDecisionForCommand: true` outside a Command with `SnapshotRead`, empty `requirements`, sole `ObjectCapability` and sole `CapabilityHolder` (`EFFX2501` also remains for an unsafe Command) |
 
 Source: `packages/compiler/src/extensions/access-contract.ts` (`analyzeAccess`).
 
