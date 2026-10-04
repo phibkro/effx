@@ -2,19 +2,22 @@
 import { Effect, Layer } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
 import type { UsersHarness } from "../.effx/generated/users-conformance.ts";
-import { database, snapshotUsers } from "./database.ts";
+import { database, resetUsers, snapshotUsers } from "./database.ts";
 import { UsersDrizzle } from "./UsersDrizzle.ts";
 import { UsersSql } from "./UsersSql.ts";
 
-const transact: UsersHarness<SqlError.SqlError, SqlClient.SqlClient>["transact"] = (effect) =>
+const transact = <A, X, Rx>(
+  effect: Effect.Effect<A, X, Rx>,
+): Effect.Effect<A, X | SqlError.SqlError, Rx | SqlClient.SqlClient> =>
   Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(effect));
 
-// The generated suite constructs a fresh layer per test/sample. PGlite is single connection;
+// The generated suite constructs a fresh layer per test and resets between samples. PGlite is single connection;
 // contention cases must be skipped rather than advertised as multi-connection evidence.
 export const usersSqlHarness: UsersHarness<SqlError.SqlError, SqlClient.SqlClient> = {
   name: "UsersSql / PGlite",
   layer: UsersSql.pipe(Layer.provideMerge(database)),
   transact,
+  reset: resetUsers,
   snapshot: snapshotUsers,
   supportsConcurrentConnections: false,
 };
@@ -23,6 +26,7 @@ export const usersDrizzleHarness: UsersHarness<SqlError.SqlError, SqlClient.SqlC
   name: "UsersDrizzle / PGlite",
   layer: UsersDrizzle.pipe(Layer.provideMerge(database)),
   transact,
+  reset: resetUsers,
   snapshot: snapshotUsers,
   supportsConcurrentConnections: false,
 };

@@ -19,11 +19,17 @@ export const setupUsers = Effect.gen(function* () {
   )`;
 });
 
+/** Clear every persisted row without reinstalling domain fixtures. */
+export const resetUsers = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`DELETE FROM users`;
+});
+
 export const seedUsers = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql.withTransaction(
     Effect.gen(function* () {
-      yield* sql`DELETE FROM users`;
+      yield* resetUsers;
       const rows = yield* encodeStoredUsers([alice, bob]).pipe(Effect.orDie);
 
       for (const row of rows) {

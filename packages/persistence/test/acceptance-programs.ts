@@ -262,6 +262,8 @@ for (const mode of ["stable", "changing", "wrong-expected"] as const) {
       });
     })),
     transact: (effect) => effect,
+    // This equality probe stores no rows; only per-call observations vary.
+    reset: Effect.void,
     snapshot: Effect.succeed([]),
     supportsConcurrentConnections: false,
   };
@@ -328,10 +330,29 @@ for (const mode of [
           ...cause.reasons, Cause.makeFailReason({ _tag: "ExtraRollbackFailure" }),
         ]))))
       : effect,
+    reset: Effect.flatMap(ProbeState, (state) => Ref.set(state, "compound")),
     snapshot: Effect.succeed([]),
     supportsConcurrentConnections: false,
   };
   compoundConformance(harness, scenarios);
 }
 
+`;
+
+// A real SQL reset that intentionally leaves Alice behind. The second arbitrary sample
+// must fail the generated empty-store assertion before fixture seeding can hide the leak.
+export const incompleteResetProgram = `
+import { Effect } from "effect";
+import { SqlClient } from "effect/sql";
+import { usersConformance } from "./.effx/generated/users-conformance.ts";
+import { usersSqlHarness } from "./src/harness.ts";
+import { sharedUsersScenarios } from "./src/scenarios.ts";
+usersConformance({
+  ...usersSqlHarness,
+  name: "broken incomplete reset",
+  reset: Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql\`DELETE FROM users WHERE id <> '1'\`;
+  }),
+}, sharedUsersScenarios);
 `;

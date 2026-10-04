@@ -49,6 +49,7 @@ export const conformanceBody = (
     "scenarios",
     "snapshot",
     "isolated",
+    "emptyStore",
     "program",
     "port",
     "input",
@@ -151,6 +152,19 @@ export const conformanceBody = (
     "",
   ]);
 
+  const testRoot = [
+    "    it.layer(Layer.fresh(harness.layer))((it) => {",
+    "      let emptyStore: Schema.Json | undefined;",
+    `      const isolated = <A, X>(program: Effect.Effect<A, X, ${service} | R>) =>`,
+    "        Effect.scoped(Effect.gen(function* () {",
+    "          if (emptyStore === undefined) emptyStore = yield* snapshot;",
+    "          yield* harness.reset;",
+    '          assert.deepStrictEqual(yield* snapshot, emptyStore, "Conformance reset did not restore the empty store");',
+    "          yield* scenarios.seed;",
+    "          return yield* program;",
+    "        }));",
+  ];
+
   const tests: Array<string> = [];
 
   for (const method of methodSchemas) {
@@ -158,7 +172,7 @@ export const conformanceBody = (
     const call = `port[${key}](input)`;
     const closed = `assertClosed(result, ${method.local}Success, ${method.local}Error);`;
     tests.push(
-      "    it.layer(Layer.fresh(harness.layer))((it) => {",
+      ...testRoot,
       `    it.effect.prop(${quote(`G1 closed error channel: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
       "      isolated(Effect.gen(function* () {",
       `        const port = yield* ${service};`,
@@ -173,7 +187,7 @@ export const conformanceBody = (
 
     if (method.operation.kind === "Query") {
       tests.push(
-        "    it.layer(Layer.fresh(harness.layer))((it) => {",
+        ...testRoot,
         `    it.effect.prop(${quote(`G2 query purity: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
         "      isolated(Effect.gen(function* () {",
         `        const port = yield* ${service};`,
@@ -200,7 +214,7 @@ export const conformanceBody = (
       );
     } else {
       tests.push(
-        "    it.layer(Layer.fresh(harness.layer))((it) => {",
+        ...testRoot,
         `    it.effect.prop(${quote(`G3 rollback atomicity: ${method.name}`)}, [${method.local}Input], ([input]) =>`,
         "      isolated(Effect.gen(function* () {",
         `        const port = yield* ${service};`,
@@ -222,7 +236,7 @@ export const conformanceBody = (
 
     tests.push(
       `    for (const scenario of scenarios.methods[${key}].success) {`,
-      "    it.layer(Layer.fresh(harness.layer))((it) => {",
+      ...testRoot,
       "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
       `      test(${quote(`G1 domain success: ${method.name} / `)} + scenario.name, () =>`,
       "        isolated(Effect.gen(function* () {",
@@ -239,7 +253,7 @@ export const conformanceBody = (
 
     if (method.operation.kind === "Command") {
       tests.push(
-        "    it.layer(Layer.fresh(harness.layer))((it) => {",
+        ...testRoot,
         "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
         `      test(${quote(`G3 rollback successful command: ${method.name} / `)} + scenario.name, () =>`,
         "        isolated(Effect.gen(function* () {",
@@ -264,7 +278,7 @@ export const conformanceBody = (
     for (const member of method.members) {
       tests.push(
         `    for (const scenario of scenarios.methods[${key}].errors[${quote(member.key)}]) {`,
-        "    it.layer(Layer.fresh(harness.layer))((it) => {",
+        ...testRoot,
         "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
         `      test(${quote(`G1 domain error: ${method.name}.${member.key} / `)} + scenario.name, () =>`,
         "        isolated(Effect.gen(function* () {",
@@ -290,7 +304,7 @@ export const conformanceBody = (
     const b = methodSchemas.find((method) => method.name === second.name)!;
     const key = `${first.name}+${second.name}`;
     tests.push(
-      "    it.layer(Layer.fresh(harness.layer))((it) => {",
+      ...testRoot,
       `    it.effect.prop(${quote(`G4 shared transaction rollback: ${key}`)}, [${a.local}Input, ${b.local}Input], ([a, b]) =>`,
       "      isolated(Effect.gen(function* () {",
       `        const port = yield* ${service};`,
@@ -319,7 +333,7 @@ export const conformanceBody = (
       `        const second = yield* port[${quote(second.name)}](scenario.inputs[1]);`,
       `        assert.isTrue(${b.local}Success(second));`,
       "      });",
-      "    it.layer(Layer.fresh(harness.layer))((it) => {",
+      ...testRoot,
       "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
       `      test(${quote(`G4 shared transaction rollback scenario: ${key} / `)} + scenario.name, () =>`,
       "        isolated(Effect.gen(function* () {",
@@ -331,7 +345,7 @@ export const conformanceBody = (
       "        })),",
       "      );",
       "    });",
-      "    it.layer(Layer.fresh(harness.layer))((it) => {",
+      ...testRoot,
       "      const test = it.effect.skipIf(scenario.requiresConcurrentConnections === true && !harness.supportsConcurrentConnections);",
       `      test(${quote(`G4 shared transaction commit: ${key} / `)} + scenario.name, () =>`,
       "        isolated(Effect.gen(function* () {",
@@ -347,10 +361,11 @@ export const conformanceBody = (
   }
 
   return [
-    "/** Each test owns fresh storage until completion. Samples reset via seed and own separate Command scopes. */",
+    "/** Each test owns initially empty storage. Every sample resets and proves emptiness before seeding its fixtures. */",
     `export interface ${base}Harness<E, R> {`,
     "  readonly name: string;",
     `  readonly layer: Layer.Layer<${service} | R, E>;`,
+    "  readonly reset: Effect.Effect<void, E, R>;",
     "  readonly transact: <A, X, Rx>(effect: Effect.Effect<A, X, Rx>) => Effect.Effect<A, X | E, Rx | R>;",
     "  readonly snapshot: Effect.Effect<Schema.Json, E, R>;",
     "  readonly supportsConcurrentConnections: boolean;",
@@ -440,11 +455,6 @@ export const conformanceBody = (
     "",
     `export const ${fn} = <E, R>(harness: ${base}Harness<E, R>, scenarios: ${base}Scenarios<E, R>): void => {`,
     "  const snapshot = harness.snapshot.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)));",
-    `  const isolated = <A, X>(program: Effect.Effect<A, X, ${service} | R>) =>`,
-    "    Effect.scoped(Effect.gen(function* () {",
-    "      yield* scenarios.seed;",
-    "      return yield* program;",
-    "    }));",
     "",
     `  describe(${quote(`${port.name} adapter conformance / `)} + harness.name, () => {`,
     ...tests,

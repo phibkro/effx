@@ -196,11 +196,8 @@ describe("persistence compiler", () => {
         "Effect.provide(",
         "Samples must reuse their test-owned store, not initialize PGlite again",
       );
-      assert.include(
-        suite.contents,
-        "Effect.scoped(Effect.gen(function* () {\n      yield* scenarios.seed;\n      return yield* program;\n    }));",
-        "Every sample must reset storage and close its own Command scope",
-      );
+      assert.include(suite.contents, "readonly reset: Effect.Effect<void, E, R>");
+      assert.include(suite.contents, "Effect.scoped(Effect.gen(function* () {");
 
       const roots = [
         ...suite.contents.matchAll(
@@ -221,6 +218,23 @@ describe("persistence compiler", () => {
           (root[1]!.match(/(?:it\.effect\.prop|test)\(/g) ?? []).length,
           1,
           "A layer block must not share storage between distinct tests",
+        );
+
+        assert.include(
+          root[1]!,
+          "let emptyStore: Schema.Json | undefined;",
+          "The empty baseline belongs to each individual test, never the suite",
+        );
+        assert.include(
+          root[1]!,
+          [
+            "if (emptyStore === undefined) emptyStore = yield* snapshot;",
+            "          yield* harness.reset;",
+            '          assert.deepStrictEqual(yield* snapshot, emptyStore, "Conformance reset did not restore the empty store");',
+            "          yield* scenarios.seed;",
+            "          return yield* program;",
+          ].join("\n"),
+          "First and later samples must prove empty reset before fixture seeding can hide leftover rows",
         );
 
         if (root[1]!.includes("it.effect.prop(")) {
