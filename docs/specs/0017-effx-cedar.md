@@ -1,6 +1,6 @@
 # Spec 0017 — `effx cedar`: Cedar schema and policy projection, validated by real Cedar
 
-Status: **proposed, awaiting approval** (2026-10-04). No code is written until approval. Builds on
+Status: **approved 2026-10-04; implementing** (decisions in §7). Builds on
 [spec 0006](0006-access-contract-extension.md), [spec 0015](0015-config-and-extensions.md) and
 [spec 0021](0021-surface-manifest.md); realizes the "Cedar schema is generated from the IR; policy
 validation becomes `EFFX41xx` diagnostics" half of
@@ -34,7 +34,7 @@ could make possible is never consumed by effx code.
 Inputs are IR facts only: `Capability{name, resource, focus?}`, `Focus{root, path}`, `Model{name}`,
 `AuthorizedBy` edges, and `AccessContractData` of each `Extension{access-contract}` reached by its
 `ExtensionOf` edge (`packages/ir/src/Node.ts`, `packages/compiler/src/extensions/access-contract.ts`).
-Namespace is the fixed Cedar namespace `Effx`. Output is sorted by id and carries the header
+The namespace is `Effx` by default and `--namespace` overrides it (§4). Output is sorted by id and carries the header
 `// effx cedar projection of semanticHash <sha-256>` (the same link as `surface.json`).
 
 ### 2.1 Schema
@@ -175,11 +175,12 @@ Adapter shape: `packages/cli/src/cedar-validate.ts` is the single boundary. It e
 ## 4. Command
 
 ```
-effx cedar [--project <tsconfig>] [--config <file>] [--out-dir <dir>]
+effx cedar [--project <tsconfig>] [--config <file>] [--out-dir <dir>] [--namespace <Name>]
            [--policies <file.cedar>]... [--deny-warnings]
 ```
 
 - A **separate command**. `build` and `check` never call it, never write `.effx/cedar/`, never load the Cedar module.
+- `--namespace <Name>` (default `Effx`) names the Cedar namespace of the emitted schema and of every policy reference (`<Name>::Action::"…"`). It is a Cedar path of unreserved identifiers joined by `::`; anything else is `EFFX4101` and nothing is written.
 - `--out-dir` defaults to `<tsconfig dir>/.effx/cedar` (the layout in `docs/research/2026-10-02-deep-research-report.md`). Files: `schema.cedarschema`, `policies.cedar`, plus nothing else.
 - Project resolution, config discovery and `ProjectConfig` use the single resolution of spec 0015; the config's discovery list gains `cedar`. Pipeline errors fail first, as `check`. `--strict-access` is **not** offered (spec 0006: only `check`/`build` claim the access gate).
 - Always validates the emitted pair. `--policies` (repeatable) additionally validates application-authored policy files against the emitted schema. This is the editing-time feedback ADR 0007 names.
@@ -207,7 +208,7 @@ A validator failure on **effx-emitted** text is an invariant break in the projec
 `CompilerFault` (invariant 11: faults are for invariant breakage), never a diagnostic. This is what
 keeps `EFFX4102` about the user's policies.
 
-## 6. Files and gates (after approval)
+## 6. Files and gates
 
 New only: `packages/compiler/src/cedar.ts` (pure `cedarOf(ir) → { schema, policies, diagnostics }`,
 in `@effx/compiler`), `packages/cli/src/{cedar,cedar-validate}.ts`, tests, one `main.ts` subcommand,
@@ -232,12 +233,14 @@ Gates on a clean committed worktree after implementation: focused tests, `bun ru
 `bun run effect:diagnostics`, `bun install --frozen-lockfile` on the merged tree. No publish, no
 deploy, no runtime authorization.
 
-## 7. Open questions (need an operator decision)
+## 7. Decisions (operator-approved 2026-10-04)
 
-1. **wasm vs CLI as the runtime validator.** Recommended: wasm 4.13.0, CLI as acceptance oracle (§3). Alternative: require `cedar` on PATH (nix-only) and register an `effect/process` exception.
-2. **Dependency shape.** Recommended: optional peer dependency so `@effx/cli` users who never run `effx cedar` do not install 13 MB. Alternative: regular dependency, or a separate `@effx/cedar` package.
-3. **Namespace.** Fixed `Effx`, or a `--namespace` flag so an application can merge the schema into its own Cedar namespace?
-4. **`All`.** Leave unmapped with EFFX4104 (recommended, honest), or define a per-capability request convention (`operation/<op>/<cap>` actions) that makes the application issue N requests?
-5. **Requirement encoding.** `"<id>": Bool` context attributes plus `forbid … unless` (recommended, uses Cedar's default-deny and forbid-overrides) versus requirement ids as a `Set<String>` attribute.
-6. **Resource type for `AccessContract` operations.** The resolver export name (recommended) versus one generic `Scope` entity type, which cannot disambiguate scopes and loses applicability checking.
-7. **Does an ADR 0007 addendum and a `STATE.md` row land with the implementation?** ADR 0007 still says "deferred"; this slice is projection only, so the status line should say so explicitly.
+Resolved from the proposal's open questions; each is binding for the implementation.
+
+1. **Validator.** `@cedar-policy/cedar-wasm` pinned exactly to `4.13.0`, loaded from the `/nodejs` subpath with a dynamic `import()`. The adapter checks `validationErrors` itself and never trusts `type: "success"`. The nixpkgs `cedar` CLI is the acceptance oracle only.
+2. **Dependency.** An **optional peer dependency** of `@effx/cli`. When it is missing, `effx cedar` fails with one clear `CompilerFault` naming `bun add @cedar-policy/cedar-wasm@4.13.0`. `build` and `check` never import it; the import-graph test (F3d) proves it.
+3. **Namespace.** Default `Effx`; `--namespace <Name>` overrides it. The value is validated as a Cedar namespace: one or more unreserved Cedar identifiers joined by `::`. An invalid value is `EFFX4101`, before anything is written.
+4. **`All`.** Stays unmapped with `EFFX4104`.
+5. **Requirements.** `"<id>": Bool` context attributes plus `forbid … unless`.
+6. **Resource type.** The resolver export name.
+7. **ADR and STATE.** The implementation adds an ADR 0007 addendum ("schema/policy projection + validation shipped in 0017; runtime authorization and leases still deferred") and a `STATE.md` row, each as a separate commit.
