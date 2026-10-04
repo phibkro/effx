@@ -3,7 +3,7 @@ title: CLI overview
 description: The effx command line. Four compile commands and one wiring check, six shared flags, and an optional effx.config.ts that sits below the flags in the precedence order.
 ---
 
-`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same six shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`). A fifth command, `effx surface check`, is described in the table below.
+`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same six shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`). `effx surface check` and `effx cedar` are described in the table below.
 
 Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
 
@@ -20,10 +20,13 @@ Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/
 | `effx inspect <name>` | Show one operation's contract and exposures | no | [inspect](/docs/cli/inspect) |
 | `effx graph [name]` | Print a Mermaid graph, optionally from one node | no | [graph](/docs/cli/graph) |
 | `effx surface check --against <file>` | Verify an Alchemy Worker program wires exactly the generated handlers the surface requires (spec 0021). Compiles the project first and exits 1 on errors. | no | none yet |
+| `effx cedar [--namespace <Name>] [--policies <file>]... [--deny-warnings]` | Project capabilities and access contracts to a Cedar schema and policies, validated by Cedar 4.13.0 (spec 0017). Separate from `build`: nothing else under `.effx` changes. | `.effx/cedar/schema.cedarschema`, `.effx/cedar/policies.cedar` | none yet |
 
 The root command is described as "AOT application compiler for Effect".
 
 Source for the `surface check` row: `main.ts` description and `packages/cli/src/surface.ts` (`surfaceCheck`, `wiringDiagnostics`). The comment there states that it never executes the program. Its diagnostic codes and the wiring rules are not described on this page.
+
+`effx cedar` (`packages/cli/src/cedar.ts`, `docs/specs/0017-effx-cedar.md`) projects only; it evaluates no request and issues no lease. It is an opt-in command: `check` and `build` never run it or load its validator. Its validator, `@cedar-policy/cedar-wasm` 4.13.0, is an **optional peer dependency** of `@effx/cli`; install it with `bun add @cedar-policy/cedar-wasm@4.13.0`, otherwise the command fails naming that install. For this command `--out-dir` is the Cedar output directory (default `<tsconfig dir>/.effx/cedar`) and `--strict-access` is not applied. `--namespace` defaults to `Effx`. `--policies` validates application-written `.cedar` files against the emitted schema (`EFFX4102`, `EFFX4106`). The command's own codes are `EFFX4101` to `EFFX4107`; exit status is 1 when any error is reported, or any warning with `--deny-warnings`.
 
 ## Flags
 

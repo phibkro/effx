@@ -59,7 +59,7 @@ Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on 
 | `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, `StageResult`, `SourceFrontend` service, `Extension` contract, core/http/rpc/cli extensions, pipeline | ir                    |
 | `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                            | compiler              |
 | `packages/runtime` (`@effx/runtime`)         | tiny standards-compatible decorators + builder API (source syntax only)                                             | effect                |
-| `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/surface check` composition root (writes `.effx/surface.json`, spec 0021)            | compiler, frontend-ts |
+| `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/surface check/cedar` composition root (writes `.effx/surface.json`, `.effx/cedar/`) | compiler, frontend-ts |
 | `examples/users`                             | the User slice from the research report                                                                             | runtime               |
 | `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                | generated pages       |
 
