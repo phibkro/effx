@@ -63,9 +63,15 @@ describe("spec 0018 executable config epoch", () => {
       FileSystem.FileSystem | Path.Path
     >();
     expectTypeOf<Effect.Error<typeof ordinary>>().toEqualTypeOf<
-      CompilerFault | PlatformError.PlatformError
+      CompilerFault | PlatformError.PlatformError | PlatformError.BadArgument
     >();
     expectTypeOf<Effect.Error<typeof admitted>>().toEqualTypeOf<
+      CompilerFault | PlatformError.PlatformError | PlatformError.BadArgument
+    >();
+    expectTypeOf<Effect.Error<typeof ordinary>>().not.toEqualTypeOf<
+      CompilerFault | PlatformError.PlatformError
+    >();
+    expectTypeOf<Effect.Error<typeof admitted>>().not.toEqualTypeOf<
       CompilerFault | PlatformError.PlatformError
     >();
     expectTypeOf<Effect.Error<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
