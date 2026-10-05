@@ -24,6 +24,7 @@ import {
 import { A, Annotation } from "@effx/runtime";
 import { IRGraph, StableId, make } from "@effx/ir";
 import { registryOf, validateDiagnostics } from "../src/diagnostics/validation.ts";
+import { getUser } from "./fixtures/users.ts";
 
 const notice = defineDiagnostic(
   {
@@ -588,42 +589,85 @@ describe("checked diagnostic contract", () => {
           { code: "EFFX1199", severity: "warning", message: "forged callback" },
         ])[0]!;
 
+        const query = getUser.annotations.find((annotation) => annotation.name === "Query")!;
+
+        let called = 0;
+
         const cases = [
-          { options: { before: () => bad }, annotations: [{ name: "Fixture", args: ["ok"] }] },
           {
-            options: { notOperation: () => bad },
-            annotations: [{ name: "Fixture", args: ["ok"] }],
+            label: "before",
+            expectedCalls: 1,
+            options: {
+              before: () => {
+                called++;
+
+                return bad;
+              },
+            },
+            declaration: source.declarations[0]!,
+            annotations: [{ name: "Fixture", args: [{ value: "ok" }] }],
           },
           {
-            options: { duplicate: () => bad },
+            label: "notOperation",
+            expectedCalls: 1,
+            options: {
+              notOperation: () => {
+                called++;
+
+                return bad;
+              },
+            },
+            declaration: source.declarations[0]!,
+            annotations: [{ name: "Fixture", args: [{ value: "ok" }] }],
+          },
+          {
+            label: "duplicate",
+            expectedCalls: 2,
+            options: {
+              duplicate: () => {
+                called++;
+
+                return bad;
+              },
+            },
+            declaration: getUser,
             annotations: [
-              { name: "Query", args: [] },
-              { name: "Fixture", args: ["ok"] },
-              { name: "Fixture", args: ["ok"] },
+              query,
+              { name: "Fixture", args: [{ value: "ok" }] },
+              { name: "Fixture", args: [{ value: "ok" }] },
             ],
           },
           {
-            options: { read: () => Contribution.diagnostics(bad) },
-            annotations: [
-              { name: "Query", args: [] },
-              { name: "Fixture", args: ["ok"] },
-            ],
+            label: "read",
+            expectedCalls: 1,
+            options: {
+              read: () => {
+                called++;
+
+                return Contribution.diagnostics(bad);
+              },
+            },
+            declaration: getUser,
+            annotations: [query, { name: "Fixture", args: [{ value: "ok" }] }],
           },
         ];
 
         for (const test of cases) {
           const selected = extension("fixture", [implement(definition, test.options)]);
 
+          const before = called;
+
           const result = yield* compileCollected(
             {
               ...source,
-              declarations: [{ ...source.declarations[0]!, annotations: test.annotations }],
+              declarations: [{ ...test.declaration, annotations: test.annotations }],
             },
             [selected],
           );
 
-          assert.isTrue(containsContract(result.diagnostics));
-          assert.isTrue(Option.isNone(result.files.value));
+          assert.strictEqual(called - before, test.expectedCalls, test.label);
+          assert.isTrue(containsContract(result.diagnostics), test.label);
+          assert.isTrue(Option.isNone(result.files.value), test.label);
         }
       }),
   );
