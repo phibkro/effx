@@ -54,6 +54,8 @@ const operation = (
   };
 };
 
+const root = { module: "./root", export: "ExternalApi" };
+
 const groupDeclaration: Declaration = {
   id: "ArticlesGroup",
   kind: "builder",
@@ -66,7 +68,7 @@ const groupDeclaration: Declaration = {
         {
           root: {
             _tag: "Symbol",
-            ref: { module: "./root", export: "ExternalApi" },
+            ref: root,
             identifier: "effx",
           },
           group: "articles",
@@ -82,6 +84,14 @@ const collected = (
 ): Collected => ({
   declarations: [groupDeclaration, ...declarations],
   diagnostics: [],
+  // Every supplied operation belongs to this complete in-memory native group.
+  httpApiGroups: [
+    {
+      root,
+      group: "articles",
+      endpoints: declarations.map((declaration) => declaration.id.slice("Article.".length)),
+    },
+  ],
   project: {
     target: "effect-4.0",
     emit,

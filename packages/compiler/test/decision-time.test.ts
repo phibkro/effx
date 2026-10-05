@@ -43,6 +43,8 @@ const access = (extra: Options = {}) => ({
   ...extra,
 });
 
+const root = { module: "./root", export: "OrdersApi" };
+
 const group: Declaration = {
   id: "OrdersGroup",
   kind: "builder",
@@ -55,7 +57,7 @@ const group: Declaration = {
         {
           root: {
             _tag: "Symbol",
-            ref: { module: "./root", export: "OrdersApi" },
+            ref: root,
             identifier: "effx",
           },
           group: "orders",
@@ -113,6 +115,8 @@ const operation = (
 const collected = (...declarations: ReadonlyArray<Declaration>): Collected => ({
   declarations: [group, ...declarations],
   diagnostics: [],
+  // These in-memory fixtures describe the complete native orders group.
+  httpApiGroups: [{ root, group: "orders", endpoints: ["op"] }],
   project,
 });
 
@@ -247,6 +251,9 @@ describe("decisionTime default (spec 0024 §4)", () => {
   );
 
   describe("group access defaults", () => {
+    const root = { module: "orders/api", export: "Api" };
+    const httpApiGroups = [{ root, group: "orders", endpoints: ["op"] }];
+
     // The group's `defaults.access` carries everything but a decision time: it is per operation by nature.
     const groupOf = (kind: "builder" | "class"): Declaration => ({
       id: "OrdersGroup",
@@ -260,7 +267,7 @@ describe("decisionTime default (spec 0024 §4)", () => {
             {
               root: {
                 _tag: "Symbol",
-                ref: { module: "orders/api", export: "Api" },
+                ref: root,
                 identifier: "Api",
               },
               group: "orders",
@@ -345,6 +352,7 @@ describe("decisionTime default (spec 0024 §4)", () => {
         ),
       ],
       diagnostics: [],
+      httpApiGroups,
     });
 
     const twin = (kind: "Query" | "Command", expected: DecisionTime): Collected => ({
@@ -358,6 +366,7 @@ describe("decisionTime default (spec 0024 §4)", () => {
         }),
       ],
       diagnostics: [],
+      httpApiGroups,
     });
 
     it.effect("builder and decorator spellings default alike, and equal the verbose twin", () =>

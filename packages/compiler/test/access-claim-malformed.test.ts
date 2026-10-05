@@ -97,6 +97,8 @@ const declaration = (arg: AnnotationArg): Declaration => ({
   ],
 });
 
+const root = { module: "contact/api", export: "ContactApi" };
+
 const group: Declaration = {
   id: "ContactGroup",
   kind: "builder",
@@ -109,7 +111,7 @@ const group: Declaration = {
         {
           root: {
             _tag: "Symbol",
-            ref: { module: "contact/api", export: "ContactApi" },
+            ref: root,
             identifier: "effx",
           },
           group: "contact",
@@ -122,6 +124,8 @@ const group: Declaration = {
 const collected = (arg: AnnotationArg): Collected => ({
   declarations: [group, declaration(arg)],
   diagnostics: [],
+  // The native Contact group is complete even when the access claim is malformed.
+  httpApiGroups: [{ root, group: "contact", endpoints: ["submit"] }],
 });
 
 const errorCodes = (diagnostics: ReadonlyArray<{ code: string; severity: string }>) =>
