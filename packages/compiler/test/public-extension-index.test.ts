@@ -23,17 +23,16 @@ import {
   SourceFrontend,
   compile,
   dataOf,
-  error,
   extension,
   hasErrors,
   implement,
   laws,
-  warning,
 } from "@effx/compiler";
 import { A, Annotation, type DefinitionData } from "@effx/runtime";
 import { Effect, Option, Schema } from "effect";
 import { expectTypeOf } from "vitest";
 import { decoratorStyle, getUser } from "./fixtures/users.ts";
+import { annotation, failure, analysis, note as noteFinding } from "./fixtures/diagnostics.ts";
 
 describe("public compiler extension index", () => {
   it.effect(
@@ -42,20 +41,21 @@ describe("public compiler extension index", () => {
       Effect.gen(function* () {
         const location: Location = { file: "src/example.ts", line: 1, col: 1 };
         const severity: Severity = "warning";
-        const finding: Diagnostic = warning("EFFX9001", "plugin annotation", location);
+        const finding: Diagnostic = annotation.emit({}, { location });
         assert.deepStrictEqual(yield* Schema.decodeEffect(Diagnostic)(finding), finding);
         assert.strictEqual(yield* Schema.decodeEffect(Severity)(severity), "warning");
         assert.deepStrictEqual(yield* Schema.decodeEffect(Location)(location), location);
         assert.isFalse(hasErrors([finding]));
-        assert.isTrue(hasErrors([error("EFFX9002", "plugin error")]));
+        assert.isTrue(hasErrors([failure.emit({})]));
 
         const interpret: Interpreter = () => Contribution.diagnostics(finding);
-        const analyze: Analysis = () => [warning("EFFX9003", "plugin analysis")];
+        const analyze: Analysis = () => [analysis.emit({})];
         const file: GeneratedFile = { path: "plugin.txt", contents: "from custom generator" };
         const generate: Generator = () => Effect.succeed([file]);
 
         const extension: Extension = {
           name: "plugin",
+          diagnosticEntries: [annotation.entry, failure.entry, analysis.entry],
           interpreters: { "plugin.note": interpret },
           analyses: [analyze],
           generators: [generate],
@@ -89,7 +89,7 @@ describe("public compiler extension index", () => {
 
         assert.deepStrictEqual(
           result.diagnostics.map((diagnostic) => diagnostic.code),
-          ["EFFX9001", "EFFX9003"],
+          [annotation.entry.code, analysis.entry.code],
         );
         assert.deepStrictEqual(Option.getOrThrow(result.files.value), [file]);
       }),
@@ -104,12 +104,13 @@ describe("public compiler extension index", () => {
       });
 
       const options: ImplementOptions<ReadArgs<typeof Note>> = {
+        diagnosticEntries: [noteFinding.entry],
         analyze: (ir) =>
           ir.nodes.flatMap((node) =>
             node._tag === "Operation"
               ? Option.match(dataOf(Note, ir, node.id), {
                   onNone: () => [],
-                  onSome: ([note]) => [warning("EFFX9004", `${node.name}: ${note.text}`)],
+                  onSome: ([note]) => [noteFinding.emit({ subject: node.name, text: note.text })],
                 })
               : [],
           ),
@@ -151,7 +152,7 @@ describe("public compiler extension index", () => {
 
       assert.deepStrictEqual(
         result.diagnostics
-          .filter((diagnostic) => diagnostic.code === "EFFX9004")
+          .filter((diagnostic) => diagnostic.code === noteFinding.entry.code)
           .map((diagnostic) => diagnostic.message),
         ["User.Get: from the typed layer"],
       );

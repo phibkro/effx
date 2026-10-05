@@ -1,0 +1,285 @@
+import ts from "@typescript/typescript6";
+
+export interface ConformanceResult {
+  readonly violations: ReadonlyArray<string>;
+  readonly declarations: ReadonlyArray<string>;
+}
+
+const codePattern = /^EFFX(?:\d{4}|\[[^\]]+\]\/\d{4})$/;
+
+const helpers = {
+  error: true,
+  warning: true,
+  info: true,
+  makeDiagnostic: true,
+} satisfies Record<string, true>;
+
+const propertyName = (node: ts.PropertyName): string | undefined =>
+  ts.isIdentifier(node) || ts.isStringLiteral(node) ? node.text : undefined;
+
+/** Check syntax, including renamed imports; comments and documentation text are not emitters. */
+export const inspectDiagnosticSource = (file: string, source: string): ConformanceResult => {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const violations: Array<string> = [];
+  const declarations: Array<string> = [];
+  const importedHelpers = new Set<string>();
+  const compilerNamespaces = new Set<string>();
+  const factories = new Set(["defineDiagnostic"]);
+
+  const report = (node: ts.Node, reason: string): void => {
+    const { line, character } = tree.getLineAndCharacterOfPosition(node.getStart(tree));
+    violations.push(`${file}:${line + 1}:${character + 1}: ${reason}`);
+  };
+
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      continue;
+    const module = statement.moduleSpecifier.text;
+    const bindings = statement.importClause?.namedBindings;
+
+    if (bindings === undefined) continue;
+
+    const diagnosticModule =
+      module === "@effx/compiler" ||
+      module === "@effx/diagnostics" ||
+      /(?:^|\/)Diagnostic\.ts$/.test(module);
+
+    if (ts.isNamespaceImport(bindings) && diagnosticModule)
+      compilerNamespaces.add(bindings.name.text);
+
+    if (!ts.isNamedImports(bindings)) continue;
+
+    for (const binding of bindings.elements) {
+      const exported = (binding.propertyName ?? binding.name).text;
+
+      if (diagnosticModule && Object.hasOwn(helpers, exported)) {
+        importedHelpers.add(binding.name.text);
+        report(binding, "deleted string-code helper import");
+      }
+
+      if (diagnosticModule && exported === "defineDiagnostic") factories.add(binding.name.text);
+    }
+  }
+
+  const isHelper = (node: ts.Expression): boolean => {
+    if (ts.isIdentifier(node)) return importedHelpers.has(node.text);
+
+    if (ts.isPropertyAccessExpression(node))
+      return (
+        ts.isIdentifier(node.expression) &&
+        compilerNamespaces.has(node.expression.text) &&
+        Object.hasOwn(helpers, node.name.text)
+      );
+
+    if (ts.isElementAccessExpression(node))
+      return (
+        ts.isIdentifier(node.expression) &&
+        compilerNamespaces.has(node.expression.text) &&
+        node.argumentExpression !== undefined &&
+        ts.isStringLiteral(node.argumentExpression) &&
+        Object.hasOwn(helpers, node.argumentExpression.text)
+      );
+
+    return false;
+  };
+  // Follow local aliases as well as import aliases, independent of declaration order.
+
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+
+    const aliases = (node: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined &&
+        isHelper(node.initializer) &&
+        !importedHelpers.has(node.name.text)
+      ) {
+        importedHelpers.add(node.name.text);
+        changed = true;
+      }
+
+      ts.forEachChild(node, aliases);
+    };
+
+    aliases(tree);
+  }
+
+  const isEntryObject = (node: ts.ObjectLiteralExpression): boolean => {
+    const names = new Set(
+      node.properties.flatMap((property) =>
+        property.name === undefined ? [] : [propertyName(property.name)],
+      ),
+    );
+
+    return [
+      "code",
+      "owner",
+      "title",
+      "severity",
+      "severityPolicy",
+      "explanation",
+      "examples",
+    ].every((name) => names.has(name));
+  };
+
+  const inEntryArgument = (node: ts.Node): boolean => {
+    let child: ts.Node = node;
+
+    for (let parent = node.parent; parent !== undefined; child = parent, parent = parent.parent) {
+      if (
+        ts.isCallExpression(parent) &&
+        ts.isIdentifier(parent.expression) &&
+        factories.has(parent.expression.text)
+      )
+        return parent.arguments[0] === child;
+    }
+
+    return false;
+  };
+
+  const isDeclaration = (node: ts.StringLiteral): boolean => {
+    let child: ts.Node = node;
+
+    for (let parent = node.parent; parent !== undefined; child = parent, parent = parent.parent) {
+      if (
+        ts.isObjectLiteralExpression(parent) &&
+        isEntryObject(parent) &&
+        ts.isPropertyAssignment(node.parent) &&
+        propertyName(node.parent.name) === "code"
+      )
+        return true;
+
+      if (
+        ts.isCallExpression(parent) &&
+        ts.isIdentifier(parent.expression) &&
+        factories.has(parent.expression.text)
+      )
+        return parent.arguments[0] === child;
+    }
+
+    return false;
+  };
+
+  const isProjection = (properties: ReadonlyMap<string, ts.Expression>): boolean => {
+    const code = properties.get("code");
+    const message = properties.get("message");
+    const severity = properties.get("severity");
+
+    if (
+      code === undefined ||
+      message === undefined ||
+      !ts.isPropertyAccessExpression(code) ||
+      !ts.isPropertyAccessExpression(message) ||
+      code.name.text !== "code" ||
+      message.name.text !== "message"
+    )
+      return false;
+    const origin = code.expression.getText(tree);
+
+    return (
+      message.expression.getText(tree) === origin &&
+      (severity === undefined ||
+        (ts.isPropertyAccessExpression(severity) &&
+          severity.name.text === "severity" &&
+          severity.expression.getText(tree) === origin))
+    );
+  };
+
+  const isSchemaFields = (node: ts.ObjectLiteralExpression): boolean => {
+    const parent = node.parent;
+
+    return (
+      ts.isCallExpression(parent) &&
+      parent.arguments[0] === node &&
+      ts.isPropertyAccessExpression(parent.expression) &&
+      parent.expression.expression.getText(tree) === "Schema" &&
+      ["Struct", "TaggedStruct", "TaggedUnion"].includes(parent.expression.name.text)
+    );
+  };
+
+  const isWireDecoderFixture = (node: ts.ObjectLiteralExpression): boolean => {
+    const parent = node.parent;
+
+    if (
+      !ts.isCallExpression(parent) ||
+      parent.arguments[0] !== node ||
+      !ts.isCallExpression(parent.expression)
+    )
+      return false;
+    const decoder = parent.expression.expression;
+
+    return (
+      ts.isPropertyAccessExpression(decoder) &&
+      decoder.expression.getText(tree) === "Schema" &&
+      ["decodeEffect", "decodeUnknownEffect", "decodeUnknownSync", "decodeSync"].includes(
+        decoder.name.text,
+      ) &&
+      parent.expression.arguments[0]?.getText(tree) === "Diagnostic"
+    );
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) && codePattern.test(node.text) && isDeclaration(node))
+      declarations.push(node.text);
+
+    if (
+      ts.isCallExpression(node) &&
+      (isHelper(node.expression) ||
+        (ts.isIdentifier(node.expression) &&
+          Object.hasOwn(helpers, node.expression.text) &&
+          node.arguments.some((arg) => ts.isStringLiteral(arg) && codePattern.test(arg.text))))
+    )
+      report(node, "string-code diagnostic helper call");
+
+    if (
+      ts.isObjectLiteralExpression(node) &&
+      !isEntryObject(node) &&
+      !inEntryArgument(node) &&
+      !isSchemaFields(node) &&
+      !isWireDecoderFixture(node)
+    ) {
+      const properties = new Map(
+        node.properties.flatMap((property): Array<[string, ts.Expression]> => {
+          if (ts.isPropertyAssignment(property)) {
+            const name = propertyName(property.name);
+
+            return name === undefined ? [] : [[name, property.initializer]];
+          }
+
+          if (ts.isShorthandPropertyAssignment(property))
+            return [[property.name.text, property.name]];
+
+          return [];
+        }),
+      );
+
+      const code = properties.get("code");
+
+      const construction =
+        properties.has("message") &&
+        code !== undefined &&
+        (properties.has("severity") || (ts.isStringLiteral(code) && codePattern.test(code.text)));
+
+      const overwrite =
+        node.properties.some(ts.isSpreadAssignment) &&
+        ["code", "message", "severity"].some((key) => properties.has(key));
+
+      const leafFactory =
+        file === "packages/diagnostics/src/definition.ts" &&
+        properties.get("code")?.getText(tree) === "entry.code" &&
+        properties.get("message")?.getText(tree) === "render(params)";
+
+      if ((construction || overwrite) && !leafFactory && !isProjection(properties))
+        report(node, "raw Diagnostic construction or override");
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(tree);
+
+  return { violations, declarations };
+};

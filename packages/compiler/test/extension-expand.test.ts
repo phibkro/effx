@@ -1,19 +1,20 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Option, Struct } from "effect";
-import {
-  type Collected,
-  type Expand,
-  type Extension,
-  Extensions,
-  error,
-  interpret,
-  warning,
-} from "@effx/compiler";
+import { type Collected, type Expand, type Extension, Extensions, interpret } from "@effx/compiler";
 import { canonical } from "@effx/ir";
 import { decoratorStyle } from "./fixtures/users.ts";
+import { dropped, first as firstFinding, second as secondFinding } from "./fixtures/diagnostics.ts";
 
 const plain = (name: string): Extension => ({
   name,
+  diagnosticEntries:
+    name === "drop"
+      ? [dropped.entry]
+      : name === "first"
+        ? [firstFinding.entry]
+        : name === "second"
+          ? [secondFinding.entry]
+          : [],
   interpreters: {},
   analyses: [],
   generators: [],
@@ -34,7 +35,7 @@ describe("Extension.expand (spec 0020 §3, the 0013 pre-pass seam)", () => {
   it("a pre-pass replaces the declarations the interpreters see and contributes its diagnostics", () => {
     const dropAll = expanding("drop", () => ({
       declarations: [],
-      diagnostics: [error("EFFX9101", "dropped")],
+      diagnostics: [dropped.emit({})],
     }));
 
     const result = interpret(decoratorStyle, [...Extensions.builtin, dropAll]);
@@ -42,7 +43,7 @@ describe("Extension.expand (spec 0020 §3, the 0013 pre-pass seam)", () => {
     assert.deepStrictEqual(Option.getOrThrow(result.value).nodes, []);
     assert.deepStrictEqual(
       result.diagnostics.map((d) => d.code),
-      ["EFFX9101"],
+      [dropped.entry.code],
     );
   });
 
@@ -54,14 +55,14 @@ describe("Extension.expand (spec 0020 §3, the 0013 pre-pass seam)", () => {
 
       return {
         declarations: collected.declarations.slice(1),
-        diagnostics: [warning("EFFX9102", "first")],
+        diagnostics: [firstFinding.emit({})],
       };
     });
 
     const second = expanding("second", (collected: Collected) => {
       seen.push(collected.declarations.length);
 
-      return { declarations: collected.declarations, diagnostics: [warning("EFFX9103", "second")] };
+      return { declarations: collected.declarations, diagnostics: [secondFinding.emit({})] };
     });
 
     const total = decoratorStyle.declarations.length;
@@ -71,7 +72,7 @@ describe("Extension.expand (spec 0020 §3, the 0013 pre-pass seam)", () => {
     assert.deepStrictEqual(seen, [total, total - 1]);
     assert.deepStrictEqual(
       forward.diagnostics.slice(0, 2).map((d) => d.code),
-      ["EFFX9102", "EFFX9103"],
+      [firstFinding.entry.code, secondFinding.entry.code],
     );
 
     seen.length = 0;
@@ -81,7 +82,7 @@ describe("Extension.expand (spec 0020 §3, the 0013 pre-pass seam)", () => {
     assert.deepStrictEqual(seen, [total, total]);
     assert.deepStrictEqual(
       reversed.diagnostics.slice(0, 2).map((d) => d.code),
-      ["EFFX9103", "EFFX9102"],
+      [secondFinding.entry.code, firstFinding.entry.code],
     );
   });
 

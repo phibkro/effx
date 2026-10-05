@@ -1,24 +1,16 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import ts from "@typescript/typescript6";
 import { Effect, FileSystem, Path } from "effect";
-import { bundledDiagnosticEntries, DiagnosticDefinitions, composeRegistry } from "@effx/compiler";
+import {
+  bundledDiagnosticEntries,
+  DiagnosticDefinitions,
+  CoreDiagnostics,
+  HttpDiagnostics,
+  composeRegistry,
+} from "@effx/compiler";
+import { inspectDiagnosticSource } from "./fixtures/diagnostic-conformance.ts";
 
 const root = new URL("../../../", import.meta.url).pathname;
-
-/** Inspect literal identifiers, not comments, snapshots or dynamically rendered messages. */
-const literalCodes = (file: string, source: string): ReadonlyArray<string> => {
-  const codes: Array<string> = [];
-
-  const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteral(node) && /^EFFX\d{4}$/.test(node.text)) codes.push(node.text);
-    ts.forEachChild(node, visit);
-  };
-
-  visit(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true));
-
-  return codes;
-};
 
 describe("diagnostic registry conformance", () => {
   it.effect("composes all 68 reserved legacy entries plus the bootstrap contract error", () =>
@@ -30,9 +22,29 @@ describe("diagnostic registry conformance", () => {
         keys,
         registry.entries.map((entry) => entry.code),
       );
+      assert.strictEqual(new Set(bundledDiagnosticEntries.map((entry) => entry.code)).size, 69);
 
       for (const [code, definition] of Object.entries(DiagnosticDefinitions)) {
         assert.strictEqual(definition.entry.code, code);
+        assert.strictEqual(
+          bundledDiagnosticEntries.filter((entry) => entry.code === code).length,
+          1,
+        );
+        assert.strictEqual(
+          bundledDiagnosticEntries.find((entry) => entry.code === code),
+          definition.entry,
+        );
+        assert.deepStrictEqual(
+          registry.entries.find((entry) => entry.code === code),
+          definition.entry,
+        );
+      }
+
+      for (const [code, definition] of Object.entries({ ...CoreDiagnostics, ...HttpDiagnostics })) {
+        assert.strictEqual(
+          Object.entries(DiagnosticDefinitions).find(([key]) => key === code)?.[1],
+          definition,
+        );
       }
     }),
   );
@@ -59,44 +71,158 @@ describe("diagnostic registry conformance", () => {
     }),
   );
 
-  it.effect("every phase-one legacy producer identifier has a documented entry", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const emitted = new Set<string>();
+  it.effect(
+    "production emitters use factories and each distribution code has one source root",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const violations: Array<string> = [];
+        const declarations: Array<string> = [];
+        const files: Array<string> = [];
+        // Scan every production package, including catalogue modules. There are no folder exemptions.
 
-      for (const name of ["compiler", "frontend-ts", "runtime", "persistence", "cli"]) {
-        const directory = path.join(root, "packages", name, "src");
+        for (const name of yield* fs.readDirectory(path.join(root, "packages"))) {
+          const directory = path.join(root, "packages", name, "src");
 
-        for (const file of yield* fs.readDirectory(directory, { recursive: true })) {
-          if (!file.endsWith(".ts") || file.startsWith("diagnostics/") || file === "diagnostics.ts")
-            continue;
+          if (!(yield* fs.exists(directory))) continue;
 
-          for (const code of literalCodes(
-            file,
-            yield* fs.readFileString(path.join(directory, file)),
-          ))
-            emitted.add(code);
+          for (const file of yield* fs.readDirectory(directory, { recursive: true })) {
+            if (file.endsWith(".ts")) files.push(path.join("packages", name, "src", file));
+          }
         }
-      }
 
-      for (const file of [
-        "examples/extension-openapi-tags/deprecated-extension.ts",
-        "ai-docs/src/06_custom-extensions/05_implement-annotation.ts",
-        "ai-docs/src/06_custom-extensions/10_hand-written-extension.ts",
-      ]) {
-        for (const code of literalCodes(file, yield* fs.readFileString(path.join(root, file))))
-          emitted.add(code);
-      }
+        for (const file of yield* fs.readDirectory(path.join(root, "ai-docs/src"), {
+          recursive: true,
+        })) {
+          if (file.endsWith(".ts")) files.push(path.join("ai-docs/src", file));
+        }
 
-      emitted.delete("EFFX0010");
+        files.push("examples/extension-openapi-tags/deprecated-extension.ts");
 
-      const legacy = bundledDiagnosticEntries
-        .filter((entry) => entry.code !== "EFFX0010")
-        .map((entry) => entry.code)
-        .toSorted();
+        for (const file of files) {
+          const inspected = inspectDiagnosticSource(
+            file,
+            yield* fs.readFileString(path.join(root, file)),
+          );
 
-      assert.deepStrictEqual([...emitted].toSorted(), legacy);
-    }).pipe(Effect.provide(BunServices.layer)),
+          violations.push(...inspected.violations);
+          declarations.push(...inspected.declarations.filter((code) => /^EFFX\d{4}$/.test(code)));
+        }
+
+        assert.deepStrictEqual(violations, [], violations.join("\n"));
+        // Source declarations expose duplicate roots even if a keyed object spread erased one.
+        assert.deepStrictEqual(
+          declarations.toSorted(),
+          bundledDiagnosticEntries.map((entry) => entry.code).toSorted(),
+        );
+      }).pipe(Effect.provide(BunServices.layer)),
   );
+
+  for (const [label, source, reason] of [
+    [
+      "raw code construction",
+      'const finding = { code: "EFFX1101", message: "message" };',
+      "raw Diagnostic construction",
+    ],
+    ["raw helper", 'error("EFFX1101", "message");', "string-code diagnostic helper call"],
+    [
+      "import alias",
+      'import { warning as warn } from "@effx/compiler"; warn(entry.code, "message");',
+      "deleted string-code helper import",
+    ],
+    [
+      "local alias",
+      'import { warning as warn } from "@effx/compiler"; const alias = warn; alias(entry.code, "message");',
+      "string-code diagnostic helper call",
+    ],
+    [
+      "namespace alias",
+      'import * as Compiler from "@effx/compiler"; const emit = Compiler.warning; emit(entry.code, "message");',
+      "string-code diagnostic helper call",
+    ],
+    [
+      "direct info",
+      'const finding = { code: entry.code, severity: "info", message: "message" };',
+      "raw Diagnostic construction",
+    ],
+    [
+      "shorthand construction",
+      "const finding = { code, severity, message };",
+      "raw Diagnostic construction",
+    ],
+    [
+      "severity override",
+      'const finding = { ...diagnostic, severity: "info" };',
+      "raw Diagnostic construction",
+    ],
+    [
+      "projection override",
+      'const finding = { code: d.code, severity: "warning", message: d.message };',
+      "raw Diagnostic construction",
+    ],
+    [
+      "registry folder bypass",
+      'const finding = { code: entry.code, severity: "info", message: "message" };',
+      "raw Diagnostic construction",
+    ],
+  ] as const) {
+    it(`rejects mutation snippet: ${label}`, () => {
+      const file =
+        label === "registry folder bypass"
+          ? "packages/compiler/src/diagnostics/injected.ts"
+          : "packages/compiler/src/injected.ts";
+
+      assert.isTrue(
+        inspectDiagnosticSource(file, source).violations.some((violation) =>
+          violation.includes(reason),
+        ),
+      );
+    });
+  }
+
+  it("allows declared plugin entries, typed emissions, and location/data projections", () => {
+    const source = `
+      import { defineDiagnostic as define } from "@effx/diagnostics";
+      const note = define({ code: "EFFX[plugin]/0001", owner: "plugin", title: "Note", severity: "warning", severityPolicy: { kind: "fixed" }, explanation: "Note", examples: [{ before: "a", after: "b", explanation: "Fix" }] }, Schema.Struct({}), () => "Note");
+      const finding = note.emit({}, { location });
+      const enriched = { code: finding.code, severity: finding.severity, message: finding.message, location, related: finding.related };
+      const runtimeData = { code: finding.code, message: finding.message };
+    `;
+
+    const inspected = inspectDiagnosticSource("plugins/note.ts", source);
+    assert.deepStrictEqual(inspected.violations, []);
+    assert.deepStrictEqual(inspected.declarations, ["EFFX[plugin]/0001"]);
+  });
+
+  for (const source of [
+    'const label = "EFFX1001";',
+    'log("EFFX1001");',
+    'assert.strictEqual(diagnostic.code, "EFFX1001");',
+    'const factory = CoreDiagnostics["EFFX1001"];',
+    "// EFFX1001 is documented here",
+    "const match = /EFFX1001/;",
+    "const fields = Schema.Struct({ code: DiagnosticCode, severity: Severity, message: Schema.String });",
+    'Schema.decodeUnknownEffect(Diagnostic)({ code: "EFFX1001", severity: "error", message: "wire fixture" });',
+  ]) {
+    it(`allows non-emission code mention: ${source}`, () => {
+      assert.deepStrictEqual(inspectDiagnosticSource("injected.ts", source).violations, []);
+    });
+  }
+
+  it("ignores prose and rejects new emitters in the leaf factory file", () => {
+    assert.deepStrictEqual(
+      inspectDiagnosticSource(
+        "injected.ts",
+        '// EFFX1101\nconst example = "error(\\\"EFFX1101\\\", \\\"example\\\")";',
+      ).violations,
+      [],
+    );
+    assert.isTrue(
+      inspectDiagnosticSource(
+        "packages/diagnostics/src/definition.ts",
+        'const fake = { code: entry.code, severity: "info", message: "fake" };',
+      ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
+    );
+  });
 });
