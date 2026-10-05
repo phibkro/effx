@@ -44,10 +44,15 @@ const NonBlank = Schema.String.check(
   Schema.isPattern(/\S/u, { message: "Expected nonempty text" }),
 );
 
-/** Fixed severity or a named, documented policy based on structured params. */
+/** Fixed severity or a named policy with explicit, unique possible outcomes. */
 export const SeverityPolicy = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("fixed") }),
-  Schema.Struct({ kind: Schema.Literal("named"), name: NonBlank, description: NonBlank }),
+  Schema.Struct({
+    kind: Schema.Literal("named"),
+    name: NonBlank,
+    description: NonBlank,
+    allowedSeverities: Schema.NonEmptyArray(Severity).check(Schema.isUnique()),
+  }),
 ]);
 
 export type SeverityPolicy = typeof SeverityPolicy.Type;
@@ -97,6 +102,12 @@ export const DiagnosticEntry = Schema.Struct({
   explanation: NonBlank,
   examples: Schema.NonEmptyArray(DiagnosticExample),
 }).check(
+  Schema.makeFilter((entry) =>
+    entry.severityPolicy.kind === "fixed" ||
+    entry.severityPolicy.allowedSeverities.includes(entry.severity)
+      ? true
+      : `Diagnostic ${entry.code} default severity ${entry.severity} is not an allowed policy outcome`,
+  ),
   Schema.makeFilter((entry) => {
     const expected = entry.code.startsWith("EFFX[")
       ? entry.code.slice(5, entry.code.lastIndexOf("]"))

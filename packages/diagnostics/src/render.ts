@@ -23,7 +23,7 @@ const body = (entry: DiagnosticEntry, heading: string): string => {
   const policy =
     entry.severityPolicy.kind === "fixed"
       ? "Fixed"
-      : `${label(entry.severityPolicy.name)} — ${entry.severityPolicy.description}`;
+      : `${label(entry.severityPolicy.name)} — ${entry.severityPolicy.description}\n\nAllowed severities: ${entry.severityPolicy.allowedSeverities.toSorted().map(label).join(", ")}`;
 
   const sections = [
     `${heading} ${heading === "#" ? entry.code : label(entry.code)} — ${label(entry.title)}`,

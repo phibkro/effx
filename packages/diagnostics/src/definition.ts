@@ -29,7 +29,9 @@ interface MutableDiagnostic<C extends string> {
  * Defines a plain, total factory for trusted typed params. Construction does not
  * render or decode anything. A boundary receiving unknown params owns decoding
  * with paramsSchema, preserving its decoding error and requirement channels.
- * Fixed entries cannot accept a severity resolver; named policies require one.
+ * Fixed entries cannot accept a severity resolver; named policies require one
+ * returning only their declared literal outcomes. Registry composition owns
+ * validation of unique outcomes and inclusion of the default severity.
  * Neither construction nor emission acquires resources or starts Effect work.
  */
 export const defineDiagnostic = <const E extends DiagnosticEntry, S extends Schema.Top>(
@@ -38,7 +40,14 @@ export const defineDiagnostic = <const E extends DiagnosticEntry, S extends Sche
   render: (params: S["Type"]) => string,
   ...policy: E["severityPolicy"] extends { readonly kind: "fixed" }
     ? readonly []
-    : readonly [severityFromParams: (params: S["Type"]) => Severity]
+    : readonly [
+        severityFromParams: (
+          params: S["Type"],
+        ) => Extract<
+          NoInfer<E["severityPolicy"]>,
+          { readonly kind: "named" }
+        >["allowedSeverities"][number],
+      ]
 ): Definition<E, S> => ({
   entry,
   paramsSchema,

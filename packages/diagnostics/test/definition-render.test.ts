@@ -16,6 +16,7 @@ const entry = {
     kind: "named",
     name: "strictAccess",
     description: "strictAccess promotes the warning to an error.",
+    allowedSeverities: ["warning", "error"],
   },
   explanation: "Declare a narrower access policy.",
   examples: [
@@ -131,7 +132,24 @@ describe("diagnostic Markdown projection", () => {
     Effect.sync(() => {
       assert.strictEqual(
         renderEntry(entry),
-        "# EFFX2504 — Broad access\n\nOwner: access\n\nDefault severity: warning\n\nSeverity policy: strictAccess — strictAccess promotes the warning to an error.\n\nDeclare a narrower access policy.\n\n## Example 1\n\nBefore:\n\n```text\nAccess.public\n```\n\nAfter:\n\n```text\nAccess.authenticated\n```\n\nRequire authentication.\n",
+        "# EFFX2504 — Broad access\n\nOwner: access\n\nDefault severity: warning\n\nSeverity policy: strictAccess — strictAccess promotes the warning to an error.\n\nAllowed severities: error, warning\n\nDeclare a narrower access policy.\n\n## Example 1\n\nBefore:\n\n```text\nAccess.public\n```\n\nAfter:\n\n```text\nAccess.authenticated\n```\n\nRequire authentication.\n",
+      );
+    }),
+  );
+
+  it.effect("renders outcome sets in code-unit order without mutating declarations", () =>
+    Effect.sync(() => {
+      const reversed = {
+        ...entry,
+        severityPolicy: { ...entry.severityPolicy, allowedSeverities: ["error", "warning"] },
+      } as const;
+
+      assert.strictEqual(renderEntry(entry), renderEntry(reversed));
+      assert.strictEqual(renderCatalogue([entry]), renderCatalogue([reversed]));
+      assert.deepStrictEqual(entry.severityPolicy.allowedSeverities, ["warning", "error"]);
+      assert.notInclude(
+        renderEntry({ ...entry, severityPolicy: { kind: "fixed" } }),
+        "Allowed severities:",
       );
     }),
   );

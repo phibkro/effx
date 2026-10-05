@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Exit, Option, Schema } from "effect";
-import { composeRegistry, DiagnosticCode, DiagnosticEntry } from "../src/index.ts";
+import { Effect, Exit, Option, Result, Schema } from "effect";
+import {
+  composeRegistry,
+  composeRegistryResult,
+  DiagnosticCode,
+  DiagnosticEntry,
+} from "../src/index.ts";
 
 const entry = {
   code: "EFFX1001",
@@ -21,6 +26,22 @@ const entry = {
 const plugin = { ...entry, code: "EFFX[@acme/effx-plugin]/0001", owner: "@acme/effx-plugin" };
 
 describe("diagnostic registry", () => {
+  it.effect.each([[entry, plugin], [entry, entry], [{ ...entry, title: "" }]])(
+    "pure and Effect composition agree on entries, lookup and errors %#",
+    (entries) =>
+      Effect.gen(function* () {
+        const result = composeRegistryResult(entries);
+
+        if (Result.isFailure(result)) {
+          const error = yield* Effect.flip(composeRegistry(entries));
+          assert.deepStrictEqual(error, result.failure);
+        } else {
+          const registry = yield* composeRegistry(entries);
+          assert.deepStrictEqual(registry.entries, result.success.entries);
+          assert.deepStrictEqual(registry.get(entry.code), result.success.get(entry.code));
+        }
+      }),
+  );
   it.effect("does not decode while constructed or discarded", () =>
     Effect.sync(() => {
       let reads = 0;
@@ -75,8 +96,24 @@ describe("diagnostic registry", () => {
     { ...entry, examples: [{ before: "bad", after: " ", explanation: "repair" }] },
     { ...entry, examples: [{ before: "bad", after: "fixed", explanation: "" }] },
     { ...entry, severity: "fatal" },
-    { ...entry, severityPolicy: { kind: "named", name: "", description: "policy" } },
-    { ...entry, severityPolicy: { kind: "named", name: "policy", description: "" } },
+    {
+      ...entry,
+      severityPolicy: {
+        kind: "named",
+        name: "",
+        description: "policy",
+        allowedSeverities: ["error"],
+      },
+    },
+    {
+      ...entry,
+      severityPolicy: {
+        kind: "named",
+        name: "policy",
+        description: "",
+        allowedSeverities: ["error"],
+      },
+    },
     { ...entry, owner: "@acme/effx-plugin" },
     { ...plugin, owner: "@other/effx-plugin" },
     { ...entry, code: "EFFX9999" },
@@ -88,6 +125,45 @@ describe("diagnostic registry", () => {
       const error = yield* Effect.flip(composeRegistry([invalid]));
       assert.strictEqual(error._tag, "RegistryError");
       assert.include(error.message, "Invalid diagnostic registry:");
+    }),
+  );
+
+  it.effect.each([undefined, [], ["fatal"], ["error", "error"], ["warning", "info"]])(
+    "rejects missing, empty, invalid, duplicate or default-excluding policy outcomes %#",
+    (allowedSeverities) =>
+      Effect.gen(function* () {
+        const invalid = {
+          ...entry,
+          severityPolicy: {
+            kind: "named",
+            name: "phase",
+            description: "Phase-dependent severity.",
+            allowedSeverities,
+          },
+        };
+
+        const decoded = yield* Effect.flip(Schema.decodeUnknownEffect(DiagnosticEntry)(invalid));
+        assert.strictEqual(decoded._tag, "SchemaError");
+        const error = yield* Effect.flip(composeRegistry([invalid]));
+        assert.strictEqual(error._tag, "RegistryError");
+        assert.include(error.message, "Invalid diagnostic registry:");
+      }),
+  );
+
+  it.effect("accepts a unique named outcome set including its default without reordering it", () =>
+    Effect.gen(function* () {
+      const named = {
+        ...entry,
+        severityPolicy: {
+          kind: "named",
+          name: "phase",
+          description: "Phase-dependent severity.",
+          allowedSeverities: ["warning", "error"],
+        },
+      };
+
+      const registry = yield* composeRegistry([named]);
+      assert.deepStrictEqual(registry.entries[0], named);
     }),
   );
 

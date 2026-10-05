@@ -11,6 +11,11 @@ export {
 
 export { defineDiagnostic, type Definition, type EmitOptions } from "./definition.ts";
 
-export { composeRegistry, RegistryError, type Registry } from "./registry.ts";
+export {
+  composeRegistry,
+  composeRegistryResult,
+  RegistryError,
+  type Registry,
+} from "./registry.ts";
 
 export { renderEntry, renderCatalogue } from "./render.ts";

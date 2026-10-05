@@ -1,7 +1,8 @@
 import { expectTypeOf, it } from "@effect/vitest";
-import { Context, Effect, Schema } from "effect";
+import { Context, Effect, Result, Schema } from "effect";
 import {
   composeRegistry,
+  composeRegistryResult,
   defineDiagnostic,
   type Diagnostic,
   type DiagnosticEntry,
@@ -31,6 +32,7 @@ const definition = defineDiagnostic(entry, params, (facts) => `Missing ${facts.c
 
 it("pins registry channels and literal factory params", () => {
   expectTypeOf(composeRegistry([])).toEqualTypeOf<Effect.Effect<Registry, RegistryError, never>>();
+  expectTypeOf(composeRegistryResult([])).toEqualTypeOf<Result.Result<Registry, RegistryError>>();
   expectTypeOf(definition.entry.code).toEqualTypeOf<"EFFX1001">();
   expectTypeOf(definition.paramsSchema).toEqualTypeOf<typeof params>();
   expectTypeOf(definition.emit).parameter(0).toEqualTypeOf<{ readonly capability: string }>();
@@ -75,9 +77,88 @@ export const rejectsIndependentDiagnosticFields = () => {
 
   const namedEntry = {
     ...entry,
-    severityPolicy: { kind: "named", name: "phase", description: "Depends on the phase." },
+    severityPolicy: {
+      kind: "named",
+      name: "phase",
+      description: "Depends on the phase.",
+      allowedSeverities: ["warning", "error"],
+    },
   } as const;
   // @ts-expect-error Named policies require a typed severity resolver.
 
   defineDiagnostic(namedEntry, params, (facts) => facts.capability);
+};
+
+/** Compile-only fixtures: outcome unions come from the literal policy, not Severity. */
+export const rejectsUndeclaredPolicyOutcomes = () => {
+  const skewEntry = {
+    ...entry,
+    code: "EFFX0001",
+    owner: "frontend",
+    severity: "warning",
+    severityPolicy: {
+      kind: "named",
+      name: "version-skew",
+      description: "Same-major skew is info; different-major skew is warning.",
+      allowedSeverities: ["info", "warning"],
+    },
+  } as const satisfies DiagnosticEntry;
+
+  const accessEntry = {
+    ...entry,
+    code: "EFFX2504",
+    owner: "access",
+    severity: "warning",
+    severityPolicy: {
+      kind: "named",
+      name: "strictAccess",
+      description: "Strict access promotes warning to error.",
+      allowedSeverities: ["warning", "error"],
+    },
+  } as const satisfies DiagnosticEntry;
+
+  defineDiagnostic(
+    skewEntry,
+    params,
+    (facts) => facts.capability,
+    () => "info",
+  );
+  defineDiagnostic(
+    accessEntry,
+    params,
+    (facts) => facts.capability,
+    () => "error",
+  );
+  defineDiagnostic(
+    skewEntry,
+    params,
+    (facts) => facts.capability,
+    // @ts-expect-error EFFX0001 cannot become an error.
+    () => "error",
+  );
+  defineDiagnostic(
+    accessEntry,
+    params,
+    (facts) => facts.capability,
+    // @ts-expect-error EFFX2504 cannot become informational.
+    () => "info",
+  );
+  const allSeverities: () => Diagnostic["severity"] = () => "error";
+  defineDiagnostic(
+    skewEntry,
+    params,
+    (facts) => facts.capability,
+    // @ts-expect-error A broad resolver cannot widen a literal entry policy.
+    allSeverities,
+  );
+
+  const invalidPolicy: DiagnosticEntry["severityPolicy"] = {
+    kind: "named",
+    name: "empty",
+    description: "No outcomes.",
+    // @ts-expect-error Named policies require at least one outcome.
+    allowedSeverities: [],
+  };
+
+  return invalidPolicy;
 };

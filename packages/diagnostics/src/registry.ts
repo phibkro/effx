@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { DiagnosticEntry } from "./model.ts";
 
 /** Expected invalid registry input, not a compiler IO/invariant fault. */
@@ -12,44 +12,59 @@ export interface Registry {
   readonly get: (code: string) => Option.Option<DiagnosticEntry>;
 }
 
-const decodeEntries = Schema.decodeUnknownEffect(Schema.Array(DiagnosticEntry));
+const decodeEntries = Schema.decodeUnknownResult(Schema.Array(DiagnosticEntry));
 
 /**
- * Lazily decodes the supplied declaration array and rejects every collision,
- * including identical entries. Never pre-collapse declarations into a keyed map.
- * Success is Registry, expected failure RegistryError, requirements never.
- * Each execution creates a fresh transient snapshot; there are no resources,
- * background fibers, persistence or retries. Interruption stays interruption.
+ * Synchronous data boundary shared by pure interpreters and the lazy Effect
+ * adapter. Decodes every declaration before indexing and rejects every collision,
+ * including identical entries. No IO, resources, retries or retained global state.
  */
-export const composeRegistry = Effect.fnUntraced(function* (
+export const composeRegistryResult = (
   entries: readonly unknown[],
-): Effect.fn.Return<Registry, RegistryError> {
-  const decoded = yield* decodeEntries(entries).pipe(
-    Effect.mapError(
-      (error) => new RegistryError({ message: `Invalid diagnostic registry: ${error.message}` }),
-    ),
-  );
+): Result.Result<Registry, RegistryError> => {
+  const decoded = decodeEntries(entries);
+
+  if (Result.isFailure(decoded)) {
+    return Result.fail(
+      new RegistryError({ message: `Invalid diagnostic registry: ${decoded.failure.message}` }),
+    );
+  }
 
   const index = new Map<string, DiagnosticEntry>();
 
-  for (const entry of decoded) {
+  for (const entry of decoded.success) {
     const previous = index.get(entry.code);
 
     if (previous !== undefined) {
-      return yield* new RegistryError({
-        message: `Duplicate diagnostic ${entry.code}: owners ${previous.owner} and ${entry.owner}`,
-      });
+      return Result.fail(
+        new RegistryError({
+          message: `Duplicate diagnostic ${entry.code}: owners ${previous.owner} and ${entry.owner}`,
+        }),
+      );
     }
 
     index.set(entry.code, entry);
   }
 
-  const sorted = decoded.toSorted((left, right) =>
+  const sorted = decoded.success.toSorted((left, right) =>
     left.code < right.code ? -1 : left.code > right.code ? 1 : 0,
   );
 
-  return {
+  return Result.succeed({
     entries: sorted,
-    get: (code) => Option.fromNullishOr(index.get(code)),
-  };
+    get: (code: string) => Option.fromNullishOr(index.get(code)),
+  });
+};
+
+/**
+ * Lazily decodes the supplied declaration array and rejects every collision.
+ * Never pre-collapse declarations into a keyed map. Success is Registry,
+ * expected failure RegistryError, requirements never. Each execution creates a
+ * fresh transient snapshot; no resources, background fibers, persistence or
+ * retries. Interruption stays interruption.
+ */
+export const composeRegistry = Effect.fnUntraced(function* (
+  entries: readonly unknown[],
+): Effect.fn.Return<Registry, RegistryError> {
+  return yield* Effect.fromResult(composeRegistryResult(entries));
 });
