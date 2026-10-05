@@ -63,14 +63,15 @@ describe("actual scoped effx dev journey", () => {
   it("constructs without resolving or executing the project and preserves requirements", () => {
     const value = dev({ project: "/never-read/tsconfig.json" }, versions);
     assert.isTrue(Effect.isEffect(value));
-    expectTypeOf(value).not.toEqualTypeOf<Effect.Effect<void>>();
-    expectTypeOf(value).toEqualTypeOf<
-      Effect.Effect<
-        void,
-        CompilerFault | WatchLimit | WatchClosed | PlatformError.PlatformError,
-        FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend
-      >
+    expectTypeOf<Effect.Success<typeof value>>().toEqualTypeOf<void>();
+    expectTypeOf<Effect.Error<typeof value>>().toEqualTypeOf<
+      CompilerFault | WatchLimit | WatchClosed | PlatformError.PlatformError
     >();
+    expectTypeOf<Effect.Services<typeof value>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend
+    >();
+    expectTypeOf<Effect.Error<typeof value>>().not.toEqualTypeOf<never>();
+    expectTypeOf<Effect.Services<typeof value>>().not.toEqualTypeOf<never>();
   });
 
   it.effect.each(["contract", "handlers", "all"] as const)(
