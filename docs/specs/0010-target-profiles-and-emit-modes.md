@@ -259,6 +259,41 @@ request/wrong error completions, and exact service/startup channel assertions.
 Existing closed-group identity snapshots and mono-web's nine complete groups
 must remain byte-identical; only a new mixed-group fixture may differ.
 
+### Amendment (2026-10-05, director) — inventory bootstrap and unresolved leaves
+
+Endpoint inventory proof is a handler-factory generation precondition, never a
+declaration-lowering precondition. Contract-only emission must not evaluate it
+or report `EFFX2415`; exported-root branding, the literal root identifier and
+all other declaration checks still apply. Inventory stays generation context,
+outside semantic IR and its hash. Only groups for which a handler factory is
+being emitted require a group and every declared endpoint key to be proven.
+
+Generate every group contract imported by the authored root before proving
+handlers, including generated groups with no declarations in the current
+handler invocation. Thus the cold full-root contract → full-root handlers and
+full-root contract → healthy-only handlers sequences succeed. Healthy-only
+contract emission succeeds on its own, but cannot bootstrap an unrelated
+missing onboarding contract; cold healthy-only handlers must still reject it.
+
+For unresolved root leaves, choose **Option B: whole-root rejection**. Report
+one root-level `EFFX2415` naming the unresolved leaf, not one diagnostic at
+each group reference or cascading missing-group errors. Do not emit any factory
+using that root. In installed stable Effect `4.0.0`,
+`src/http-api/HttpApi.ts:40-42` maps groups by identifier, `:70` unions incoming
+group types, and `:147-154` assigns each incoming group at `group.identifier`.
+Installed `4.0.0-rc.116` has the same semantics at
+`src/unstable/httpapi/HttpApi.ts:38-40`, `:67`, and `:142-149`. An unresolved
+leaf cannot be proven to have a different identifier: it may replace the
+apparently healthy group. A resolved remainder therefore does not prove that
+group complete. Earlier fatal diagnostics still defer inventory diagnostics.
+
+Cold `--emit=all` remains atomic: it reports the one root inventory diagnostic
+and writes **nothing**, including no contract or manifest. Contract-first is
+required. This preserves the CLI ownership transaction: error rejection occurs
+before manifest reconciliation, and obsolete generated files are removed only
+against a successful replacement manifest. A failing build must not erase
+previously owned handler outputs or publish a partial ownership record.
+
 ## Fixture and required checks
 
 Create `packages/frontend-ts/test/fixtures/rc116/` with its **own**
