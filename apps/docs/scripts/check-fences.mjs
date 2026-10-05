@@ -9,9 +9,8 @@ import remarkMdx from 'remark-mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import { visit } from 'unist-util-visit';
 import { rehypeCode } from 'fumadocs-core/mdx-plugins';
-import { rehypeCodeOptions as options } from '../lib/highlighter.ts';
+import { mdxOptions, rehypeCodeOptions as options } from '../lib/highlighter.ts';
 import { evaluate } from '@mdx-js/mdx';
-import { applyMdxPreset } from 'fumadocs-mdx/config';
 import { createElement } from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -91,7 +90,7 @@ console.log(`docs:check: ${files} files, ${fences} fences, ${languages.size} lan
 
 // Compile the shared catalogue all the way to React HTML. Markdown (.md) is
 // intentional: it is the site's registry format, where raw HTML anchors vanished.
-const preset = await applyMdxPreset({ rehypeCodeOptions: options })();
+const preset = await mdxOptions();
 async function renderMarkdown(source) {
   const { default: Content } = await evaluate(source, { ...preset, ...jsxRuntime, format: 'md' });
   return renderToStaticMarkup(createElement(Content));
