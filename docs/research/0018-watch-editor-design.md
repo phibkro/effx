@@ -429,6 +429,20 @@ until their named tests and the final gate pass. Config coverage remains unresol
 - Retirement: maintained native evaluated-module inventory; upgrades reopen review.
   This record never claims complete logical provenance or a sandbox.
 
+**EX-0023 — extended installed watch/editor consumer scope (open).**
+
+- Owner: repository root, `AGENTS.md`; `packages/cli/test/packed-watch-peer.ts`.
+- The permanent `scripts/watch-editor-smoke.ts` composition root provides Bun services.
+- Native alternative: installed Effect4.0.0 `effect/process` owns child process groups,
+  stdin, output streams, interruption and joining; no second subprocess framework.
+- Scope: only the installed-consumer process adapter; product/session code imports no process API.
+- Output admission is 128 lines with backpressure; shutdown receipts precede consumer-file release.
+- Rules: FX001 version authority, FX002 native-first and FX012 scoped resource ownership.
+- Verification: packed EOF/SIGINT, silence after shutdown and client-exit journeys are specified
+  by the permanent consumer; no execution or acceptance result is claimed here.
+- Retirement: remove the unstable directive when the maintained process API becomes stable;
+  version upgrades reopen the adapter review. Existing persistence EX-0023 ownership is unchanged.
+
 No implementation claim, alternate protocol framework or generic poll/credit engine
 is hidden in these records. Real packed CLI and maintained-client acceptance,
 unchanged IR/hash/surface/generated-byte proof and final committed full gate remain

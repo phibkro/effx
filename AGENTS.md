@@ -32,6 +32,10 @@ no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServic
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 `effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
+EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent installed
+consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
+stdin and forced-stop deadlines stay scoped; the script is a composition root.
+The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
 EX-0030 permits Node-compatible stdio and the pinned `vscode-jsonrpc` ABI only in
