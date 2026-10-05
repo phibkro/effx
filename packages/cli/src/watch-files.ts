@@ -31,7 +31,7 @@ export interface WatchFilesOptions {
 }
 
 export class WatchLimit extends Schema.TaggedError<WatchLimit>()("WatchLimit", {
-  resource: Schema.Literals(["paths", "bytes", "fileBytes", "selection"]),
+  resource: Schema.Literals(["paths", "bytes", "fileBytes", "selection", "cycle"]),
   path: Schema.String,
   limit: Schema.Int,
 }) {}
@@ -72,6 +72,8 @@ export interface WatchChanges {
 export interface WatchFiles {
   readonly replaceInputs: (
     inputs: ReadonlyArray<WatchInput>,
+    /** Omit to retain exclusions; supply [] to clear. Inputs and exclusions change atomically. */
+    exclusions?: ReadonlyArray<string>,
   ) => Effect.Effect<void, WatchLimit | WatchClosed>;
   /** Refuses concurrent passes immediately (None); no waiting producers. */
   readonly poll: Effect.Effect<Option.Option<WatchSnapshot>, WatchFailure | WatchClosed>;
@@ -108,6 +110,10 @@ const notDirectory = Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }
  * One pass is active, zero passes wait, and one dirty state coalesces notifications.
  * Executable intent is OR-retained until takeChanges, including coverage replacement.
  * Defaults admit 8192 paths (including routes/parents), 64 MiB/pass and 16 MiB/file.
+ * Explicit logical routes expand successive raw link targets under the same path
+ * budget; repeated non-progressing links fail with WatchLimit resource "cycle".
+ * replaceInputs may atomically replace resolved exclusions; every pass captures
+ * its coverage and exclusion policy, retaining unchanged fingerprints on cutover.
  * Directory listing IO returns a whole native array; these are retained/admitted
  * coverage bounds, not a constant-memory claim about arbitrarily large listings.
  * Polling starts immediately then sleeps 250 ms after completion. Typed faults are
@@ -138,22 +144,27 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
       return yield* new WatchLimit({ resource: "selection", path: "", limit: 0 });
   }
 
-  const exclusions = (options.exclusions ?? []).map((name) => path.resolve(name));
+  let exclusions = [
+    ...new Set((options.exclusions ?? []).map((name) => path.resolve(name))),
+  ].sort();
 
-  const excluded = (name: string) =>
-    exclusions.some(
+  const excluded = (name: string, roots: ReadonlyArray<string> = exclusions) =>
+    roots.some(
       (root) => name === root || name.startsWith(root.endsWith(path.sep) ? root : root + path.sep),
     );
 
-  const admit = Effect.fnUntraced(function* (values: ReadonlyArray<WatchInput>) {
-    if (values.length > maxPaths)
+  const admit = Effect.fnUntraced(function* (
+    values: ReadonlyArray<WatchInput>,
+    roots: ReadonlyArray<string> = exclusions,
+  ) {
+    if (values.length > maxPaths || roots.length > maxPaths)
       return yield* new WatchLimit({ resource: "paths", path: "", limit: maxPaths });
     const result: Array<WatchInput> = [];
 
     for (const input of values) {
       const name = path.resolve(input.path);
 
-      if (!path.isAbsolute(input.path) || excluded(name))
+      if (!path.isAbsolute(input.path) || excluded(name, roots))
         return yield* new WatchLimit({ resource: "selection", path: input.path, limit: maxPaths });
       result.push({ ...input, path: name });
     }
@@ -181,7 +192,10 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     yield* Deferred.succeed(previous, undefined);
   });
 
-  const scan = Effect.fnUntraced(function* (coverage: ReadonlyArray<WatchInput>) {
+  const scan = Effect.fnUntraced(function* (
+    coverage: ReadonlyArray<WatchInput>,
+    selectedExclusions: ReadonlyArray<string>,
+  ) {
     let bytes = 0;
     let admitted = 0;
 
@@ -234,7 +248,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         recurse: boolean,
         explicit: boolean,
       ): Effect.fn.Return<void, WatchFailure> {
-        if (excluded(name)) return;
+        if (excluded(name, selectedExclusions)) return;
         yield* count(name);
         const destination = yield* link(name);
         const stat = yield* info(name);
@@ -270,7 +284,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 
         if (explicit) declaredDependencyRoot ||= real.split(path.sep).includes("node_modules");
 
-        if (excluded(real))
+        if (excluded(real, selectedExclusions))
           return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
         const physical = identity(stat.value, real);
 
@@ -346,41 +360,137 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         for (const child of names) {
           const childPath = path.join(name, child);
 
-          if (excluded(childPath)) continue;
-          // Skip implicit dependency trees, not descendants of an explicitly declared dependency root.
+          if (excluded(childPath, selectedExclusions)) continue;
+          // Recursive executable declarations authorize ordinary dependency subtrees; source enumeration does not.
           yield* visit(
             childPath,
-            recurse && (declaredDependencyRoot || child !== "node_modules"),
+            recurse &&
+              (input.kind === "executable" || declaredDependencyRoot || child !== "node_modules"),
             recurse,
             false,
           );
         }
       });
-      // Capture every link on the explicit logical route, including an outside-project parent.
+      // Follow only this declared route, expanding raw destinations component by
+      // component. Resolving '..' after preceding links matches filesystem meaning.
+      // Parent membership is limited to the next selected component, not siblings.
 
-      const route: Array<string> = [];
+      let routeRoot = path.parse(input.path).root;
 
-      for (
-        let name = path.dirname(input.path);
-        name !== path.dirname(name);
-        name = path.dirname(name)
-      )
-        route.push(name);
+      let components = input.path
+        .slice(routeRoot.length)
+        .split(path.sep)
+        .filter((part) => part.length > 0);
 
-      for (const name of route.reverse()) {
+      let componentIndex = 0;
+      const expandedLinks = new Map<string, number>();
+
+      while (componentIndex < components.length) {
+        const component = components[componentIndex++];
+
+        if (component === undefined || component === ".") continue;
+
+        if (component === "..") {
+          routeRoot = path.dirname(routeRoot);
+          continue;
+        }
+
+        const name = path.join(routeRoot, component);
         yield* count(name);
+
+        if (excluded(name, selectedExclusions))
+          return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+
         const destination = yield* link(name);
 
         if (Option.isSome(destination)) {
-          const stat = yield* info(name);
+          const remaining = components.length - componentIndex;
+          const previousRemaining = expandedLinks.get(name);
+
+          if (previousRemaining !== undefined && remaining >= previousRemaining)
+            return yield* new WatchLimit({ resource: "cycle", path: name, limit: maxPaths });
+
+          expandedLinks.set(name, remaining);
           entries.set(name, {
             path: name,
             type: "symlink",
-            identity: Option.isSome(stat) ? identity(stat.value, yield* fs.realPath(name)) : "",
+            identity: "",
             destination: destination.value,
             digest: "",
           });
+          routeRoot = path.isAbsolute(destination.value)
+            ? path.parse(destination.value).root
+            : path.dirname(name);
+
+          const target = path.isAbsolute(destination.value)
+            ? destination.value.slice(routeRoot.length)
+            : destination.value;
+
+          components = [
+            ...target.split(path.sep).filter((part) => part.length > 0),
+            ...components.slice(componentIndex),
+          ];
+          componentIndex = 0;
+          continue;
         }
+
+        const stat = yield* info(name);
+
+        if (Option.isNone(stat)) {
+          yield* count(routeRoot);
+
+          const ancestor = yield* info(routeRoot);
+
+          const ancestorIdentity = Option.isSome(ancestor)
+            ? identity(ancestor.value, yield* fs.realPath(routeRoot))
+            : "";
+
+          const unresolved =
+            name +
+            (componentIndex < components.length
+              ? path.sep + components.slice(componentIndex).join(path.sep)
+              : "");
+
+          entries.set(name, {
+            path: name,
+            type: "missing",
+            identity: ancestorIdentity,
+            destination: "",
+            digest: "",
+          });
+
+          if (unresolved !== name) {
+            yield* count(unresolved);
+            entries.set(unresolved, {
+              path: unresolved,
+              type: "missing",
+              identity: ancestorIdentity,
+              destination: "",
+              digest: "",
+            });
+          }
+
+          break;
+        }
+
+        const real = yield* fs.realPath(name);
+
+        if (excluded(real, selectedExclusions))
+          return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+
+        entries.set(name, {
+          path: name,
+          type:
+            stat.value.type === "Directory"
+              ? "directory"
+              : stat.value.type === "File"
+                ? "file"
+                : "other",
+          identity: identity(stat.value, real),
+          destination: "",
+          digest: "",
+        });
+        routeRoot = real;
       }
 
       yield* visit(input.path, input.directory === true, input.recursive === true, true);
@@ -400,7 +510,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     const version = epoch;
     const coverage = inputs;
 
-    const result = yield* scan(coverage).pipe(
+    const result = yield* scan(coverage, exclusions).pipe(
       Effect.match({
         onFailure: (error) => ({ error, fingerprints: undefined }),
         onSuccess: (fingerprints) => ({ error: undefined, fingerprints }),
@@ -506,13 +616,24 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     (a.directory === true) === (b.directory === true) &&
     (a.recursive === true) === (b.recursive === true);
 
-  const replaceInputs = Effect.fnUntraced(function* (values: ReadonlyArray<WatchInput>) {
+  const replaceInputs = Effect.fnUntraced(function* (
+    values: ReadonlyArray<WatchInput>,
+    nextExclusions?: ReadonlyArray<string>,
+  ) {
     if (closed) return yield* new WatchClosed();
-    const replacement = yield* admit(values);
+
+    const replacementExclusions =
+      nextExclusions === undefined
+        ? exclusions
+        : [...new Set(nextExclusions.map((name) => path.resolve(name)))].sort();
+
+    const replacement = yield* admit(values, replacementExclusions);
 
     if (
       inputs.length === replacement.length &&
-      inputs.every((input) => replacement.some((next) => sameInput(input, next)))
+      inputs.every((input) => replacement.some((next) => sameInput(input, next))) &&
+      exclusions.length === replacementExclusions.length &&
+      exclusions.every((name, index) => name === replacementExclusions[index])
     )
       return;
 
@@ -526,6 +647,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           input.kind === "executable" && !inputs.some((previous) => sameInput(input, previous)),
       );
     inputs = replacement;
+    exclusions = replacementExclusions;
     epoch++;
     snapshot = {
       ...snapshot,

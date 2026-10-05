@@ -64,6 +64,12 @@ describe("explicit native project observation (EX-0031)", () => {
       Effect.Effect<Option.Option<WatchSnapshot>>
     >();
     expectTypeOf<WatchFiles["start"]>().toEqualTypeOf<Effect.Effect<void, WatchClosed>>();
+    expectTypeOf<WatchFiles["replaceInputs"]>().toEqualTypeOf<
+      (
+        inputs: ReadonlyArray<import("../src/watch-files.ts").WatchInput>,
+        exclusions?: ReadonlyArray<string>,
+      ) => Effect.Effect<void, WatchLimit | WatchClosed>
+    >();
   });
 
   it.effect("detects equal-size edits, repair, atomic replacement, deletion and recreation", () =>
@@ -85,7 +91,11 @@ describe("explicit native project observation (EX-0031)", () => {
         assert.deepStrictEqual(atomic.changedPaths, [name]);
         assert.notDeepEqual(atomic.fingerprints, initial.fingerprints);
         yield* fs.remove(name);
-        assert.strictEqual((yield* observe(watch)).fingerprints[0]?.entries[0]?.type, "missing");
+        assert.strictEqual(
+          (yield* observe(watch)).fingerprints[0]?.entries.find((entry) => entry.path === name)
+            ?.type,
+          "missing",
+        );
         yield* fs.writeFileString(name, "good");
         assert.deepStrictEqual((yield* observe(watch)).changedPaths, [name]);
       }),
@@ -534,6 +544,300 @@ describe("explicit native project observation (EX-0031)", () => {
           assert.deepStrictEqual((yield* observe(watch)).changedPaths, [root, alias]);
           yield* fs.remove(path.join(nested, "renamed.ts"));
           assert.deepStrictEqual((yield* observe(watch)).changedPaths, [root, alias]);
+        }),
+      ),
+  );
+
+  it.effect("covers ordinary node_modules descendants of a recursive executable declaration", () =>
+    fixture((fs, path, dir) =>
+      Effect.gen(function* () {
+        const nested = path.join(dir, "node_modules", "pkg");
+        const candidate = path.join(nested, "helper.mjs");
+        yield* fs.makeDirectory(nested, { recursive: true });
+        yield* fs.writeFileString(candidate, "a");
+
+        const watch = yield* makeWatchFiles({
+          inputs: [{ path: dir, kind: "executable", directory: true, recursive: true }],
+        });
+
+        yield* observe(watch);
+        yield* fs.writeFileString(candidate, "b");
+        assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+        assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+        assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+        assert.deepStrictEqual(yield* watch.takeChanges, { dirty: false, executableDirty: false });
+      }),
+    ),
+  );
+
+  it.effect(
+    "retains successive outside-route raw destinations when terminal identity and bytes are unchanged",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const outside = yield* fs.makeTempDirectoryScoped({ prefix: "effx-successive-route-" });
+          const terminal = path.join(outside, "terminal");
+          const middle = path.join(outside, "middle");
+          const bridge = path.join(outside, "bridge");
+          const logical = path.join(dir, "entry.mjs");
+          yield* fs.makeDirectory(terminal);
+          yield* fs.writeFileString(path.join(terminal, "dep.mjs"), "same");
+          yield* fs.symlink("terminal", middle);
+          yield* fs.symlink("middle", bridge);
+          yield* fs.symlink(path.join(bridge, "dep.mjs"), logical);
+
+          const watch = yield* makeWatchFiles({ inputs: [{ path: logical, kind: "executable" }] });
+
+          const initial = yield* observe(watch);
+          const first = initial.fingerprints[0]?.entries.find((entry) => entry.path === logical);
+          yield* fs.remove(bridge);
+          yield* fs.symlink("middle/.", bridge);
+
+          const retargeted = yield* observe(watch);
+
+          const second = retargeted.fingerprints[0]?.entries.find(
+            (entry) => entry.path === logical,
+          );
+
+          assert.strictEqual(second?.identity, first?.identity);
+          assert.strictEqual(second?.digest, first?.digest);
+          assert.isTrue(
+            retargeted.fingerprints[0]?.entries.some(
+              (entry) => entry.path === bridge && entry.destination === "middle/.",
+            ),
+          );
+          assert.deepStrictEqual(retargeted.changedPaths, [logical]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+          yield* fs.remove(middle);
+          yield* fs.symlink("./terminal", middle);
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [logical]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+        }),
+      ),
+  );
+
+  it.effect(
+    "keeps a missing successive route suffix until its intermediate component is created",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const outside = yield* fs.makeTempDirectoryScoped({ prefix: "effx-missing-successive-" });
+          const bridge = path.join(outside, "bridge");
+          const logical = path.join(dir, "entry.mjs");
+          yield* fs.symlink(path.join(bridge, "nested", "dep.mjs"), logical);
+
+          const watch = yield* makeWatchFiles({ inputs: [{ path: logical, kind: "executable" }] });
+
+          const missing = yield* observe(watch);
+          assert.isTrue(
+            missing.fingerprints[0]?.entries.some(
+              (entry) =>
+                entry.path === path.join(bridge, "nested", "dep.mjs") && entry.type === "missing",
+            ),
+          );
+          yield* fs.makeDirectory(path.join(bridge, "nested"), { recursive: true });
+          yield* fs.writeFileString(path.join(bridge, "nested", "dep.mjs"), "created");
+
+          const repaired = yield* observe(watch);
+          assert.deepStrictEqual(repaired.changedPaths, [logical]);
+          assert.isTrue(
+            repaired.fingerprints[0]?.entries.some(
+              (entry) => entry.path === logical && entry.digest.length > 0,
+            ),
+          );
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+        }),
+      ),
+  );
+
+  it.effect(
+    "fails successive link cycles and path expansion limits without publishing partial coverage",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const logical = path.join(dir, "entry.mjs");
+          const bridge = path.join(dir, "bridge");
+          yield* fs.symlink(bridge, logical);
+          yield* fs.symlink(logical, bridge);
+
+          const cycle = yield* makeWatchFiles({ inputs: [{ path: logical, kind: "executable" }] });
+
+          const failure = yield* Effect.flip(cycle.poll);
+          assert.strictEqual(failure._tag, "WatchLimit");
+
+          if (failure._tag === "WatchLimit") assert.strictEqual(failure.resource, "cycle");
+
+          assert.deepStrictEqual((yield* cycle.current).fingerprints, []);
+          yield* fs.remove(logical);
+          yield* fs.remove(bridge);
+          yield* fs.writeFileString(path.join(dir, "terminal.mjs"), "a");
+
+          for (let index = 0; index < 12; index++)
+            yield* fs.symlink(
+              path.join(dir, index === 11 ? "terminal.mjs" : "chain-" + (index + 1)),
+              path.join(dir, "chain-" + index),
+            );
+
+          const limited = yield* makeWatchFiles({
+            inputs: [{ path: path.join(dir, "chain-0"), kind: "executable" }],
+            maxPaths: 16,
+          });
+
+          const limit = yield* Effect.flip(limited.poll);
+          assert.strictEqual(limit._tag, "WatchLimit");
+
+          if (limit._tag === "WatchLimit") assert.strictEqual(limit.resource, "paths");
+
+          assert.deepStrictEqual((yield* limited.current).fingerprints, []);
+        }),
+      ),
+  );
+
+  it.effect("expands relative link dot-dot after preceding symlink components", () =>
+    fixture((fs, path, dir) =>
+      Effect.gen(function* () {
+        const outside = yield* fs.makeTempDirectoryScoped({ prefix: "effx-dot-dot-route-" });
+        const nested = path.join(outside, "nested");
+        const portal = path.join(dir, "portal");
+        const logical = path.join(dir, "entry.mjs");
+        yield* fs.makeDirectory(nested);
+        yield* fs.writeFileString(path.join(outside, "dep.mjs"), "outside");
+        yield* fs.symlink(nested, portal);
+        yield* fs.symlink("portal/../dep.mjs", logical);
+
+        const watch = yield* makeWatchFiles({ inputs: [{ path: logical, kind: "executable" }] });
+
+        const initial = yield* observe(watch);
+        assert.isTrue(
+          initial.fingerprints[0]?.entries.some(
+            (entry) => entry.path === path.join(outside, "dep.mjs") && entry.type === "file",
+          ),
+        );
+        assert.isFalse(
+          initial.fingerprints[0]?.entries.some(
+            (entry) => entry.path === path.join(dir, "dep.mjs"),
+          ),
+        );
+        yield* fs.writeFileString(path.join(outside, "dep.mjs"), "changed");
+        assert.deepStrictEqual((yield* observe(watch)).changedPaths, [logical]);
+        assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+      }),
+    ),
+  );
+
+  it.effect(
+    "atomically replaces exclusions, restores old-output observation and preserves executable fingerprints",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const oldOutput = path.join(dir, "old-output");
+          const newOutput = path.join(dir, "new-output");
+          const executable = path.join(dir, "config.mjs");
+          const oldSource = path.join(oldOutput, "authored.ts");
+          const newGenerated = path.join(newOutput, "generated.ts");
+
+          const inputs = [
+            { path: dir, kind: "source", directory: true, recursive: true },
+            { path: executable, kind: "executable" },
+          ] as const;
+
+          yield* fs.makeDirectory(oldOutput);
+          yield* fs.makeDirectory(newOutput);
+          yield* fs.writeFileString(oldSource, "a");
+          yield* fs.writeFileString(newGenerated, "a");
+          yield* fs.writeFileString(executable, "a");
+
+          const watch = yield* makeWatchFiles({ inputs, exclusions: [oldOutput] });
+
+          const baseline = yield* observe(watch);
+          yield* fs.writeFileString(executable, "b");
+          yield* watch.replaceInputs(inputs, [newOutput]);
+          assert.deepStrictEqual((yield* watch.current).fingerprints, baseline.fingerprints);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+
+          const moved = yield* observe(watch);
+          assert.isTrue(moved.fingerprints[0]?.entries.some((entry) => entry.path === oldSource));
+          assert.isFalse(
+            moved.fingerprints[0]?.entries.some((entry) => entry.path.startsWith(newOutput)),
+          );
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+          yield* fs.writeFileString(newGenerated, "b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          yield* fs.writeFileString(oldSource, "b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+          yield* watch.replaceInputs(inputs);
+          yield* watch.replaceInputs(inputs, [newOutput, newOutput]);
+          assert.deepStrictEqual(yield* watch.takeChanges, {
+            dirty: false,
+            executableDirty: false,
+          });
+          assert.strictEqual(
+            (yield* Effect.flip(watch.replaceInputs(inputs, [dir])))._tag,
+            "WatchLimit",
+          );
+          assert.deepStrictEqual(yield* watch.takeChanges, {
+            dirty: false,
+            executableDirty: false,
+          });
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          yield* watch.replaceInputs(inputs, []);
+          yield* observe(watch);
+          yield* watch.takeChanges;
+          yield* fs.writeFileString(newGenerated, "c");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+        }),
+      ),
+  );
+
+  it.effect(
+    "invalidates an in-flight old exclusion pass without baselining away executable changes",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const executable = path.join(dir, "config.mjs");
+          const oldOutput = path.join(dir, "old-output");
+          const newOutput = path.join(dir, "new-output");
+          const inputs = [{ path: executable, kind: "executable" }] as const;
+          let block = false;
+          yield* fs.writeFileString(executable, "a");
+
+          const original = fs.open;
+
+          const controlled = {
+            ...fs,
+            open: Effect.fnUntraced(function* (...args: Parameters<typeof original>) {
+              if (block) {
+                yield* Deferred.succeed(entered, undefined);
+                yield* Deferred.await(release);
+              }
+
+              return yield* original(...args);
+            }),
+          };
+
+          const watch = yield* makeWatchFiles({ inputs, exclusions: [oldOutput] }).pipe(
+            Effect.provideService(FileSystem.FileSystem, controlled),
+          );
+
+          const baseline = yield* observe(watch);
+          block = true;
+          yield* fs.writeFileString(executable, "b");
+
+          const stale = yield* Effect.forkChild(watch.poll);
+          yield* Deferred.await(entered);
+          yield* watch.replaceInputs(inputs, [newOutput]);
+          block = false;
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(stale);
+          assert.strictEqual((yield* watch.current).pass, baseline.pass);
+          assert.deepStrictEqual((yield* watch.current).fingerprints, baseline.fingerprints);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [executable]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
         }),
       ),
   );
