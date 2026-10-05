@@ -16,7 +16,7 @@ import type { PlatformError } from "effect/PlatformError";
 import { expectTypeOf } from "vitest";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical } from "@effx/ir";
-import { compile } from "@effx/compiler";
+import { compile, CompilerFault, SourceFrontend } from "@effx/compiler";
 import {
   copyUsersFixture,
   encodeJsonString,
@@ -410,6 +410,41 @@ describe("normal build result writer and cross-process custody", () => {
         const target = { ...old, generatedDir: directory + "/.effx/new" };
         const owner = yield* acquireOutputOwner(old);
 
+        const discardedMigration = migrateOutputOwner(owner, target, () =>
+          Effect.service(SourceFrontend).pipe(
+            Effect.andThen(
+              Effect.fail(new CompilerFault({ stage: "generate", message: "typed callback" })),
+            ),
+          ),
+        );
+
+        expectTypeOf(discardedMigration).toEqualTypeOf<
+          Effect.Effect<
+            { readonly owner: OutputOwner; readonly value: never },
+            CompilerFault | OutputBusy | PlatformError,
+            SourceFrontend | FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+          >
+        >();
+        assert.isFalse(yield* fs.exists(target.generatedDir));
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            yield* acquireOutputOwner({ ...target, effxDir: directory + "/competitor" });
+            let invoked = false;
+
+            const refused = yield* Effect.flip(
+              migrateOutputOwner(owner, target, () =>
+                Effect.sync(() => {
+                  invoked = true;
+                }),
+              ),
+            );
+
+            assert.strictEqual(refused._tag, "OutputBusy");
+            assert.isFalse(invoked);
+            yield* assertOutputOwner(owner, old);
+          }),
+        );
+
         const failure = yield* Effect.flip(
           migrateOutputOwner(owner, target, () =>
             Effect.fail(new OutputBusy({ resource: target.generatedDir, message: "batch failed" })),
@@ -522,6 +557,32 @@ describe("normal build result writer and cross-process custody", () => {
         generatedDir: oldProject.effxDir + "/next",
         effxDir: oldProject.effxDir,
       });
+      yield* fs.symlink(oldProject.effxDir + "/next", oldProject.effxDir + "/alias");
+      yield* fs.writeFileString(
+        config,
+        '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"], "effx": { "outDir": ".effx/alias" } }',
+      );
+      const aliasProject = yield* rereadProject(project);
+
+      const aliasResult = yield* failOnErrors(
+        yield* compile(aliasProject.config, aliasProject.extensions),
+      );
+
+      const samePhysical = yield* migrateBuildOutput(
+        aliasProject,
+        aliasResult,
+        migrated.owner,
+        (union) => writeCompileResult(aliasProject, versions, aliasResult, union),
+      );
+
+      assert.strictEqual(samePhysical.owner.resources.length, 2);
+
+      for (const file of Option.getOrThrow(aliasResult.files.value)) {
+        assert.strictEqual(
+          yield* fs.readFileString(oldProject.effxDir + "/next/" + file.path),
+          file.contents,
+        );
+      }
     }).pipe(Effect.scoped, Effect.provide(frontend)),
   );
 });
