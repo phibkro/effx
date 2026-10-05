@@ -526,6 +526,7 @@ Its runtime-definition projection allowance applies only to the named adapter; n
 
 ### Checks on the clean acceptance clone
 
+- The complete ordered `bun run gate` passed with exit 0 at implementation commit `c08b45e884e6daf809461bf6b8dabb8a0be0a5d1`, after restoring the clone's baseline ref.
 - Typecheck, lint, formatting, docs fences and `ai-docs:check` passed.
 - Vitest passed 86 files and 998 tests. The Oxlint RuleTester suite passed.
 - Strict Effect diagnostics checked 255 files: zero errors, warnings or messages.
