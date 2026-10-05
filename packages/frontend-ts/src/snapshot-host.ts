@@ -78,15 +78,18 @@ export const snapshotHost = (
   const readFile = (name: string): string | undefined => {
     const file = absolute(name);
 
-    if (!texts.has(file))
-      texts.set(
-        file,
-        sources.has(file)
-          ? sources.get(file)
-          : physicalSources.has(file)
-            ? physicalSources.get(file)
-            : ts.sys.readFile(file),
-      );
+    if (!texts.has(file)) {
+      const captured = sources.has(file)
+        ? sources.get(file)
+        : physicalSources.has(file)
+          ? physicalSources.get(file)
+          : ts.sys.readFile(file);
+
+      texts.set(file, captured);
+
+      if (captured !== undefined) input.onReadSource?.(file, captured);
+    }
+
     const text = texts.get(file);
     observe(text === undefined ? "missing" : "file", file);
 

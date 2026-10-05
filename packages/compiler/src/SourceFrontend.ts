@@ -36,6 +36,11 @@ export interface AnalyzeOptions {
   readonly sources?: ReadonlyMap<string, string | undefined>;
   /** Synchronous observation only; no filesystem mutation or application evaluation. */
   readonly onObserve?: (input: ObservedInput) => void;
+  /** Captures each successfully consulted absolute source path and immutable text once.
+   * Includes saved configuration and logical/physical paths actually read by the host.
+   * Capture is synchronous; a throwing callback fails through CompilerFault. No ts objects escape.
+   */
+  readonly onReadSource?: (path: string, text: string) => void;
 }
 
 /**
