@@ -673,3 +673,18 @@ another migration. These are implementation changes, not exercised test results.
 Explicit recursive executable roots include ordinary nested package directories;
 successive raw link destinations and missing suffixes are bounded observed routes
 (`c0cec22`, `aa9de30`), without recursively following arbitrary child links.
+
+The first named final-reference attempt (`cde48b8`, `spec0018-gate-cde48b8`)
+completed with actual exit 1. Fresh frozen installation, users/persistence builds,
+rc.116 installation and compiled documentation/diagnostic fence checks passed.
+Typecheck then reported three test type mismatches; later gate stages and packed
+smoke were not reached. The retained native process receipt is
+`/srv/share/projects/effx-watch-editor-0018-evidence/gate-cde48b8.json`.
+The type-law/parity repairs are `1c93fcf` and `073dff0`, without a verification claim.
+
+Independent recheck of that reference found one remaining writer decision: old
+custom-output files outside physical `.effx` were incorrectly selected for forbidden
+pruning during migration. Migration must preserve those retired custom files, not
+fail or widen deletion authority. Current-output obsolete refusal and legitimate
+prior `.effx` pruning stay unchanged. New scoped regressions use temporary fixture
+roots outside any physical `.effx` ancestor to exercise the restriction itself.
