@@ -494,4 +494,47 @@ describe("explicit native project observation (EX-0031)", () => {
       }),
     ),
   );
+
+  it.effect(
+    "walks ordinary and nested membership under explicit node_modules roots and aliases",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const root = path.join(dir, "node_modules");
+          const nested = path.join(root, "outer", "node_modules", "inner");
+          const alias = path.join(dir, "declared-dependencies");
+          const name = path.join(nested, "dep.ts");
+          yield* fs.makeDirectory(nested, { recursive: true });
+          yield* fs.writeFileString(name, "a");
+          yield* fs.symlink(root, alias);
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: root, kind: "source", directory: true, recursive: true },
+              { path: alias, kind: "source", directory: true, recursive: true },
+            ],
+            maxPaths: 128,
+            maxBytes: 1024,
+            maxFileBytes: 64,
+          });
+
+          const initial = yield* observe(watch);
+          const before = initial.fingerprints[0]?.entries.find((entry) => entry.path === name);
+          assert.strictEqual(before?.type, "file");
+          assert.isTrue(before?.digest !== undefined && before.digest.length > 0);
+          yield* fs.writeFileString(name, "b");
+
+          const edited = yield* observe(watch);
+          assert.deepStrictEqual(edited.changedPaths, [root, alias]);
+          assert.notStrictEqual(
+            edited.fingerprints[0]?.entries.find((entry) => entry.path === name)?.digest,
+            before?.digest,
+          );
+          yield* fs.rename(name, path.join(nested, "renamed.ts"));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [root, alias]);
+          yield* fs.remove(path.join(nested, "renamed.ts"));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [root, alias]);
+        }),
+      ),
+  );
 });
