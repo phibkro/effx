@@ -1,24 +1,30 @@
 import { BunServices } from "@effect/platform-bun";
 import { bundledDiagnosticEntries, extension, implement } from "@effx/compiler";
-import { DiagnosticEntry, renderEntry } from "@effx/diagnostics";
+import { DiagnosticEntry, defineDiagnostic, renderEntry } from "@effx/diagnostics";
 import { Annotation } from "@effx/runtime";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Path, Schema } from "effect";
 import { testDirectory } from "../../../tools/testing/projects.ts";
 
 const main = new URL("../src/main.ts", import.meta.url).pathname;
 
-const customCode = "EFFX[@acme/effx-test]/0001";
+const invalidDeclaration = defineDiagnostic(
+  {
+    code: "EFFX[@acme/effx-test]/0001",
+    owner: "@acme/effx-test",
+    title: "Test extension contract",
+    severity: "warning",
+    severityPolicy: { kind: "fixed" },
+    explanation: "The selected extension found an invalid declaration.",
+    examples: [{ before: "invalid()", after: "valid()", explanation: "Use a valid declaration." }],
+  } as const satisfies DiagnosticEntry,
+  Schema.Struct({ subject: Schema.String }),
+  ({ subject }) => `${subject}: invalid declaration`,
+);
 
-const customEntry: DiagnosticEntry = {
-  code: customCode,
-  owner: "@acme/effx-test",
-  title: "Test extension contract",
-  severity: "warning",
-  severityPolicy: { kind: "fixed" },
-  explanation: "The selected extension found an invalid declaration.",
-  examples: [{ before: "invalid()", after: "valid()", explanation: "Use a valid declaration." }],
-};
+const customEntry = invalidDeclaration.entry;
+
+const customCode = customEntry.code;
 
 const run = Effect.fnUntraced(function* (cwd: string, ...args: ReadonlyArray<string>) {
   return yield* Effect.sync(() => {
@@ -60,6 +66,11 @@ describe("spec 0016 explain subprocess journeys", () => {
     });
 
     assert.deepStrictEqual(selected.diagnosticEntries, [customEntry, customEntry]);
+    assert.deepStrictEqual(invalidDeclaration.emit({ subject: "Users.get" }), {
+      code: customEntry.code,
+      severity: customEntry.severity,
+      message: "Users.get: invalid declaration",
+    });
   });
 
   it.effect("explains bundled and optional codes from an empty directory without writes", () =>

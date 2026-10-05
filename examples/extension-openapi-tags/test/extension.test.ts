@@ -3,10 +3,16 @@ import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { expectTypeOf } from "vitest";
-import { Extensions, compile, type CompilerFault, type GeneratedFile } from "@effx/compiler";
+import {
+  CoreDiagnostics,
+  Extensions,
+  compile,
+  type CompilerFault,
+  type GeneratedFile,
+} from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { IRGraph, Node, StableId, canonical, decodeString, make, semanticHash } from "@effx/ir";
-import { deprecatedExtension, deprecatedWarningCode } from "../deprecated-extension.ts";
+import { deprecatedExtension } from "../deprecated-extension.ts";
 
 const example = new URL("../", import.meta.url).pathname;
 
@@ -92,14 +98,14 @@ describe("third-party extension authored outside effx packages", () => {
           const path = yield* Path.Path;
           const check = yield* runCli(directory, "check");
           assert.strictEqual(check.exitCode, 0, check.output);
-          assert.include(check.output, `${deprecatedWarningCode} warning`);
+          assert.include(check.output, `${CoreDiagnostics["EFFX2901"].entry.code} warning`);
           assert.include(check.output, "Example.Lookup is deprecated: Use Example.Find instead");
           assert.include(check.output, "0 error(s)");
           assert.isFalse(yield* fs.exists(path.join(directory, ".effx", "ir.json")));
 
           const build = yield* runCli(directory, "build");
           assert.strictEqual(build.exitCode, 0, build.output);
-          assert.include(build.output, `${deprecatedWarningCode} warning`);
+          assert.include(build.output, `${CoreDiagnostics["EFFX2901"].entry.code} warning`);
 
           const ir = yield* decodeString(
             yield* fs.readFileString(path.join(directory, ".effx", "ir.json")),
@@ -160,11 +166,13 @@ describe("third-party extension authored outside effx packages", () => {
           IRGraph.outgoing(Option.getOrThrow(builder.index), extensionId, "ExtensionOf"),
         );
         assert.deepStrictEqual(
-          decorator.diagnostics.filter((d) => d.code === deprecatedWarningCode).length,
+          decorator.diagnostics.filter((d) => d.code === CoreDiagnostics["EFFX2901"].entry.code)
+            .length,
           1,
         );
         assert.deepStrictEqual(
-          builder.diagnostics.filter((d) => d.code === deprecatedWarningCode).length,
+          builder.diagnostics.filter((d) => d.code === CoreDiagnostics["EFFX2901"].entry.code)
+            .length,
           1,
         );
 
@@ -193,6 +201,29 @@ describe("third-party extension authored outside effx packages", () => {
       const result = yield* compile({ tsconfigPath: project }, extensions);
       assert.deepStrictEqual(errors(result.diagnostics), []);
       const ir = Option.getOrThrow(result.ir.value);
+
+      // Detect lost diagnostic variants without changing the real fixture or generation inputs.
+      const declaration = Option.getOrThrow(result.collected.value).declarations[0]!;
+      const interpreter = deprecatedExtension.interpreters["example.deprecated"]!;
+
+      for (const [args, owner, message] of [
+        [[], Option.some(operationId), "expects { reason: string }"],
+        [[{ reason: "Use Example.Find instead" }], Option.none(), "requires an operation"],
+      ] as const) {
+        const rejected = interpreter({ name: "example.deprecated", args }, declaration, {
+          operationId: owner,
+        });
+
+        assert.deepStrictEqual(rejected.nodes, []);
+        assert.deepStrictEqual(rejected.edges, []);
+        assert.deepStrictEqual(rejected.diagnostics, [
+          {
+            code: CoreDiagnostics["EFFX2902"].entry.code,
+            severity: "error",
+            message: `${declaration.id}: example.deprecated ${message}`,
+          },
+        ]);
+      }
 
       const changed = make(
         ir.nodes.map((node) =>

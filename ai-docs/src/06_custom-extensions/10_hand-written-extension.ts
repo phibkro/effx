@@ -1,5 +1,5 @@
 /**
- * @title Extension skeleton: interpreter, analysis, generator
+ * @title Audit extension: interpreter, analysis, generator
  *
  * An `Extension` has three parts: interpreters turn annotations into IR
  * contributions, analyses read the IR graph, and generators emit ordinary files.
@@ -7,8 +7,7 @@
 import {
   Contribution,
   decodeArgs,
-  error,
-  warning,
+  CoreDiagnostics,
   type Analysis,
   type Extension,
   type GeneratedFile,
@@ -35,9 +34,7 @@ const AuditPolicyData = Schema.Struct({ level: AuditLevel });
 const interpretAudit: Interpreter = (annotation, declaration, ctx) => {
   // `ctx.operationId` is set when this declaration defines a Query or Command.
   if (Option.isNone(ctx.operationId)) {
-    return Contribution.diagnostics(
-      error("EFFX9002", `${declaration.id}: the Audit annotation requires an operation`),
-    );
+    return Contribution.diagnostics(CoreDiagnostics["EFFX9002"].emit({ subject: declaration.id }));
   }
 
   const operation = ctx.operationId.value;
@@ -76,8 +73,8 @@ const unauditedCommands: Analysis = (ir, index) =>
       (edge) => edge.qualifier === "AuditPolicy",
     );
 
-    // Pick codes that do not collide with the built-ins (EFFX0001..EFFX2701).
-    return audited ? [] : [warning("EFFX9001", `${node.name}: Command has no Audit annotation`)];
+    // This shipped example shares a grandfathered distribution factory; do not register it again.
+    return audited ? [] : [CoreDiagnostics["EFFX9001"].emit({ subject: node.name })];
   });
 
 // 3. Generator: IR -> files. The output is ordinary TypeScript data. There is

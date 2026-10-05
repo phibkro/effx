@@ -2,17 +2,11 @@ import { Effect, Option, Schema } from "effect";
 import {
   Contribution,
   CompilerFault,
-  error,
-  warning,
+  CoreDiagnostics,
   type Extension,
   type GeneratedFile,
 } from "@effx/compiler";
 import { IRGraph, Node, StableId } from "@effx/ir";
-
-/** Example-owned diagnostic codes; external extensions must choose their own namespace. */
-export const deprecatedWarningCode = "EFFX2901";
-
-export const malformedDeprecatedCode = "EFFX2902";
 
 const name = "example.deprecated";
 
@@ -30,12 +24,12 @@ const interpretDeprecated: Extension["interpreters"][string] = (annotation, decl
 
   if (Option.isNone(parsed))
     return Contribution.diagnostics(
-      error(malformedDeprecatedCode, `${declaration.id}: ${name} expects { reason: string }`),
+      CoreDiagnostics["EFFX2902"].emit({ _tag: "Arguments", subject: declaration.id }),
     );
 
   if (Option.isNone(ctx.operationId))
     return Contribution.diagnostics(
-      error(malformedDeprecatedCode, `${declaration.id}: ${name} requires an operation`),
+      CoreDiagnostics["EFFX2902"].emit({ _tag: "Operation", subject: declaration.id }),
     );
 
   const operationId = ctx.operationId.value;
@@ -59,7 +53,7 @@ const warnDeprecated: Extension["analyses"][number] = (ir, index) =>
     const reason = node.data.reason;
 
     return IRGraph.outgoing(index, node.id, "ExtensionOf").map((edge) =>
-      warning(deprecatedWarningCode, `${StableId.nameOf(edge.to)} is deprecated: ${reason}`),
+      CoreDiagnostics["EFFX2901"].emit({ operation: StableId.nameOf(edge.to), reason }),
     );
   });
 

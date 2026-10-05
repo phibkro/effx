@@ -6,7 +6,7 @@
  * checks and files. `extension` bundles implementations into an ordinary `Extension`, the value
  * you list in `effx.config.ts`.
  */
-import { dataOf, error, extension, implement, warning } from "@effx/compiler";
+import { CoreDiagnostics, dataOf, extension, implement } from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
 import { Option } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
@@ -29,16 +29,11 @@ const rateLimit = implement(RateLimit, {
       );
 
       if (!exposed) {
-        return [error("EFFX9101", `${node.name}: @RateLimit needs an HTTP exposure`)];
+        return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
       }
 
       return options.perMinute > 10_000
-        ? [
-            warning(
-              "EFFX9102",
-              `${node.name}: perMinute ${options.perMinute} is effectively unlimited`,
-            ),
-          ]
+        ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
         : [];
     }),
 });

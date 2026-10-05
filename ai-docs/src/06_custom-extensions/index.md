@@ -43,9 +43,9 @@ tested reference):
 - The config module and everything it imports must not import application code that declares
   operations.
 - Your extension imports only public packages: `@effx/compiler` (`Extension`, `Interpreter`,
-  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `error`, `warning`, `GeneratedFile`, and
-  the typed layer `implement`, `extension`, `dataOf`, `laws`, `LawViolation`), `@effx/runtime` and
-  `@effx/ir`. Anything else exported from `@effx/compiler` is marked internal.
+  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `defineDiagnostic`, `DiagnosticEntry`,
+  `CoreDiagnostics`, `GeneratedFile`, and the typed layer `implement`, `extension`, `dataOf`,
+  `laws`, `LawViolation`), `@effx/runtime` and `@effx/ir` (public exports in `packages/compiler/src/index.ts`).
 
 Not available: there is no public way to run a custom extension outside the CLI without the private
 TypeScript frontend. Use the CLI with a config.
@@ -89,7 +89,7 @@ HttpApiEndpoint.get("Limited.Get", "/limited/:id", { ... })
 ### The extension contract
 
 The contract below is what every extension implements. The typed layer derives it; the hand-written
-form (see the linked skeleton) remains valid. The built-in features (core, http, rpc, cli, client,
+form (see the linked Audit extension) remains valid. The built-in features (core, http, rpc, cli, client,
 foldkit, http-contract, http-group, access-contract, problem-contract) are extensions built from
 the same contract (`packages/compiler/src/Extension.ts`,
 `packages/compiler/src/extensions/index.ts`).
@@ -105,18 +105,21 @@ the same contract (`packages/compiler/src/Extension.ts`,
                               Diagnostic[]      Effect<GeneratedFile[]>
 ```
 
-| Part           | Type (`Extension.ts`)                                                       | Rules                                                                   |
-| -------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `name`         | `string`                                                                    | identifies the extension                                                |
-| `interpreters` | `Record<annotationName, (annotation, declaration, ctx) => Contribution>`    | pure; an annotation name no extension owns is `EFFX1101`                |
-| `analyses`     | `(ir, index, { strictAccess }) => Diagnostic[]`                             | pure; reads the graph; an `error` diagnostic stops generation           |
-| `generators`   | `(ir, index, generationContext?) => Effect<GeneratedFile[], CompilerFault>` | emit ordinary files; output is sorted by path and must be deterministic |
-| `annotations`  | `ReadonlyArray<DefinitionData>?`                                            | the definitions it implements; their plans drive frontend lowering      |
-| `expand`       | `(collected) => { declarations, diagnostics }` (optional)                   | pure pre-pass before any interpreter; group defaults use it             |
-| `fragments`    | `ReadonlyArray<EndpointFragment>?`                                          | method-call suffixes appended to a generated HTTP endpoint              |
+| Part                | Type (`Extension.ts`)                                                       | Rules                                                                   |
+| ------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `name`              | `string`                                                                    | identifies the extension                                                |
+| `interpreters`      | `Record<annotationName, (annotation, declaration, ctx) => Contribution>`    | pure; an annotation name no extension owns is `EFFX1101`                |
+| `analyses`          | `(ir, index, { strictAccess }) => Diagnostic[]`                             | pure; reads the graph; an `error` diagnostic stops generation           |
+| `generators`        | `(ir, index, generationContext?) => Effect<GeneratedFile[], CompilerFault>` | emit ordinary files; output is sorted by path and must be deterministic |
+| `annotations`       | `ReadonlyArray<DefinitionData>?`                                            | the definitions it implements; their plans drive frontend lowering      |
+| `expand`            | `(collected) => { declarations, diagnostics }` (optional)                   | pure pre-pass before any interpreter; group defaults use it             |
+| `fragments`         | `ReadonlyArray<EndpointFragment>?`                                          | method-call suffixes appended to a generated HTTP endpoint              |
+| `diagnosticEntries` | `ReadonlyArray<DiagnosticEntry>?`                                           | registers this package's explanations; duplicates are rejected          |
 
-`extension(name, implementations)` fills `annotations`, derives `interpreters`, and derives the
-`fragments` of `effect` clauses. A hand-written `Extension` omits all three optional parts.
+`extension(name, implementations, options?)` fills `annotations`, derives `interpreters` and
+`fragments`, and combines the `diagnosticEntries` supplied to each `implement` with those supplied
+in extension options. Register each entry exactly once; identical duplicate entries still fail.
+A hand-written `Extension` carries its own `diagnosticEntries` when it emits package-owned codes.
 
 Rules to keep:
 
@@ -135,5 +138,35 @@ Rules to keep:
 - Use `decodeArgs(schema, annotation, declaration)` to decode annotation
   arguments; a failure is an `EFFX1102` diagnostic.
 - No `ts.*` objects in the IR. Source locations live in the manifest.
-- Diagnostic codes: choose codes that do not collide with the built-ins. No range is reserved
-  for third-party extensions in the sources read, so the examples use `EFFX9xxx`.
+- Diagnostic codes: new third-party packages use `EFFX[<package>]/####`, for example
+  `EFFX[@acme/effx-audit]/0001`. The package must be a canonical lowercase npm name,
+  and `owner` must match it. All numeric codes belong to the effx distribution; the six
+  shipped example codes are grandfathered reservations, not an authoring range (spec 0016 §3).
+
+### Typed diagnostic entries and factories
+
+Keep entry data, a structured parameter Schema and the message renderer together with
+`defineDiagnostic` (spec 0016 §2; `packages/diagnostics/src/definition.ts`). Call its `.emit(params,
+{ location, related })` with facts; code, message and severity derive from the definition.
+Do not copy a message template into an emitter or retain string-code helpers. Fixed severity
+entries accept no resolver. A named policy declares `allowedSeverities` as a readonly nonempty
+list of unique outcomes containing the default, documents the decision, and supplies a
+resolver whose return type is restricted to those outcomes.
+
+The inlined package-owned audit example below shows a complete entry, factory and meaningful
+analysis-only `Extension`. `diagnosticEntries: [missingAudit.entry]` enables both compilation
+and explicit-config explain lookup. With `implement`, put the entry in its options; with
+`extension`, put additional entries in its third argument. Shared `CoreDiagnostics` factories
+are already bundled: the older Audit and RateLimit examples reference those factories without
+registering their numeric entries again.
+
+Registry composition decodes selected extension entry arrays and rejects collisions before
+frontend analysis. Callback diagnostics, including related diagnostics, are checked before
+escaping the compiler; undeclared codes or unauthorized severity produce `EFFX0010` and
+stop generation, not a `CompilerFault` (spec 0016 §2). These checks cover JavaScript plugins
+too; TypeScript factory references alone are not a security guarantee.
+
+Run `effx explain EFFX1102` offline without a project. For a plugin, quote the full code
+and select its config explicitly: `effx explain 'EFFX[@acme/effx-audit]/0001' --config
+./effx.config.ts`. Explain does not discover config by default or compile application source
+(spec 0016 §4).
