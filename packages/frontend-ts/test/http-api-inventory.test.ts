@@ -130,7 +130,7 @@ describe("concrete HttpApi endpoint inventory", () => {
           module: "../../root",
           export: "Root",
         });
-        const without = { ...collected, resolveHttpApiInventory: undefined };
+        const { resolveHttpApiInventory: _resolveHttpApiInventory, ...without } = collected;
         const rejected = yield* compileCollected(without, Extensions.builtin);
         assert.strictEqual(canonical(ir), canonical(Option.getOrThrow(rejected.ir.value)));
         assert.isTrue(rejected.diagnostics.some((d) => d.code === "EFFX2415"));
