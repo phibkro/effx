@@ -102,7 +102,10 @@ const typescriptPin = Effect.fn("typescriptPin")(function* (
     const text = yield* tryTs("collect", () => host.readFile(candidate));
 
     if (text !== undefined) {
-      const pkg = yield* Schema.decodeEffect(PackageJson)(text);
+      const decoded = Schema.decodeOption(PackageJson)(text);
+
+      if (Option.isNone(decoded)) return undefined;
+      const pkg = decoded.value;
       const pin = pkg.devDependencies?.["typescript"] ?? pkg.dependencies?.["typescript"];
 
       if (pin !== undefined) return pin;
@@ -268,9 +271,7 @@ export const loadProject = Effect.fn("loadProject")(function* (
     },
   );
 
-  const pin = yield* typescriptPin(tsconfigDir, snapshot).pipe(
-    Effect.orElseSucceed((): string | undefined => undefined),
-  );
+  const pin = yield* typescriptPin(tsconfigDir, snapshot);
 
   const diagnostics: Array<Diagnostic> = [...versionSkew(pin)];
   const location = { file: tsconfigPath, line: 1, col: 1 };

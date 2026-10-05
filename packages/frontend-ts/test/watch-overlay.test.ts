@@ -359,6 +359,68 @@ describe("analysis source snapshots", () => {
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 
+  it.effect("records analyzed closed-file text and saved config without a later disk reread", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+      const config = path.join(root, "tsconfig.json");
+      const operation = path.join(root, "src/operations.ts");
+      const closed = path.join(root, "src/user.ts");
+      const savedConfig = yield* fs.readFileString(config);
+      const savedClosed = yield* fs.readFileString(closed);
+      const unsaved = (yield* fs.readFileString(operation)) + "\n// unsaved source snapshot\n";
+      const captured = new Map<string, string>();
+      const counts = new Map<string, number>();
+
+      const collected = yield* SourceFrontend.use((frontend) =>
+        frontend.analyze(
+          { tsconfigPath: config, entry: ["src/operations.ts"] },
+          {
+            sources: new Map([
+              [config, "unsaved config must not replace saved config"],
+              [operation, unsaved],
+            ]),
+            onReadSource: (file, text) => {
+              captured.set(file, text);
+              counts.set(file, (counts.get(file) ?? 0) + 1);
+            },
+          },
+        ),
+      );
+
+      assert.strictEqual(captured.get(config), savedConfig);
+      assert.strictEqual(captured.get(operation), unsaved);
+      assert.strictEqual(captured.get(closed), savedClosed);
+      assert.isTrue(
+        collected.declarations.some((declaration) => declaration.location?.file === closed),
+      );
+      assert.isTrue([...counts.values()].every((count) => count === 1));
+      yield* fs.writeFileString(closed, "changed by the test after analysis");
+      assert.strictEqual(captured.get(closed), savedClosed);
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("source capture callback failure stays a CompilerFault", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+
+      const failure = yield* TsSourceFrontend.analyze(
+        { tsconfigPath: path.join(root, "tsconfig.json") },
+        {
+          onReadSource: () => {
+            throw new Error("source capture failed");
+          },
+        },
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(failure._tag, "CompilerFault");
+      assert.strictEqual(failure.stage, "collect");
+      assert.include(failure.message, "source capture failed");
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
   it.effect("observer boundary failure stays a CompilerFault instead of becoming diagnostics", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
