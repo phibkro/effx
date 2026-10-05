@@ -1343,11 +1343,17 @@ describe("core diagnostic registry", () => {
     Effect.gen(function* () {
       const registry = yield* composeRegistry(coreEntries);
 
-      assert.deepStrictEqual(registry.entries.map((entry) => entry.code).toSorted(), expectedCodes);
+      assert.deepStrictEqual<ReadonlyArray<string>>(
+        registry.entries.map((entry) => entry.code).toSorted(),
+        expectedCodes,
+      );
       assert.strictEqual(coreEntries.length, 52);
       assert.strictEqual(new Set(coreEntries.map((entry) => entry.code)).size, 52);
-      assert.deepStrictEqual(Object.keys(CoreDiagnostics).toSorted(), expectedCodes);
-      assert.deepStrictEqual(
+      assert.deepStrictEqual<ReadonlyArray<string>>(
+        Object.keys(CoreDiagnostics).toSorted(),
+        expectedCodes,
+      );
+      assert.deepStrictEqual<ReadonlyArray<string>>(
         [...new Set(compatibilityCases.map((test) => test.code))].toSorted(),
         expectedCodes,
       );
@@ -1368,7 +1374,7 @@ describe("core diagnostic registry", () => {
   it.each(compatibilityCases)(
     "preserves exact legacy message and policy %# $code",
     ({ code, diagnostic, message, severity }) => {
-      assert.deepStrictEqual(diagnostic(), { code, message, severity });
+      assert.deepStrictEqual<Diagnostic>(diagnostic(), { code, message, severity });
     },
   );
 
