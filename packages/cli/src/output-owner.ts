@@ -73,7 +73,13 @@ const resourceSet = Effect.fnUntraced(function* (resources: OutputResources) {
  * lock for explicit operator recovery, never an automatically stolen lease.
  * Construction is lazy. Check-only/LSP must not call this operation.
  */
-export const acquireOutputOwner = Effect.fnUntraced(function* (resources: OutputResources) {
+export const acquireOutputOwner = Effect.fnUntraced(function* (
+  resources: OutputResources,
+): Effect.fn.Return<
+  OutputOwner,
+  OutputBusy | PlatformError,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+> {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
