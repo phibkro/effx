@@ -53,11 +53,15 @@ describe("explicit native project observation (EX-0031)", () => {
         FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
       >
     >();
+    expectTypeOf(value).not.toEqualTypeOf<Effect.Effect<WatchFiles, WatchLimit>>();
     expectTypeOf<WatchFiles["poll"]>().toEqualTypeOf<
       Effect.Effect<
         Option.Option<WatchSnapshot>,
         PlatformError.PlatformError | WatchLimit | WatchClosed
       >
+    >();
+    expectTypeOf<WatchFiles["poll"]>().not.toEqualTypeOf<
+      Effect.Effect<Option.Option<WatchSnapshot>>
     >();
     expectTypeOf<WatchFiles["start"]>().toEqualTypeOf<Effect.Effect<void, WatchClosed>>();
   });
