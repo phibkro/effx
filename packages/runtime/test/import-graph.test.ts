@@ -2,11 +2,7 @@ import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path } from "effect";
 
-/**
- * Spec 0020 §2.1 and §3 gate 5: `@effx/runtime` is the syntax half and application bundles import
- * it, so its import graph may reach `effect` and its own relative modules, never `@effx/compiler`,
- * `@effx/ir` or any other workspace package.
- */
+/** The syntax package may reach Effect and the approved Effect-only diagnostics leaf (spec 0016), never the compiler or IR. */
 
 const srcRoot = new URL("../src/", import.meta.url).pathname;
 
@@ -22,8 +18,11 @@ export const specifiersOf = (source: string): ReadonlyArray<string> =>
     String(match[1] ?? match[2] ?? match[3]),
   );
 
-const isAllowed = (specifier: string): boolean =>
-  specifier === "effect" || specifier.startsWith("effect/") || /^\.\.?\//.test(specifier);
+const isAllowed = (specifier: string, diagnostics = false): boolean =>
+  specifier === "effect" ||
+  specifier.startsWith("effect/") ||
+  /^\.\.?\//.test(specifier) ||
+  (diagnostics && specifier === "@effx/diagnostics");
 
 describe("@effx/runtime import graph", () => {
   it("the scanner finds every specifier form and rejects workspace packages", () => {
@@ -54,35 +53,56 @@ describe("@effx/runtime import graph", () => {
       specifiersOf(source).filter((s) => !isAllowed(s)),
       ["@effx/compiler", "@effx/ir", "node:fs", "@effx/cli"],
     );
+    assert.isTrue(isAllowed("@effx/diagnostics", true));
+    assert.isFalse(isAllowed("@effx/diagnostics"));
+    assert.isFalse(isAllowed("@effx/compiler", true));
   });
 
   it.effect(
-    "every module under packages/runtime/src imports only effect and relative modules",
+    "runtime reaches only the approved diagnostics leaf and the leaf reaches only Effect",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
 
-        const files = (yield* fs.readDirectory(srcRoot, { recursive: true }))
-          .filter((file) => file.endsWith(".ts"))
-          .sort();
-
-        assert.isAbove(files.length, 0);
+        const roots = [
+          { name: "runtime", directory: srcRoot, diagnostics: true },
+          {
+            name: "diagnostics",
+            directory: new URL("../../diagnostics/src/", import.meta.url).pathname,
+            diagnostics: false,
+          },
+        ];
 
         const violations: Array<string> = [];
 
-        for (const file of files) {
-          const source = yield* fs.readFileString(path.join(srcRoot, file));
+        for (const root of roots) {
+          const files = (yield* fs.readDirectory(root.directory, { recursive: true }))
+            .filter((file) => file.endsWith(".ts"))
+            .toSorted();
 
-          for (const specifier of specifiersOf(source)) {
-            if (!isAllowed(specifier)) violations.push(`${file}: ${specifier}`);
-            else if (specifier.startsWith(".")) {
-              const target = path.resolve(path.dirname(path.join(srcRoot, file)), specifier);
-              const inside = path.relative(srcRoot, target);
-              const ts = target.replace(/\.js$/, ".ts");
+          assert.isAbove(files.length, 0);
 
-              if (inside.startsWith("..")) violations.push(`${file}: ${specifier} leaves src/`);
-              else if (!(yield* fs.exists(ts))) violations.push(`${file}: ${specifier} not found`);
+          for (const file of files) {
+            const source = yield* fs.readFileString(path.join(root.directory, file));
+
+            for (const specifier of specifiersOf(source)) {
+              if (!isAllowed(specifier, root.diagnostics))
+                violations.push(`${root.name}/${file}: ${specifier}`);
+              else if (specifier.startsWith(".")) {
+                const target = path.resolve(
+                  path.dirname(path.join(root.directory, file)),
+                  specifier,
+                );
+
+                const inside = path.relative(root.directory, target);
+                const ts = target.replace(/\.js$/, ".ts");
+
+                if (inside.startsWith(".."))
+                  violations.push(`${root.name}/${file}: ${specifier} leaves src/`);
+                else if (!(yield* fs.exists(ts)))
+                  violations.push(`${root.name}/${file}: ${specifier} not found`);
+              }
             }
           }
         }
