@@ -37,10 +37,10 @@ const packageSpecifier = (file: string): string | undefined => {
 export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (
   config: ProjectConfig,
   options: AnalyzeOptions = {},
-): Effect.fn.Return<Collected, CompilerFault, FileSystem.FileSystem | Path.Path> {
+) {
   const path = yield* Path.Path;
 
-  const project = yield* loadProject(config, options).pipe(
+  const project = yield* loadProject(config).pipe(
     Effect.mapError((cause) =>
       isCompilerFault(cause)
         ? cause

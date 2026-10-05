@@ -32,31 +32,7 @@ no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServic
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 `effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
-EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent installed
-consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
-stdin and forced-stop deadlines stay scoped; the script is a composition root.
-The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
-
-EX-0030 records the pinned maintained `vscode-jsonrpc` ABI, not permission to
-override the hard ban on own Node imports/types or ambient Node authority in packages.
-The previous package-Node exception wording was withdrawn by the director on
-2026-10-06. A real process root outside packages must supply owned Effect-facing
-IO/liveness and the single scoped callback bridge; native backend acceptance is pending.
-EX-0031 records native sequential filesystem observation instead of the installed
-unbounded push-watch backend. Both open records, exact versions, tests and retirement
-triggers live in `docs/research/0018-watch-editor-design.md` §6. They are not verified
-until the real boundary and cleanup tests pass. No global Bun resolver hook is permitted.
-EX-0032 permits the installed TypeScript 6.0.3 runtime-exported `matchFiles` ABI
-only inside `packages/frontend-ts/src/ts.ts`. It preserves native include/exclude
-semantics for virtual source membership without a second glob implementation.
-The runtime export is guarded; its local ABI assertion and retirement are recorded
-in the same design evidence. No TypeScript object crosses the frontend service.
-EX-0033 records read-only evaluated module-cache inventory data, not authority for
-`node:module` inside a package. Native cache acquisition must belong to the same
-outside-packages process root and supply a narrow inventory capability. Physical
-keys supplement complete caller-declared logical coverage; they are neither full
-provenance nor a sandbox. The legacy package acquisition remains unaccepted.
 
 ## Commands
 
@@ -83,17 +59,17 @@ Each project owns its output and manifest. `cmp` checks the fresh contract again
 
 ## Package map
 
-| Package                                      | Role                                                                                                                                         | Depends on                         |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                         | effect                             |
-| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                                | effect                             |
-| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations and pipeline                   | ir, runtime, diagnostics           |
-| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                     | compiler, runtime                  |
-| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                     | effect, diagnostics                |
-| `packages/cli` (`@effx/cli`)                 | `effx check/build/dev/lsp/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation | compiler, frontend-ts, diagnostics |
-| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI     | compiler, runtime, ir              |
-| `examples/users`                             | the User slice from the research report                                                                                                      | runtime                            |
-| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                         | generated pages                    |
+| Package                                      | Role                                                                                                                                     | Depends on                         |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                     | effect                             |
+| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                            | effect                             |
+| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations and pipeline               | ir, runtime, diagnostics           |
+| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                 | compiler, runtime                  |
+| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                 | effect, diagnostics                |
+| `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation     | compiler, frontend-ts, diagnostics |
+| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI | compiler, runtime, ir              |
+| `examples/users`                             | the User slice from the research report                                                                                                  | runtime                            |
+| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                     | generated pages                    |
 
 Tests live in `packages/*/test/**/*.test.ts` and use `@effect/vitest` (`it.effect`). Files using
 TC39 decorators are lowered by TypeScript 6 in `vitest.config.ts` (oxc cannot lower them yet).

@@ -1,15 +1,7 @@
 ## Custom annotations and extensions
 
 An **extension** gives annotations meaning. You register one in `effx.config.ts`; the CLI loads that
-single module and its imports for compilation commands (spec 0015, `packages/cli/src/config.ts`).
-Sessions retain that graph until restart; LSP requires launch-time trust before discovered config executes.
-
-For `dev` and `lsp`, the caller must declare ALL otherwise-unobservable executable routes.
-Use `executableCoverage` in the config or repeatable `--exec-file` / `--exec-dir` launch declarations.
-Static bare-package symlinks, exports, `#imports`, extensionless candidates, and computed/external aliases can all need explicit coverage.
-Omitted routes can change without detection. Physical module-cache keys do not certify completeness.
-See Watch checks and editor diagnostics for source-relative paths, import-window assumptions, and restart behavior.
-Source: spec 0018 amendment A, `packages/cli/src/commands.ts`, `config-runtime.ts`, and `config.ts`.
+single module for `check`, `build`, `inspect` and `graph` (spec 0015, `packages/cli/src/config.ts`).
 Two layers attach custom annotations, and both produce the same record, `Annotation { name, args }`:
 
 - **The generic floor** (spec 0015): `@Annotate(name, ...args)` and `.annotate(name, ...args)` from

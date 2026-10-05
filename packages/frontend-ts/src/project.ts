@@ -1,7 +1,6 @@
 import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import {
   CompilerFault,
-  type AnalyzeOptions,
   type Diagnostic,
   type ProjectConfig,
   type ProjectResolution,
@@ -10,7 +9,6 @@ import {
   CoreDiagnostics,
 } from "@effx/compiler";
 import { ts, tryTs } from "./ts.ts";
-import { snapshotHost } from "./snapshot-host.ts";
 
 export interface Project {
   readonly program: ts.Program;
@@ -89,23 +87,17 @@ export const targetProfileFromVersion = (version: string): TargetProfile | undef
 };
 
 /** Nearest `package.json` walking up from `dir`; `Option`-like via `undefined` because absence is normal. */
-const typescriptPin = Effect.fn("typescriptPin")(function* (
-  dir: string,
-  host: ts.ModuleResolutionHost,
-) {
+const typescriptPin = Effect.fn("typescriptPin")(function* (dir: string) {
+  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   let current = dir;
 
   for (;;) {
     const candidate = path.join(current, "package.json");
 
-    const text = yield* tryTs("collect", () => host.readFile(candidate));
-
-    if (text !== undefined) {
-      const decoded = Schema.decodeOption(PackageJson)(text);
-
-      if (Option.isNone(decoded)) return undefined;
-      const pkg = decoded.value;
+    if (yield* fs.exists(candidate)) {
+      const text = yield* fs.readFileString(candidate);
+      const pkg = yield* Schema.decodeEffect(PackageJson)(text);
       const pin = pkg.devDependencies?.["typescript"] ?? pkg.dependencies?.["typescript"];
 
       if (pin !== undefined) return pin;
@@ -125,21 +117,13 @@ const versionSkew = (pin: string | undefined): ReadonlyArray<Diagnostic> => {
   return [CoreDiagnostics.EFFX0001.emit({ analysisVersion: ts.version, projectPin: pin })];
 };
 
-export const loadProject = Effect.fn("loadProject")(function* (
-  config: ProjectConfig,
-  input: AnalyzeOptions = {},
-) {
-  const captured: AnalyzeOptions = { ...input, sources: new Map(input.sources) };
+export const loadProject = Effect.fn("loadProject")(function* (config: ProjectConfig) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const tsconfigPath = path.resolve(config.tsconfigPath);
   const tsconfigDir = path.dirname(tsconfigPath);
 
   const text = yield* fs.readFileString(tsconfigPath);
-
-  const snapshot = yield* tryTs("collect", () =>
-    snapshotHost(path, captured, [tsconfigPath, text]),
-  );
 
   const { parsed, settings } = yield* tryTs("collect", () => {
     const json = ts.parseConfigFileTextToJson(tsconfigPath, text);
@@ -149,13 +133,7 @@ export const loadProject = Effect.fn("loadProject")(function* (
     }
 
     return {
-      parsed: ts.parseJsonConfigFileContent(
-        json.config,
-        snapshot,
-        tsconfigDir,
-        undefined,
-        tsconfigPath,
-      ),
+      parsed: ts.parseJsonConfigFileContent(json.config, ts.sys, tsconfigDir),
       settings: json.config,
     };
   });
@@ -184,74 +162,13 @@ export const loadProject = Effect.fn("loadProject")(function* (
       ? parsed.fileNames
       : config.entry.map((file) => path.resolve(tsconfigDir, file));
 
-  const onRootSources = captured.onRootSources;
-
-  if (onRootSources !== undefined) yield* tryTs("collect", () => onRootSources(rootNames));
-
   const options: ts.CompilerOptions = { ...parsed.options, noEmit: true };
 
   const { program, runtimeRoot, effectPackagePath, resolveEffectModule } = yield* tryTs(
     "collect",
     () => {
       const host = ts.createCompilerHost(options);
-      host.readFile = snapshot.readFile;
-      host.fileExists = snapshot.fileExists;
-      host.directoryExists = snapshot.directoryExists;
-      host.realpath = snapshot.realpath;
-      host.readDirectory = snapshot.readDirectory;
-      host.getDirectories = snapshot.getDirectories;
-      // createCompilerHost closes over its original system: replace source acquisition too.
-      host.getSourceFile = (fileName, languageVersion) => {
-        const source = snapshot.readFile(fileName);
-
-        return source === undefined
-          ? undefined
-          : ts.createSourceFile(fileName, source, languageVersion, true);
-      };
-
       const created = ts.createProgram(rootNames, options, host);
-      // Observe reference configuration without changing baseline program/root semantics.
-      const visited = new Set<string>();
-      const pending = [...(parsed.projectReferences ?? [])];
-
-      for (let i = 0; i < pending.length; i++) {
-        const reference = pending[i];
-
-        if (reference === undefined) continue;
-        const file = path.resolve(ts.resolveProjectReferencePath(reference));
-
-        if (visited.has(file)) continue;
-        visited.add(file);
-        const contents = snapshot.readFile(file);
-
-        if (contents === undefined) throw new Error("Referenced tsconfig unavailable: " + file);
-        const json = ts.parseConfigFileTextToJson(file, contents);
-
-        if (json.error !== undefined)
-          throw new Error(
-            file + ": " + ts.flattenDiagnosticMessageText(json.error.messageText, "\n"),
-          );
-
-        const referenced = ts.parseJsonConfigFileContent(
-          json.config,
-          snapshot,
-          path.dirname(file),
-          undefined,
-          file,
-        );
-
-        if (referenced.errors.length > 0)
-          throw new Error(
-            file +
-              ": " +
-              referenced.errors
-                .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
-                .join("\n"),
-          );
-
-        pending.push(...(referenced.projectReferences ?? []));
-      }
-
       const containing = rootNames[0] ?? path.join(tsconfigDir, "__effx_target__.ts");
       const targetContaining = path.join(tsconfigDir, "__effx_target__.ts");
 
@@ -287,7 +204,9 @@ export const loadProject = Effect.fn("loadProject")(function* (
     },
   );
 
-  const pin = yield* typescriptPin(tsconfigDir, snapshot);
+  const pin = yield* typescriptPin(tsconfigDir).pipe(
+    Effect.orElseSucceed((): string | undefined => undefined),
+  );
 
   const diagnostics: Array<Diagnostic> = [...versionSkew(pin)];
   const location = { file: tsconfigPath, line: 1, col: 1 };
@@ -297,9 +216,7 @@ export const loadProject = Effect.fn("loadProject")(function* (
   }
 
   const packageText =
-    effectPackagePath === undefined
-      ? undefined
-      : yield* tryTs("collect", () => snapshot.readFile(effectPackagePath));
+    effectPackagePath === undefined ? undefined : yield* fs.readFileString(effectPackagePath);
 
   const installed =
     packageText === undefined ? Option.none() : Schema.decodeOption(InstalledEffect)(packageText);

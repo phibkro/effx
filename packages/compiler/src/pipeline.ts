@@ -13,7 +13,7 @@ import {
   type GeneratedFile,
   defaultGenerationContext,
 } from "./Extension.ts";
-import { SourceFrontend, type AnalyzeOptions } from "./SourceFrontend.ts";
+import { SourceFrontend } from "./SourceFrontend.ts";
 import { operationIdOf } from "./extensions/core.ts";
 import { definitionDiagnostics, definitionsOf } from "./annotation.ts";
 import { unsupportedModules } from "./generate/target.ts";
@@ -367,17 +367,12 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
 export const compile = Effect.fn("compile")(function* (
   project: ProjectConfig,
   extensions: ReadonlyArray<Extension>,
-  options?: Omit<AnalyzeOptions, "definitions">,
 ): Effect.fn.Return<CompileResult, CompilerFault, SourceFrontend> {
   const registration = registryOf(extensions);
 
   if (Option.isNone(registration.value)) return rejected(registration.diagnostics);
   const frontend = yield* SourceFrontend;
-
-  const collected = yield* frontend.analyze(project, {
-    ...options,
-    definitions: definitionsOf(extensions),
-  });
+  const collected = yield* frontend.analyze(project, { definitions: definitionsOf(extensions) });
 
   return yield* compileRegistered(collected, extensions, registration.value.value, {
     strictAccess: project.strictAccess ?? collected.project?.strictAccess ?? false,

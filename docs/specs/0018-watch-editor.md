@@ -1,15 +1,8 @@
 # Spec 0018 — Watch checks and editor diagnostics
 
-Status: **frozen — operator-approved** — 2026-10-06. Changes require an explicit dated amendment.
+Status: **draft, not frozen or approved** — 2026-10-05.
 Baseline: live local main `3d66eda158422282b6e2f44ec12910a362dcb9ae`.
-Depends on approved 0016, frozen 0015 and 0002. The operator approved all four §9 defaults on 2026-10-06. Implementation remains subject to design review; this contract grants no publication or main-branch landing authority.
-
-**Director provenance correction — 2026-10-06.** The authoritative conversation
-date is 2026-10-06. Supplied messages incorrectly dated the current **"approve
-defaults"** and **"A"** approvals 2026-10-05; the director corrects their approval
-dates here to 2026-10-06. Original commits/history and verbatim approval quotes are
-preserved. Observed machine-clock research/execution timestamps are unchanged and
-do not establish an earlier approval date. Accepted policies are unchanged.
+Depends on approved 0016, frozen 0015 and 0002. This draft authorizes no implementation, publication or main-branch change. The recommendations in §9 need operator approval before freezing.
 
 ## 1. Goal, constraints and values
 
@@ -93,12 +86,13 @@ clear the terminal by default. Each completed cycle has a distinct monotonically
 increasing cycle marker and a full replacement batch, including an explicit zero
 count on repair. Diagnostics themselves retain the existing reporter formatting.
 
-`--build` MUST be included as the sole opt-in to writing normal build artifacts.
+Recommend including `--build` as the sole opt-in to writing normal build artifacts.
 It runs the same pipeline and normal writer on successful, current cycles only;
 errors/faults preserve the last successful artifacts. Output, emit/target choices,
 generator toggles, manifest ownership and obsolete-file restrictions remain normal
-build behavior. No application/server subprocess is started. Neither config output
-settings nor generator selection grants write intent; only `dev --build` does.
+build behavior. No application/server subprocess is started. If the option is not
+approved, remove this build sub-contract explicitly before freezing; do not silently
+implement a command that ignores an accepted flag.
 
 Startup invalid selection fails before any watch/write. A later malformed saved
 JSON config or missing dependency reports a failed cycle, invalidates old success
@@ -116,7 +110,7 @@ without an explicit project fail initialization with an actionable selection err
 no recursive nearest-tsconfig scan and no per-document project guessing. Advertise
 no workspace-folder change support. Non-file URIs are outside this slice.
 
-A config file is executable code, not passive editor settings. The server MUST require
+A config file is executable code, not passive editor settings. Recommend requiring
 launch-time `--trust-config` before evaluating a discovered config; explicit
 `--config <path>` is also affirmative authority for that module and its imports.
 If discovery finds a config without either authority, initialization fails naming
@@ -133,47 +127,6 @@ separately prove untrusted configs never execute. Config that writes during impo
 is not made read-only by calling it from LSP. No config or plugin is evaluated from
 an unsaved overlay or temporary file.
 
-### Executable coverage — operator amendment A, 2026-10-06
-
-`EffxConfig` and its existing Schema decoder MUST accept optional
-`executableCoverage: { files?: readonly string[], directories?: readonly
-{ path: string, recursive: boolean }[] }`. `defineConfig` retains its identity
-behavior. `dev` and `lsp` MUST accept repeatable `--exec-file <path>` and
-`--exec-dir <path>` launch inputs; a launch directory covers ordinary descendants
-recursively. Launch paths resolve from startup cwd; config paths resolve beside
-the selected config. Merge coverage by union while retaining logical aliases.
-Project/config selection and supported executable config syntax MUST NOT change.
-Editor messages MUST NOT grant trust or add executable coverage authority. Coverage
-data MUST stay outside ProjectConfig, IR, semanticHash and generated artifacts.
-
-Executable observation MUST use caller coverage plus known loaded physical files
-and observed TS/config/resolution inputs. The caller MUST completely declare ALL
-otherwise-unobservable logical routes and resolution-sensitive inputs. This includes
-ordinary static bare-package symlinks omitted by known logical/TS coverage, package
-exports, `#imports`, extensionless candidates and computed/external aliases. The
-guarantee is conditional on complete caller data. Omitted routes can change without
-detection; effx MUST NOT certify completeness or infer full provenance from a
-canonical module-cache file. Declarations authorize observation, not a sandbox or
-credential access. Known physical cache keys supplement, never replace, the route
-declaration. One-shot check/build semantics remain unchanged.
-
-Observe the selected logical config and launch declarations before the single
-trusted import. After existing config decoding, add config coverage and known
-physical executable files, then reconcile before initial publication. Refresh known
-files after admitted analyses without config re-evaluation, cache-busting or another
-resolver. Config-returned coverage is unavailable before import and establishes a
-post-import baseline. Initial config import assumes stable inputs in that window
-unless complete pre-import launch coverage can detect a change. Neither path
-claims an atomic filesystem snapshot. A detected import-window change MUST yield
-RestartRequired rather than a trusted initial publication.
-
-Covered changes that can replace executable code MUST transition once to
-RestartRequired, clear diagnostics and suspend analysis/generation until a fresh
-authorized process. Unchanged complete coverage MUST permit repeated source/overlay
-analyses without restart. The rejected unobservable-epoch restart-before-every-
-generation policy MUST NOT be implemented. The director approved component design;
-only the operator approved the four product defaults and this A amendment.
-
 ### Reload versus restart
 
 | Input change                                                                                                     | Required outcome                                                                                                                                                                                                                                           |
@@ -185,12 +138,11 @@ only the operator approved the four product defaults and this A amendment.
 | Unsaved executable config/plugin document                                                                        | Never execute it; log that changes apply only after save and restart. Continue source diagnostics using the previously selected saved config until a saved executable input changes.                                                                       |
 | `workspace/didChangeConfiguration`                                                                               | Validate settings; no mutable compilation/trust settings are supported in this slice. Ignore unrelated editor settings; report changes to effx selection as restart-required. No implicit config import.                                                   |
 
-Executable replacement coverage includes imported config helpers and selected
-extensions under the explicit conditional coverage rule above. If a COVERED edit
-can replace executable code or its selection, require restart rather than hot reload.
-RestartRequired is session status/log data, not a compiler diagnostic code. Silently
-using stale covered executable inputs is a falsifier; omitted unobservable inputs
-remain the caller completeness limitation, not an automatic provenance guarantee.
+Executable dependency closure includes imported config helpers and selected extension
+implementations. Dependency replacement must be classified conservatively: if an
+edit might replace executable config/plugin code, require restart rather than
+claiming a trustworthy hot reload. Restart-required is a session status/log message,
+not a made-up compiler diagnostic code. Reusing stale config silently is a falsifier.
 
 ## 4. Project membership, watching and overlay semantics
 
@@ -199,33 +151,11 @@ registration, and reconcile coverage after every accepted snapshot. Events are
 invalidation hints, not an ordered file history. Atomic-save rename, duplicate
 notifications and create/remove races must converge on actual current inputs.
 
-Source/config coverage includes root membership directories, imported source and
-declaration files, failed lookup parents, selected/extended/referenced tsconfigs,
-metadata selecting TS/Effect and relevant lockfiles/resolution directories. Executable
-coverage is the conditional union defined in §3. Do not recursively watch all
-`node_modules` or the whole monorepo by default.
-
-Explicit executable files MUST retain their logical routes and observe each symlink
-component, raw destination, successive target expansion, target identity/content
-and relevant parent membership. Missing routes retain their unresolved suffix and
-nearest existing ancestor so intermediate/final creation becomes observable.
-Directory fingerprints include sorted entry names, kinds and link destinations.
-Explicit external directories authorize those trees, within finite documented
-path/depth/byte limits. Ordinary descendants of recursive declarations are covered.
-Do not traverse arbitrary child links into undeclared trees; use separately declared
-routes or known dependency edges. Deduplicate physical traversal without discarding
-logical aliases. Cycles, inaccessible inputs, limits and owned-output overlaps MUST
-fail visibly, never silently truncate coverage. Existing output/cache/VCS exclusions
-remain; no implicit scan of every installed package or the whole filesystem.
-
-For executable exports/`#imports`/extensionless or missing candidates, callers MUST
-declare otherwise-unobserved package.json/tsconfig/lockfiles and candidate-directory
-or missing-parent inputs. An eventual loaded file does not cover changed selection
-or a new higher-priority candidate. Use declared membership coverage; do not add
-a second Bun resolver or a global hook. The ordinary package-link and computed
-external-alias examples in the approved research §7 define the intended observation.
-
-Watch dependency files or their
+Coverage includes root membership directories (new included files), imported
+source/declaration dependencies, unresolved-import lookup directories, selected and
+extended/referenced tsconfigs, config/plugin closure, package metadata selecting TS
+and Effect, and relevant lockfiles/resolution directories. Do not recursively watch
+all `node_modules` or the whole monorepo by default. Watch dependency files or their
 nearest existing parent needed to notice replacement, including symlinked workspace
 dependencies outside the project. Deletion or rename reparses membership and clears
 diagnostics for the old URI; a renamed included declaration is analyzed at its new
@@ -262,7 +192,7 @@ semantics. No temporary save, tsbuildinfo or disk-backed overlay cache is permit
 
 On `didClose`, discard the overlay, invalidate dependent analyses, immediately send
 an empty diagnostic array for that document and reanalyze disk for other open
-consumers. The server MUST publish only for open documents; closed-file findings remain
+consumers. Recommend publishing only for open documents; closed-file findings remain
 in compiler results but are not pushed. On reopening, a disk-based result is replaced
 by the newly supplied overlay. If a deleted file remains open, its supplied text
 remains authoritative until close; deletion clears the old URI once no overlay owns
@@ -486,7 +416,7 @@ and UTF-8 body bytes are deliberately different contracts.
 
 ## 8. Falsifiers and definition of done
 
-These are implementation acceptance gates, not checks claimed by contract approval.
+These are eventual implementation acceptance gates, not checks claimed by this draft.
 Tests must use real compiled/packed CLI subprocesses and a maintained LSP client
 connection for the boundary journeys. Deterministic unit tests supplement them;
 mock-only green tests do not satisfy a filesystem or protocol requirement.
@@ -558,11 +488,11 @@ tsconfig.json`. Await initial completion, edit a real declaration into an existi
    deterministic tests using Effect clock/controlled admission for coalescing, not
    arbitrary sleeps or snapshots of an invented incremental architecture.
 
-Failure of any numbered observable behavior falsifies completion. Contract approval
-does not assert implementation acceptance; all numbered gates must be exercised on
-the eventual final implementation commit.
+Failure of any numbered observable behavior falsifies completion. No implementation
+or acceptance execution belongs to this design-only commit; normal commit hooks are
+the only mandatory draft checks.
 
-## 9. Accepted operator defaults
+## 9. Operator preference questions — recommended defaults
 
 | Named preference        | Recommendation                                                                                                                        | Actual tradeoff                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -572,101 +502,7 @@ the eventual final implementation commit.
 | Project reach           | One explicitly selected project per server; one workspace root may supply defaults; no automatic multi-root discovery.                | Some monorepos run more than one server process, but project/config/overlay ownership is unambiguous.                                                   |
 
 Transport library, finite admission limits and host caching are engineering choices,
-not arbitrary operator knobs. Correctness, framing, authority enforcement, parity
-and resource ownership are not optional preferences.
-
-### Approval amendment — 2026-10-06
-
-The operator wrote, verbatim: **"approve defaults"**. This approval applies to all
-four defaults in this spec, not to the earlier approval of 0016 or any credential,
-publication, deployment or landing authority:
-
-1. `effx dev` MUST remain check-only by default and MUST include explicit `--build`
-   as the only opt-in to normal generated writes; LSP MUST never write artifacts (§3).
-2. LSP MUST require launch-time `--trust-config` for discovered executable config
-   or explicit `--config` authority; saved executable config/plugin changes MUST
-   require restart, not hot import (§3).
-3. LSP MUST publish diagnostics only for open documents; unlocated project findings
-   MUST be logged with code/severity and explain guidance (§4 and §6).
-4. LSP MUST own one selected project per server and MUST NOT automatically infer
-   multiple projects from workspace roots or document paths (§3).
-
-This amendment freezes the contract; it does not claim implementation acceptance.
-
-### Operator coverage amendment A — 2026-10-06
-
-The operator wrote, verbatim: **"A"**. This approves the explicit conditional
-executable-coverage proposal in
-[`../research/0018-watch-editor-design.md` §7](../research/0018-watch-editor-design.md#7-proposed-contract-amendment--explicit-executable-coverage),
-clarified at commit `ab45c48`. It does not approve unconditional full provenance,
-credentials, publication, deployment or main landing. Original four defaults remain
-binding. The director—not the operator—approved isolated component implementation
-design before this amendment. Normative §§3–4 now incorporate this approved rule.
-
-#### Additional acceptance — part of §8
-
-10. Through actual packed dev/LSP journeys, exercise an ordinary static package
-    symlink and a computed external alias. Retarget each while its old canonical
-    target remains unchanged. Complete caller declarations MUST cause one
-    RestartRequired status, diagnostic clearing and no further writes/analyses until
-    a new authorized process. Also exercise successive link chains, missing
-    intermediate creation, explicit external trees, executable exports/`#imports`
-    candidate/metadata changes and visible traversal/permission/overlap limits.
-    Unchanged declared inputs MUST permit multiple source/error/repair cycles and
-    unsaved overlay generations without restarting or re-evaluating config. Test
-    launch-relative/config-relative path union, pre-import launch observation and
-    detected import-window changes. State the initial-import stability assumption
-    for post-import config declarations. Documentation and client messages MUST
-    state caller completeness; canonical cache files alone do not prove it. An
-    omitted unobservable route is an explicit limitation, not silently claimed
-    detected coverage. No global hook, sandbox, syntax restriction or hidden import.
-
-### Operator Linux platform amendment — 2026-10-06
-
-The operator wrote, verbatim: **"Linux"**. This selects the qualified native LSP
-backend proposed in design §10 at commit `13e815e`, not portable certification,
-credentials, publication or main landing. The four original defaults and coverage
-amendment A, including additional §8 item 10, remain binding.
-
-`effx lsp` is qualified for declared Linux-x64/glibc targets with standard
-maintained-client socket, FIFO, regular-file and PTY stdin. The external Bun root
-MUST exclusively own fd0; cooperative trusted config MUST neither consume stdin
-nor bypass native stderr/framed-output reporting. Arbitrary trusted code remains
-outside sandbox containment. Unusual devices, procfs and unsupported stdin forms
-MUST receive explicit classified limits/failure, not silent supported assumptions.
-Other CLI commands and `effx dev` retain their existing runtime/platform behavior.
-
-The trusted fixed 511-byte POSIX readiness C source MUST be compiled at build
-time against declared target headers/toolchain and loaded through public Bun
-1.3.13 dlopen. No runtime experimental cc/compiler/header discovery, guessed ABI
-or constants, shared descriptor-flag mutation, private handles, per-read helper
-process, fake backend or stub is permitted. After actual readiness, raw reads
-MUST use at most 65,536 bytes, under the explicit exclusive-reader premise.
-Accepted kernel bytes cannot be retracted; Closed admits no new native calls.
-
-Shipping MUST declare artifact-derived ELF target ABI, minimum glibc and needed
-libraries with actual compatibility evidence. The local glibc 2.44 probe does not
-establish a lower minimum or Ubuntu 24 compatibility. Build determinism, trusted
-source provenance, symbol signatures/data bounds and manifest byte integrity MUST
-be established. The packaged asset MUST contain no raw Nix-store path, stale Nix
-RPATH or runtime build dependency. Unsupported OS/architecture/libc MUST fail
-explicitly at startup before unsafe IO. Native C process authority and lack of
-memory-safety containment MUST be documented.
-
-The single common scripts/effx.ts root, portable main.ts/caller/build/pack cutover
-is owned first by approved 0019. 0018 MAY implement independent Linux capability,
-asset/build helper and tests, but MUST NOT duplicate the common root or broad
-caller migration. Adoption/rebase/injection follows director integration order.
-Own Node imports/types/globals remain forbidden in packages; main.ts remains the
-only effect/cli binding. No obsolete executable shim survives the final cutover.
-
-The complete §8 and amendment-A journeys remain required. Additional native
-acceptance MUST exercise actual packed maintained Node-client socket plus FIFO,
-file and PTY; unsupported startup; integrity/ABI failures; exclusive fd ownership;
-library close and root shutdown; writer two-second bound; EOF/SIGINT/client death
-and PID probe; no calls after Closed; and effx-owned stdout purity before/after
-initialize, cooperative config logging/fault and usage/help/error paths. No global
-console monkeypatch or sandbox is permitted. Artifact/provenance evidence MUST
-use closed safe projections and never serialize runtime environment, raw args,
-config/credential/private payloads or raw causes. Final complete committed-clone
-verification and director review/order precede any feature acceptance or landing.
+not arbitrary operator knobs. The operator chooses these four user-visible policies;
+correctness, framing, authority enforcement, parity and resource ownership are not
+optional preferences. Approval must be recorded explicitly before changing status to
+frozen. This draft does not presume approval from 0016's earlier “Approve the defaults.”

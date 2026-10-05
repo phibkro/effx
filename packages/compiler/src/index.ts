@@ -104,12 +104,7 @@ export { defaultGenerationContext } from "./Extension.ts";
 
 export type { InterpretContext, AnalysisContext, GenerationContext } from "./Extension.ts";
 
-export {
-  SourceFrontend,
-  type AnalyzeOptions,
-  type DefinitionEntry,
-  type ObservedInput,
-} from "./SourceFrontend.ts";
+export { SourceFrontend, type AnalyzeOptions, type DefinitionEntry } from "./SourceFrontend.ts";
 
 export { interpret, analyze, generate, compileCollected } from "./pipeline.ts";
 
