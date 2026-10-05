@@ -1732,79 +1732,77 @@ export default defineConfig({
 
 | Code | Title | Default severity |
 | --- | --- | --- |
-| [EFFX0001](#diagnostic-effx0001) | Analysis and project TypeScript versions differ | info |
-| [EFFX0010](#diagnostic-effx0010) | Diagnostic registry contract violated | error |
-| [EFFX1001](#diagnostic-effx1001) | Stable identity has conflicting content | error |
-| [EFFX1002](#diagnostic-effx1002) | Graph edge references an absent node | error |
-| [EFFX1003](#diagnostic-effx1003) | Extension node has no owner | error |
-| [EFFX1101](#diagnostic-effx1101) | No interpreter for annotation | error |
-| [EFFX1102](#diagnostic-effx1102) | Malformed or unlowerable annotation arguments | error |
-| [EFFX1103](#diagnostic-effx1103) | Annotation needs an operation | error |
-| [EFFX1104](#diagnostic-effx1104) | Unsupported declaration syntax | error |
-| [EFFX1105](#diagnostic-effx1105) | Handler return type is not Effect | error |
-| [EFFX1106](#diagnostic-effx1106) | Runtime resolution or handler binding mismatch | error |
-| [EFFX1107](#diagnostic-effx1107) | External binding cannot implement an executable projection | error |
-| [EFFX1301](#diagnostic-effx1301) | Schema argument cannot be lowered from source | error |
-| [EFFX1302](#diagnostic-effx1302) | Annotation name invalid or declared twice | error |
-| [EFFX1303](#diagnostic-effx1303) | Annotation target does not fit syntax | error |
-| [EFFX1304](#diagnostic-effx1304) | Annotation effect key identity collision | error |
-| [EFFX1306](#diagnostic-effx1306) | Definition module reaches application code | error |
-| [EFFX2201](#diagnostic-effx2201) | Inferred error missing from assertion | error |
-| [EFFX2202](#diagnostic-effx2202) | Declared error no longer inferred | error |
-| [EFFX2203](#diagnostic-effx2203) | Inferred error lacks a Schema address | error |
-| [EFFX2204](#diagnostic-effx2204) | Boundary has no inferred addressable errors | warning |
-| [EFFX2205](#diagnostic-effx2205) | Problem mapping does not cover operation errors | error |
-| [EFFX2206](#diagnostic-effx2206) | Problem mapping points outside declared codes | error |
-| [EFFX2302](#diagnostic-effx2302) | Inferred requirement missing from assertion | error |
-| [EFFX2303](#diagnostic-effx2303) | Declared requirement no longer inferred | error |
-| [EFFX2304](#diagnostic-effx2304) | Requirement has no stable identity | error |
-| [EFFX2401](#diagnostic-effx2401) | Query uses a mutating HTTP verb | error |
-| [EFFX2402](#diagnostic-effx2402) | Invalid HTTP contract or group | error |
-| [EFFX2403](#diagnostic-effx2403) | Invalid external HTTP binding | error |
-| [EFFX2404](#diagnostic-effx2404) | Invalid HTTP group association | error |
-| [EFFX2405](#diagnostic-effx2405) | Conflicting HTTP group defaults | error |
-| [EFFX2406](#diagnostic-effx2406) | Generated HTTP export collision | error |
-| [EFFX2410](#diagnostic-effx2410) | Ambiguous or conflicting request channels | error |
-| [EFFX2411](#diagnostic-effx2411) | Unknown request input field keys | error |
-| [EFFX2414](#diagnostic-effx2414) | Access decision time cannot be inferred | error |
-| [EFFX2415](#diagnostic-effx2415) | Concrete HTTP endpoint inventory unavailable | error |
-| [EFFX2500](#diagnostic-effx2500) | Malformed or duplicate access contract | error |
-| [EFFX2501](#diagnostic-effx2501) | Command access decides in a read snapshot | error |
-| [EFFX2502](#diagnostic-effx2502) | Query declares a transaction decision | warning |
-| [EFFX2503](#diagnostic-effx2503) | Protected access lacks security middleware | error |
-| [EFFX2504](#diagnostic-effx2504) | HTTP exposure lacks access declaration | warning |
-| [EFFX2505](#diagnostic-effx2505) | HTTP root mixes visibility modes | error |
-| [EFFX2506](#diagnostic-effx2506) | Invalid command snapshot decision claim | error |
-| [EFFX2601](#diagnostic-effx2601) | Foldkit command or tagged Message contract invalid | error |
-| [EFFX2701](#diagnostic-effx2701) | Project target or Effect installation unsupported | error |
-| [EFFX2801](#diagnostic-effx2801) | Deployment entry does not reach a Worker | error |
-| [EFFX2802](#diagnostic-effx2802) | Required generated wiring is not referenced | error |
-| [EFFX2803](#diagnostic-effx2803) | Deployment references obsolete generated wiring | error |
-| [EFFX2804](#diagnostic-effx2804) | Surface comparison entry cannot be read | error |
-| [EFFX2805](#diagnostic-effx2805) | Persisted surface differs from current IR | warning |
-| [EFFX2806](#diagnostic-effx2806) | Wiring cannot be decided statically | warning |
-| [EFFX2807](#diagnostic-effx2807) | Emit mode has no wiring to check | info |
-| [EFFX2901](#diagnostic-effx2901) | Example operation is deprecated | warning |
-| [EFFX2902](#diagnostic-effx2902) | Example deprecated annotation is malformed | error |
-| [EFFX3401](#diagnostic-effx3401) | Persistence method must be declaration-only | error |
-| [EFFX3402](#diagnostic-effx3402) | Persistence port method has transport exposure | error |
-| [EFFX3403](#diagnostic-effx3403) | Persistence port shape or identity invalid | error |
-| [EFFX3404](#diagnostic-effx3404) | Query-only port has vacuous transaction laws | warning |
-| [EFFX4101](#diagnostic-effx4101) | Cedar projection identity invalid or ambiguous | error |
-| [EFFX4102](#diagnostic-effx4102) | Application Cedar policy validation error | error |
-| [EFFX4103](#diagnostic-effx4103) | Parameterized requirement projected by id only | warning |
-| [EFFX4104](#diagnostic-effx4104) | All capabilities cannot be one Cedar request | warning |
-| [EFFX4105](#diagnostic-effx4105) | Capability uses generic Cedar principal | info |
-| [EFFX4106](#diagnostic-effx4106) | Application Cedar policy validation warning | warning |
-| [EFFX4107](#diagnostic-effx4107) | No authorization facts to project | info |
-| [EFFX9001](#diagnostic-effx9001) | Example Command lacks Audit annotation | warning |
-| [EFFX9002](#diagnostic-effx9002) | Example Audit annotation needs an operation | error |
-| [EFFX9101](#diagnostic-effx9101) | Example RateLimit requires HTTP exposure | error |
-| [EFFX9102](#diagnostic-effx9102) | Example rate limit is effectively unlimited | warning |
+| [EFFX0001](#EFFX0001) | Analysis and project TypeScript versions differ | info |
+| [EFFX0010](#EFFX0010) | Diagnostic registry contract violated | error |
+| [EFFX1001](#EFFX1001) | Stable identity has conflicting content | error |
+| [EFFX1002](#EFFX1002) | Graph edge references an absent node | error |
+| [EFFX1003](#EFFX1003) | Extension node has no owner | error |
+| [EFFX1101](#EFFX1101) | No interpreter for annotation | error |
+| [EFFX1102](#EFFX1102) | Malformed or unlowerable annotation arguments | error |
+| [EFFX1103](#EFFX1103) | Annotation needs an operation | error |
+| [EFFX1104](#EFFX1104) | Unsupported declaration syntax | error |
+| [EFFX1105](#EFFX1105) | Handler return type is not Effect | error |
+| [EFFX1106](#EFFX1106) | Runtime resolution or handler binding mismatch | error |
+| [EFFX1107](#EFFX1107) | External binding cannot implement an executable projection | error |
+| [EFFX1301](#EFFX1301) | Schema argument cannot be lowered from source | error |
+| [EFFX1302](#EFFX1302) | Annotation name invalid or declared twice | error |
+| [EFFX1303](#EFFX1303) | Annotation target does not fit syntax | error |
+| [EFFX1304](#EFFX1304) | Annotation effect key identity collision | error |
+| [EFFX1306](#EFFX1306) | Definition module reaches application code | error |
+| [EFFX2201](#EFFX2201) | Inferred error missing from assertion | error |
+| [EFFX2202](#EFFX2202) | Declared error no longer inferred | error |
+| [EFFX2203](#EFFX2203) | Inferred error lacks a Schema address | error |
+| [EFFX2204](#EFFX2204) | Boundary has no inferred addressable errors | warning |
+| [EFFX2205](#EFFX2205) | Problem mapping does not cover operation errors | error |
+| [EFFX2206](#EFFX2206) | Problem mapping points outside declared codes | error |
+| [EFFX2302](#EFFX2302) | Inferred requirement missing from assertion | error |
+| [EFFX2303](#EFFX2303) | Declared requirement no longer inferred | error |
+| [EFFX2304](#EFFX2304) | Requirement has no stable identity | error |
+| [EFFX2401](#EFFX2401) | Query uses a mutating HTTP verb | error |
+| [EFFX2402](#EFFX2402) | Invalid HTTP contract or group | error |
+| [EFFX2403](#EFFX2403) | Invalid external HTTP binding | error |
+| [EFFX2404](#EFFX2404) | Invalid HTTP group association | error |
+| [EFFX2405](#EFFX2405) | Conflicting HTTP group defaults | error |
+| [EFFX2406](#EFFX2406) | Generated HTTP export collision | error |
+| [EFFX2410](#EFFX2410) | Ambiguous or conflicting request channels | error |
+| [EFFX2411](#EFFX2411) | Unknown request input field keys | error |
+| [EFFX2414](#EFFX2414) | Access decision time cannot be inferred | error |
+| [EFFX2415](#EFFX2415) | Concrete HTTP endpoint inventory unavailable | error |
+| [EFFX2500](#EFFX2500) | Malformed or duplicate access contract | error |
+| [EFFX2501](#EFFX2501) | Command access decides in a read snapshot | error |
+| [EFFX2502](#EFFX2502) | Query declares a transaction decision | warning |
+| [EFFX2503](#EFFX2503) | Protected access lacks security middleware | error |
+| [EFFX2504](#EFFX2504) | HTTP exposure lacks access declaration | warning |
+| [EFFX2505](#EFFX2505) | HTTP root mixes visibility modes | error |
+| [EFFX2506](#EFFX2506) | Invalid command snapshot decision claim | error |
+| [EFFX2601](#EFFX2601) | Foldkit command or tagged Message contract invalid | error |
+| [EFFX2701](#EFFX2701) | Project target or Effect installation unsupported | error |
+| [EFFX2801](#EFFX2801) | Deployment entry does not reach a Worker | error |
+| [EFFX2802](#EFFX2802) | Required generated wiring is not referenced | error |
+| [EFFX2803](#EFFX2803) | Deployment references obsolete generated wiring | error |
+| [EFFX2804](#EFFX2804) | Surface comparison entry cannot be read | error |
+| [EFFX2805](#EFFX2805) | Persisted surface differs from current IR | warning |
+| [EFFX2806](#EFFX2806) | Wiring cannot be decided statically | warning |
+| [EFFX2807](#EFFX2807) | Emit mode has no wiring to check | info |
+| [EFFX2901](#EFFX2901) | Example operation is deprecated | warning |
+| [EFFX2902](#EFFX2902) | Example deprecated annotation is malformed | error |
+| [EFFX3401](#EFFX3401) | Persistence method must be declaration-only | error |
+| [EFFX3402](#EFFX3402) | Persistence port method has transport exposure | error |
+| [EFFX3403](#EFFX3403) | Persistence port shape or identity invalid | error |
+| [EFFX3404](#EFFX3404) | Query-only port has vacuous transaction laws | warning |
+| [EFFX4101](#EFFX4101) | Cedar projection identity invalid or ambiguous | error |
+| [EFFX4102](#EFFX4102) | Application Cedar policy validation error | error |
+| [EFFX4103](#EFFX4103) | Parameterized requirement projected by id only | warning |
+| [EFFX4104](#EFFX4104) | All capabilities cannot be one Cedar request | warning |
+| [EFFX4105](#EFFX4105) | Capability uses generic Cedar principal | info |
+| [EFFX4106](#EFFX4106) | Application Cedar policy validation warning | warning |
+| [EFFX4107](#EFFX4107) | No authorization facts to project | info |
+| [EFFX9001](#EFFX9001) | Example Command lacks Audit annotation | warning |
+| [EFFX9002](#EFFX9002) | Example Audit annotation needs an operation | error |
+| [EFFX9101](#EFFX9101) | Example RateLimit requires HTTP exposure | error |
+| [EFFX9102](#EFFX9102) | Example rate limit is effectively unlimited | warning |
 
-<a id="diagnostic-effx0001" />
-
-## EFFX0001 — Analysis and project TypeScript versions differ
+## EFFX0001 — Analysis and project TypeScript versions differ [#EFFX0001]
 
 Owner: frontend
 
@@ -1832,9 +1830,7 @@ effx TypeScript 6.0.2; project typescript 6.0.2
 
 Align the project's pin with the analysis version when practical, and always run the project's type gate.
 
-<a id="diagnostic-effx0010" />
-
-## EFFX0010 — Diagnostic registry contract violated
+## EFFX0010 — Diagnostic registry contract violated [#EFFX0010]
 
 Owner: registry
 
@@ -1860,9 +1856,7 @@ extensions: [firstCopy]
 
 Load each owner once, declare every emitted code, and emit severity using its named policy.
 
-<a id="diagnostic-effx1001" />
-
-## EFFX1001 — Stable identity has conflicting content
+## EFFX1001 — Stable identity has conflicting content [#EFFX1001]
 
 Owner: kernel
 
@@ -1888,9 +1882,7 @@ Operation.query({ name: "User.GetA", input: A, success: A }); Operation.query({ 
 
 Give distinct operations distinct names, or make duplicate contributions identical.
 
-<a id="diagnostic-effx1002" />
-
-## EFFX1002 — Graph edge references an absent node
+## EFFX1002 — Graph edge references an absent node [#EFFX1002]
 
 Owner: kernel
 
@@ -1916,9 +1908,7 @@ After:
 
 Contribute each referenced node, or remove the edge when removing its node.
 
-<a id="diagnostic-effx1003" />
-
-## EFFX1003 — Extension node has no owner
+## EFFX1003 — Extension node has no owner [#EFFX1003]
 
 Owner: kernel
 
@@ -1944,9 +1934,7 @@ Contribution.make([extensionNode], [{ kind: "ExtensionOf", from: extensionNode.i
 
 Contribute the owner edge with the extension node.
 
-<a id="diagnostic-effx1101" />
-
-## EFFX1101 — No interpreter for annotation
+## EFFX1101 — No interpreter for annotation [#EFFX1101]
 
 Owner: annotation
 
@@ -1972,9 +1960,7 @@ extensions: [...builtin, auditExtension]
 
 Register the interpreter through the selected config, and check the exact case-sensitive annotation name.
 
-<a id="diagnostic-effx1102" />
-
-## EFFX1102 — Malformed or unlowerable annotation arguments
+## EFFX1102 — Malformed or unlowerable annotation arguments [#EFFX1102]
 
 Owner: annotation
 
@@ -2000,9 +1986,7 @@ After:
 
 Match the argument Schema, use literal source data and exported references, repair readonly tuple initializers, and replace unprintable effect-clause arguments.
 
-<a id="diagnostic-effx1103" />
-
-## EFFX1103 — Annotation needs an operation
+## EFFX1103 — Annotation needs an operation [#EFFX1103]
 
 Owner: annotation
 
@@ -2028,9 +2012,7 @@ After:
 
 Add the operation declaration, or remove the operation-target annotation.
 
-<a id="diagnostic-effx1104" />
-
-## EFFX1104 — Unsupported declaration syntax
+## EFFX1104 — Unsupported declaration syntax [#EFFX1104]
 
 Owner: annotation
 
@@ -2056,9 +2038,7 @@ export class UserOps { @Query(options) static get() { return handler(); } }
 
 Export the declaration, use the supported decorator target and call shape, and terminate the builder chain correctly.
 
-<a id="diagnostic-effx1105" />
-
-## EFFX1105 — Handler return type is not Effect
+## EFFX1105 — Handler return type is not Effect [#EFFX1105]
 
 Owner: annotation
 
@@ -2084,9 +2064,7 @@ handler: () => Effect.succeed(user)
 
 Return an Effect with the intended channels.
 
-<a id="diagnostic-effx1106" />
-
-## EFFX1106 — Runtime resolution or handler binding mismatch
+## EFFX1106 — Runtime resolution or handler binding mismatch [#EFFX1106]
 
 Owner: annotation
 
@@ -2114,9 +2092,7 @@ Operation.query(options).handler(handler)
 
 Install and resolve @effx/runtime for frontend warnings; use declare() for external bindings and a typed handler for local operations.
 
-<a id="diagnostic-effx1107" />
-
-## EFFX1107 — External binding cannot implement an executable projection
+## EFFX1107 — External binding cannot implement an executable projection [#EFFX1107]
 
 Owner: annotation
 
@@ -2142,9 +2118,7 @@ Operation.query(options).rpc.expose().handler(handler)
 
 Supply a local typed handler for executable projections, or keep the declaration HTTP-only.
 
-<a id="diagnostic-effx1301" />
-
-## EFFX1301 — Schema argument cannot be lowered from source
+## EFFX1301 — Schema argument cannot be lowered from source [#EFFX1301]
 
 Owner: annotation
 
@@ -2170,9 +2144,7 @@ args: { value: A.string }
 
 Keep the source argument a string and perform the date conversion in the interpreter, rather than asking source lowering to run a Schema transformation.
 
-<a id="diagnostic-effx1302" />
-
-## EFFX1302 — Annotation name invalid or declared twice
+## EFFX1302 — Annotation name invalid or declared twice [#EFFX1302]
 
 Owner: annotation
 
@@ -2198,9 +2170,7 @@ Annotation.define({ name: "app.Valid", target: "operation", args: {} })
 
 Choose a valid namespaced name and register only one definition for it.
 
-<a id="diagnostic-effx1303" />
-
-## EFFX1303 — Annotation target does not fit syntax
+## EFFX1303 — Annotation target does not fit syntax [#EFFX1303]
 
 Owner: annotation
 
@@ -2226,9 +2196,7 @@ export class UserOps { @Query(options) @RateLimit({ perMinute: 60 }) static get(
 
 Apply the annotation to an operation, or declare the target that fits the intended syntax.
 
-<a id="diagnostic-effx1304" />
-
-## EFFX1304 — Annotation effect key identity collision
+## EFFX1304 — Annotation effect key identity collision [#EFFX1304]
 
 Owner: annotation
 
@@ -2254,9 +2222,7 @@ const first = Context.Reference("app/first", { defaultValue: () => 0 }); const s
 
 Give each distinct annotation a unique literal key id, or share one annotation definition instead of duplicating it.
 
-<a id="diagnostic-effx1306" />
-
-## EFFX1306 — Definition module reaches application code
+## EFFX1306 — Definition module reaches application code [#EFFX1306]
 
 Owner: annotation
 
@@ -2284,9 +2250,7 @@ import { A, Annotation } from "@effx/runtime";
 
 Move shared argument definitions into a leaf module without application imports, and keep operation modules downstream.
 
-<a id="diagnostic-effx2201" />
-
-## EFFX2201 — Inferred error missing from assertion
+## EFFX2201 — Inferred error missing from assertion [#EFFX2201]
 
 Owner: contracts
 
@@ -2312,9 +2276,7 @@ After:
 
 Add the inferred error Schema or remove that handler failure.
 
-<a id="diagnostic-effx2202" />
-
-## EFFX2202 — Declared error no longer inferred
+## EFFX2202 — Declared error no longer inferred [#EFFX2202]
 
 Owner: contracts
 
@@ -2340,9 +2302,7 @@ After:
 
 Remove the stale declaration or restore the intentional typed handler failure.
 
-<a id="diagnostic-effx2203" />
-
-## EFFX2203 — Inferred error lacks a Schema address
+## EFFX2203 — Inferred error lacks a Schema address [#EFFX2203]
 
 Owner: contracts
 
@@ -2368,9 +2328,7 @@ After:
 
 Map the opaque error to an exported Schema and declare it with @Errors.
 
-<a id="diagnostic-effx2204" />
-
-## EFFX2204 — Boundary has no inferred addressable errors
+## EFFX2204 — Boundary has no inferred addressable errors [#EFFX2204]
 
 Owner: contracts
 
@@ -2396,9 +2354,7 @@ Operation.query(options).errors(NotFound).handler(schemaErrorHandler)
 
 Use an exported error Schema when the boundary must expose a failure, or accept that it exposes none.
 
-<a id="diagnostic-effx2205" />
-
-## EFFX2205 — Problem mapping does not cover operation errors
+## EFFX2205 — Problem mapping does not cover operation errors [#EFFX2205]
 
 Owner: contracts
 
@@ -2424,9 +2380,7 @@ After:
 
 Remove map keys outside the error set and map every unsourced-status error tag.
 
-<a id="diagnostic-effx2206" />
-
-## EFFX2206 — Problem mapping points outside declared codes
+## EFFX2206 — Problem mapping points outside declared codes [#EFFX2206]
 
 Owner: contracts
 
@@ -2452,9 +2406,7 @@ codes: ["user.not-found", "user.conflict"], map: { Conflict: "user.conflict" }
 
 Add the mapped code to codes or point the tag at an existing declared code.
 
-<a id="diagnostic-effx2302" />
-
-## EFFX2302 — Inferred requirement missing from assertion
+## EFFX2302 — Inferred requirement missing from assertion [#EFFX2302]
 
 Owner: contracts
 
@@ -2480,9 +2432,7 @@ After:
 
 Add the required service or remove its use from the handler.
 
-<a id="diagnostic-effx2303" />
-
-## EFFX2303 — Declared requirement no longer inferred
+## EFFX2303 — Declared requirement no longer inferred [#EFFX2303]
 
 Owner: contracts
 
@@ -2508,9 +2458,7 @@ After:
 
 Remove the stale assertion or restore the intended service use.
 
-<a id="diagnostic-effx2304" />
-
-## EFFX2304 — Requirement has no stable identity
+## EFFX2304 — Requirement has no stable identity [#EFFX2304]
 
 Owner: contracts
 
@@ -2536,9 +2484,7 @@ export class Store extends Context.Service<Store, StoreApi>()("app/Store") {}
 
 Use or register an exported service with a stable key and source reference.
 
-<a id="diagnostic-effx2401" />
-
-## EFFX2401 — Query uses a mutating HTTP verb
+## EFFX2401 — Query uses a mutating HTTP verb [#EFFX2401]
 
 Owner: http
 
@@ -2566,9 +2512,7 @@ After:
 
 Use GET for reads, or declare a Command for mutation.
 
-<a id="diagnostic-effx2402" />
-
-## EFFX2402 — Invalid HTTP contract or group
+## EFFX2402 — Invalid HTTP contract or group [#EFFX2402]
 
 Owner: http
 
@@ -2612,9 +2556,7 @@ After:
 
 Keep one Problems contract on an HTTP-exposed operation. Remove duplicate codes, use a nonempty identifier-safe identifier when overriding schema identity, and correct fields named by the ProblemContract validator.
 
-<a id="diagnostic-effx2403" />
-
-## EFFX2403 — Invalid external HTTP binding
+## EFFX2403 — Invalid external HTTP binding [#EFFX2403]
 
 Owner: http
 
@@ -2640,9 +2582,7 @@ metadata: { operationId: "users.getUser" }
 
 Use the declared group prefix and a unique identifier-safe endpoint key; keep every binding in a group consistently local or external.
 
-<a id="diagnostic-effx2404" />
-
-## EFFX2404 — Invalid HTTP group association
+## EFFX2404 — Invalid HTTP group association [#EFFX2404]
 
 Owner: http
 
@@ -2668,9 +2608,7 @@ Operation.query({ input: Input, output: Output }).in(Users)
 
 Associate the operation once with one exported group; remove duplicate decorators and ensure the reference resolves to the group itself.
 
-<a id="diagnostic-effx2405" />
-
-## EFFX2405 — Conflicting HTTP group defaults
+## EFFX2405 — Conflicting HTTP group defaults [#EFFX2405]
 
 Owner: http
 
@@ -2696,9 +2634,7 @@ After:
 
 Align the contract with the associated group whose root is api; remove an invalid query default or specify its channel explicitly.
 
-<a id="diagnostic-effx2406" />
-
-## EFFX2406 — Generated HTTP export collision
+## EFFX2406 — Generated HTTP export collision [#EFFX2406]
 
 Owner: http
 
@@ -2726,9 +2662,7 @@ Http.group({ root: "api", group: "accounts" })
 
 Rename one group so its generated export names no longer collide.
 
-<a id="diagnostic-effx2410" />
-
-## EFFX2410 — Ambiguous or conflicting request channels
+## EFFX2410 — Ambiguous or conflicting request channels [#EFFX2410]
 
 Owner: http
 
@@ -2756,9 +2690,7 @@ After:
 
 Split id into UserId and search fields into Search; for mutating verbs declare payload instead of query. A headers-marked input must use the same headers channel.
 
-<a id="diagnostic-effx2411" />
-
-## EFFX2411 — Unknown request input field keys
+## EFFX2411 — Unknown request input field keys [#EFFX2411]
 
 Owner: http
 
@@ -2786,9 +2718,7 @@ After:
 
 Declare the request channels explicitly rather than relying on inaccessible input keys.
 
-<a id="diagnostic-effx2414" />
-
-## EFFX2414 — Access decision time cannot be inferred
+## EFFX2414 — Access decision time cannot be inferred [#EFFX2414]
 
 Owner: http
 
@@ -2814,9 +2744,7 @@ After:
 
 Write decisionTime explicitly, or attach access to exactly one operation of the intended kind.
 
-<a id="diagnostic-effx2415" />
-
-## EFFX2415 — Concrete HTTP endpoint inventory unavailable
+## EFFX2415 — Concrete HTTP endpoint inventory unavailable [#EFFX2415]
 
 Owner: http
 
@@ -2843,9 +2771,7 @@ effx build --emit=handlers
 
 Bootstrap every imported group contract before proving handlers. Full-root contracts support full-root or healthy-only handlers; healthy-only contracts cannot bootstrap a missing unrelated group. Fix the unresolved leaf named by the root diagnostic before emitting any factory for that root.
 
-<a id="diagnostic-effx2500" />
-
-## EFFX2500 — Malformed or duplicate access contract
+## EFFX2500 — Malformed or duplicate access contract [#EFFX2500]
 
 Owner: access
 
@@ -2872,9 +2798,7 @@ After:
 
 Remove the duplicate. For malformed data, correct the fields named by the validator; extension producers must conform to AccessContractData.
 
-<a id="diagnostic-effx2501" />
-
-## EFFX2501 — Command access decides in a read snapshot
+## EFFX2501 — Command access decides in a read snapshot [#EFFX2501]
 
 Owner: access
 
@@ -2900,9 +2824,7 @@ decisionTime: "Transaction"
 
 Decide access inside the mutation transaction, so the decision and write share the relevant state.
 
-<a id="diagnostic-effx2502" />
-
-## EFFX2502 — Query declares a transaction decision
+## EFFX2502 — Query declares a transaction decision [#EFFX2502]
 
 Owner: access
 
@@ -2928,9 +2850,7 @@ decisionTime: "SnapshotRead"
 
 Use a snapshot read decision unless the query intentionally needs transactional decision semantics.
 
-<a id="diagnostic-effx2503" />
-
-## EFFX2503 — Protected access lacks security middleware
+## EFFX2503 — Protected access lacks security middleware [#EFFX2503]
 
 Owner: access
 
@@ -2956,9 +2876,7 @@ After:
 
 Include the exported middleware marker declared with security: true, whose application implementation authenticates the accepted credentials.
 
-<a id="diagnostic-effx2504" />
-
-## EFFX2504 — HTTP exposure lacks access declaration
+## EFFX2504 — HTTP exposure lacks access declaration [#EFFX2504]
 
 Owner: access
 
@@ -2989,9 +2907,7 @@ After:
 
 Declare an access contract with the intended credentials, principal kinds, capabilities, scope resolver and decision time. Do not disable strict mode to hide missing access.
 
-<a id="diagnostic-effx2505" />
-
-## EFFX2505 — HTTP root mixes visibility modes
+## EFFX2505 — HTTP root mixes visibility modes [#EFFX2505]
 
 Owner: access
 
@@ -3019,9 +2935,7 @@ root: "api", exposure: "External"
 
 Separate internal and external operations into different roots, or align their intended visibility.
 
-<a id="diagnostic-effx2506" />
-
-## EFFX2506 — Invalid command snapshot decision claim
+## EFFX2506 — Invalid command snapshot decision claim [#EFFX2506]
 
 Owner: access
 
@@ -3047,9 +2961,7 @@ snapshotDecisionForCommand: false, decisionTime: "Transaction"
 
 Remove the claim and use transactional command authorization. Only retain a snapshot claim when every narrow capability-only condition holds and the resolver/guard have been reviewed.
 
-<a id="diagnostic-effx2601" />
-
-## EFFX2601 — Foldkit command or tagged Message contract invalid
+## EFFX2601 — Foldkit command or tagged Message contract invalid [#EFFX2601]
 
 Owner: foldkit
 
@@ -3075,9 +2987,7 @@ After:
 
 Use exported tagged Messages, attach one command to one operation and one external HTTP exposure, and repair malformed IR ownership/data.
 
-<a id="diagnostic-effx2701" />
-
-## EFFX2701 — Project target or Effect installation unsupported
+## EFFX2701 — Project target or Effect installation unsupported [#EFFX2701]
 
 Owner: project
 
@@ -3103,9 +3013,7 @@ After:
 
 Select a supported target, install a supported Effect cohort, resolve its package from the project and use source modules available in that target.
 
-<a id="diagnostic-effx2801" />
-
-## EFFX2801 — Deployment entry does not reach a Worker
+## EFFX2801 — Deployment entry does not reach a Worker [#EFFX2801]
 
 Owner: surface
 
@@ -3131,9 +3039,7 @@ effx surface check --against alchemy.run.ts
 
 Point --against at the deployment program that reaches the recognized Worker call.
 
-<a id="diagnostic-effx2802" />
-
-## EFFX2802 — Required generated wiring is not referenced
+## EFFX2802 — Required generated wiring is not referenced [#EFFX2802]
 
 Owner: surface
 
@@ -3159,9 +3065,7 @@ import { AppRoutes } from "./.effx/generated/http.ts"; // use in Worker wiring
 
 Reference the generated runtime wiring from the deployment entry.
 
-<a id="diagnostic-effx2803" />
-
-## EFFX2803 — Deployment references obsolete generated wiring
+## EFFX2803 — Deployment references obsolete generated wiring [#EFFX2803]
 
 Owner: surface
 
@@ -3187,9 +3091,7 @@ import { UsersApiHandlers } from "./.effx/generated/users.ts";
 
 Remove obsolete wiring or replace it with the current generated export.
 
-<a id="diagnostic-effx2804" />
-
-## EFFX2804 — Surface comparison entry cannot be read
+## EFFX2804 — Surface comparison entry cannot be read [#EFFX2804]
 
 Owner: surface
 
@@ -3215,9 +3117,7 @@ effx surface check --against alchemy.run.ts
 
 Supply an existing deployment entry and resolve its path from the command directory.
 
-<a id="diagnostic-effx2805" />
-
-## EFFX2805 — Persisted surface differs from current IR
+## EFFX2805 — Persisted surface differs from current IR [#EFFX2805]
 
 Owner: surface
 
@@ -3243,9 +3143,7 @@ effx build
 
 Regenerate the persisted surface with effx build and review the updated wiring.
 
-<a id="diagnostic-effx2806" />
-
-## EFFX2806 — Wiring cannot be decided statically
+## EFFX2806 — Wiring cannot be decided statically [#EFFX2806]
 
 Owner: surface
 
@@ -3271,9 +3169,7 @@ const routes = generated.AppRoutes;
 
 Use a literal module specifier and a statically named export so the checker can follow runtime references.
 
-<a id="diagnostic-effx2807" />
-
-## EFFX2807 — Emit mode has no wiring to check
+## EFFX2807 — Emit mode has no wiring to check [#EFFX2807]
 
 Owner: surface
 
@@ -3299,9 +3195,7 @@ effx surface check --emit all
 
 Use a wiring-producing emit mode when deployment wiring verification is intended.
 
-<a id="diagnostic-effx2901" />
-
-## EFFX2901 — Example operation is deprecated
+## EFFX2901 — Example operation is deprecated [#EFFX2901]
 
 Owner: example.deprecated
 
@@ -3327,9 +3221,7 @@ After:
 
 Follow the authored replacement reason before removing the deprecated operation.
 
-<a id="diagnostic-effx2902" />
-
-## EFFX2902 — Example deprecated annotation is malformed
+## EFFX2902 — Example deprecated annotation is malformed [#EFFX2902]
 
 Owner: example.deprecated
 
@@ -3355,9 +3247,7 @@ After:
 
 Supply a string reason and apply the annotation to a Query or Command.
 
-<a id="diagnostic-effx3401" />
-
-## EFFX3401 — Persistence method must be declaration-only
+## EFFX3401 — Persistence method must be declaration-only [#EFFX3401]
 
 Owner: persistence
 
@@ -3383,9 +3273,7 @@ Operation.query({ name: "Store.Get", input: Input, success: User }).with(Port({ 
 
 Use declare() and place implementation in the adapter, not the port definition.
 
-<a id="diagnostic-effx3402" />
-
-## EFFX3402 — Persistence port method has transport exposure
+## EFFX3402 — Persistence port method has transport exposure [#EFFX3402]
 
 Owner: persistence
 
@@ -3411,9 +3299,7 @@ Operation.query(options).with(Port({ port: "Store" })).declare()
 
 Expose a separate application operation that calls the port.
 
-<a id="diagnostic-effx3403" />
-
-## EFFX3403 — Persistence port shape or identity invalid
+## EFFX3403 — Persistence port shape or identity invalid [#EFFX3403]
 
 Owner: persistence
 
@@ -3439,9 +3325,7 @@ Operation.query({ ...options, name: "Store.Get" }).with(Port({ port: "Store" }))
 
 Repair ownership/data, use PortName.method naming, declare each method once and choose port names whose escaped lowercase filenames differ.
 
-<a id="diagnostic-effx3404" />
-
-## EFFX3404 — Query-only port has vacuous transaction laws
+## EFFX3404 — Query-only port has vacuous transaction laws [#EFFX3404]
 
 Owner: persistence
 
@@ -3467,9 +3351,7 @@ Store: { Get: Query, Put: Command }
 
 Add a real Command if transactional write conformance is required; otherwise accept the query-only limitation.
 
-<a id="diagnostic-effx4101" />
-
-## EFFX4101 — Cedar projection identity invalid or ambiguous
+## EFFX4101 — Cedar projection identity invalid or ambiguous [#EFFX4101]
 
 Owner: cedar
 
@@ -3495,9 +3377,7 @@ effx cedar --namespace App::Authz
 
 Use valid unreserved namespace/entity names, disambiguate source exports and ensure distinct policy identities.
 
-<a id="diagnostic-effx4102" />
-
-## EFFX4102 — Application Cedar policy validation error
+## EFFX4102 — Application Cedar policy validation error [#EFFX4102]
 
 Owner: cedar
 
@@ -3523,9 +3403,7 @@ permit(principal, action == Effx::Action::"operation/User.Get", resource);
 
 Repair the policy using the emitted actions/entity types and the validator help, then validate again.
 
-<a id="diagnostic-effx4103" />
-
-## EFFX4103 — Parameterized requirement projected by id only
+## EFFX4103 — Parameterized requirement projected by id only [#EFFX4103]
 
 Owner: cedar
 
@@ -3551,9 +3429,7 @@ After:
 
 Keep parameter enforcement in the application or an explicitly authored policy; the emitted id-only model is insufficient.
 
-<a id="diagnostic-effx4104" />
-
-## EFFX4104 — All capabilities cannot be one Cedar request
+## EFFX4104 — All capabilities cannot be one Cedar request [#EFFX4104]
 
 Owner: cedar
 
@@ -3579,9 +3455,7 @@ After:
 
 Retain the conjunction in application authorization; do not change All to Any just to silence the warning.
 
-<a id="diagnostic-effx4105" />
-
-## EFFX4105 — Capability uses generic Cedar principal
+## EFFX4105 — Capability uses generic Cedar principal [#EFFX4105]
 
 Owner: cedar
 
@@ -3607,9 +3481,7 @@ After:
 
 Declare an AccessContract when the Cedar model needs the actual principal kinds.
 
-<a id="diagnostic-effx4106" />
-
-## EFFX4106 — Application Cedar policy validation warning
+## EFFX4106 — Application Cedar policy validation warning [#EFFX4106]
 
 Owner: cedar
 
@@ -3635,9 +3507,7 @@ permit(principal, action == Effx::Action::"operation/User.Get", resource);
 
 Review and repair the validator finding; use --deny-warnings when policy warnings must fail the command.
 
-<a id="diagnostic-effx4107" />
-
-## EFFX4107 — No authorization facts to project
+## EFFX4107 — No authorization facts to project [#EFFX4107]
 
 Owner: cedar
 
@@ -3663,9 +3533,7 @@ After:
 
 Declare the intended capability/access facts before requesting a Cedar projection, or accept that nothing is written.
 
-<a id="diagnostic-effx9001" />
-
-## EFFX9001 — Example Command lacks Audit annotation
+## EFFX9001 — Example Command lacks Audit annotation [#EFFX9001]
 
 Owner: ai-docs
 
@@ -3691,9 +3559,7 @@ Operation.command(options).annotate("Audit", { level: "sensitive" }).handler(han
 
 Attach an Audit annotation and select auditExtension if the example audit policy is intended.
 
-<a id="diagnostic-effx9002" />
-
-## EFFX9002 — Example Audit annotation needs an operation
+## EFFX9002 — Example Audit annotation needs an operation [#EFFX9002]
 
 Owner: ai-docs
 
@@ -3719,9 +3585,7 @@ After:
 
 Add Query or Command so the Audit node has an operation owner.
 
-<a id="diagnostic-effx9101" />
-
-## EFFX9101 — Example RateLimit requires HTTP exposure
+## EFFX9101 — Example RateLimit requires HTTP exposure [#EFFX9101]
 
 Owner: ai-docs
 
@@ -3747,9 +3611,7 @@ Operation.query(options).http.get("/users").with(RateLimit({ perMinute: 60 })).h
 
 Expose the operation through HTTP or remove this HTTP-specific example annotation.
 
-<a id="diagnostic-effx9102" />
-
-## EFFX9102 — Example rate limit is effectively unlimited
+## EFFX9102 — Example rate limit is effectively unlimited [#EFFX9102]
 
 Owner: ai-docs
 
