@@ -168,7 +168,17 @@ BunRuntime.runMain(
     for (let index = 0; index < args.length; index++) {
       const argument = args[index]!;
 
-      if (["--project", "--config", "--out-dir", "--target", "--emit"].includes(argument)) {
+      if (
+        [
+          "--project",
+          "--config",
+          "--out-dir",
+          "--target",
+          "--emit",
+          "--log-level",
+          "--completions",
+        ].includes(argument)
+      ) {
         index++;
         continue;
       }

@@ -231,6 +231,36 @@ describe("spec 0016 explain subprocess journeys", () => {
     ),
   );
 
+  it.effect.each([
+    ["--log-level", "debug", "explain", "EFFX2415"],
+    ["--completions", "bash", "explain", "EFFX2415"],
+    ["--log-level=debug", "explain", "EFFX2415"],
+    ["--completions=bash", "explain", "EFFX2415"],
+  ])("rejects native valued globals before explain: %j", (args) =>
+    fixture((directory) =>
+      Effect.gen(function* () {
+        const result = yield* run(directory, ...args);
+        assert.strictEqual(result.code, 2, result.stderr);
+        assert.strictEqual(result.stdout, "");
+        assert.match(result.stderr, /usage/i);
+      }),
+    ),
+  );
+
+  it.effect.each([
+    ["--log-level", "debug", "check", "--help"],
+    ["--completions", "bash", "check"],
+  ])("retains native valued globals for existing commands: %j", (args) =>
+    fixture((directory) =>
+      Effect.gen(function* () {
+        const result = yield* run(directory, ...args);
+        assert.strictEqual(result.code, 0, result.stderr);
+        assert.strictEqual(result.stderr, "");
+        assert.isNotEmpty(result.stdout);
+      }),
+    ),
+  );
+
   it.effect("rejects invalid usage before evaluating an explicitly selected config", () =>
     fixture((directory) =>
       Effect.gen(function* () {
