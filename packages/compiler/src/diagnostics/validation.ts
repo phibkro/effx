@@ -83,6 +83,21 @@ const decodeRelated = Schema.decodeUnknownOption(
   Schema.Struct({ related: Schema.optionalKey(Schema.Array(Schema.Unknown)) }),
 );
 
+const occurrenceOptions = (
+  location?: Location,
+  related?: ReadonlyArray<Diagnostic>,
+): EmitOptions | undefined => {
+  if (location === undefined && related === undefined) return undefined;
+
+  const options: { -readonly [K in keyof EmitOptions]: EmitOptions[K] } = {};
+
+  if (location !== undefined) options.location = location;
+
+  if (related !== undefined) options.related = related;
+
+  return options;
+};
+
 export interface DiagnosticContext {
   readonly phase?: "collect" | "expand" | "interpret" | "analyze";
   readonly strictAccess?: boolean;
@@ -106,50 +121,62 @@ export const validateDiagnostics = (
 
   if (Result.isFailure(list)) return [invalid(list.failure.message)];
 
-  const ancestors = new Set<unknown>();
+  let ancestors: Set<Diagnostic> | undefined;
 
-  return list.success.map(function occurrence(value): Diagnostic {
-    if (ancestors.has(value)) {
+  const occurrences = (values: ReadonlyArray<Diagnostic>): ReadonlyArray<Diagnostic> => {
+    let changed: Array<Diagnostic> | undefined;
+
+    for (let index = 0; index < values.length; index++) {
+      const original = values[index]!;
+      const checked = occurrence(original);
+
+      if (changed !== undefined) changed.push(checked);
+      else if (checked !== original) {
+        changed = values.slice(0, index);
+        changed.push(checked);
+      }
+    }
+
+    return changed ?? values;
+  };
+
+  const occurrence = (value: Diagnostic): Diagnostic => {
+    if (ancestors?.has(value)) {
       const location = Option.getOrUndefined(decodeLocation(value))?.location;
 
-      return invalid(
-        "cyclic related diagnostic",
-        location === undefined ? undefined : { location },
-      );
+      return invalid("cyclic related diagnostic", occurrenceOptions(location));
     }
 
     const decoded = decodeOccurrence(value);
+    let sourceRelated: ReadonlyArray<Diagnostic> | undefined;
 
-    const sourceRelated = Result.isSuccess(decoded)
-      ? decoded.success.related
-      : Option.getOrUndefined(decodeRelated(value))?.related;
+    // The native decoder establishes the container shape. Walk the declared input itself,
+    // not the decoder's copy, so an unchanged related tree keeps its original identities.
+    if (Result.isSuccess(decoded) || Option.isSome(decodeRelated(value)))
+      sourceRelated = value.related;
 
-    ancestors.add(value);
+    let related = sourceRelated;
 
-    const related = sourceRelated?.map(occurrence);
+    if (sourceRelated !== undefined && sourceRelated.length > 0) {
+      ancestors ??= new Set<Diagnostic>();
+      ancestors.add(value);
+      related = occurrences(sourceRelated);
+      ancestors.delete(value);
+    }
 
-    ancestors.delete(value);
+    if (Result.isFailure(decoded)) {
+      const location = Option.getOrUndefined(decodeLocation(value))?.location;
 
-    const options: { -readonly [K in keyof EmitOptions]: EmitOptions[K] } = {};
-
-    const location = Result.isSuccess(decoded)
-      ? decoded.success.location
-      : Option.getOrUndefined(decodeLocation(value))?.location;
-
-    if (location !== undefined) options.location = location;
-
-    if (related !== undefined) options.related = related;
-
-    if (Result.isFailure(decoded)) return invalid(decoded.failure.message, options);
+      return invalid(decoded.failure.message, occurrenceOptions(location, related));
+    }
 
     const diagnostic = decoded.success;
-
     const entry = registry.get(diagnostic.code);
 
     if (Option.isNone(entry)) {
       return CoreDiagnostics["EFFX0010"].emit(
         { _tag: "UndeclaredCode", owner, code: diagnostic.code },
-        options,
+        occurrenceOptions(diagnostic.location, related),
       );
     }
 
@@ -160,29 +187,35 @@ export const validateDiagnostics = (
         ? diagnostic.severity === entry.value.severity
         : policy.allowedSeverities.some((severity) => severity === diagnostic.severity);
 
-    let expectedPolicy: string =
-      policy.kind === "fixed" ? "fixed " + entry.value.severity : policy.name;
+    const bindingPhase =
+      diagnostic.code === CoreDiagnostics["EFFX1106"].entry.code && context.phase !== undefined;
 
-    if (diagnostic.code === CoreDiagnostics["EFFX1106"].entry.code && context.phase !== undefined) {
-      const expected = context.phase === "collect" ? "warning" : "error";
+    if (bindingPhase)
+      permitted =
+        permitted && diagnostic.severity === (context.phase === "collect" ? "warning" : "error");
 
-      permitted = permitted && diagnostic.severity === expected;
-
-      expectedPolicy = `${expectedPolicy} (${context.phase}: ${expected})`;
-    }
-
-    if (
+    const accessMode =
       diagnostic.code === HttpDiagnostics["EFFX2504"].entry.code &&
-      context.strictAccess !== undefined
-    ) {
-      const expected = context.strictAccess ? "error" : "warning";
+      context.strictAccess !== undefined;
 
-      permitted = permitted && diagnostic.severity === expected;
-
-      expectedPolicy = `${expectedPolicy} (strictAccess=${context.strictAccess}: ${expected})`;
-    }
+    if (accessMode)
+      permitted = permitted && diagnostic.severity === (context.strictAccess ? "error" : "warning");
 
     if (!permitted) {
+      let expectedPolicy = policy.kind === "fixed" ? "fixed " + entry.value.severity : policy.name;
+
+      if (bindingPhase)
+        expectedPolicy +=
+          " (" + context.phase + ": " + (context.phase === "collect" ? "warning" : "error") + ")";
+
+      if (accessMode)
+        expectedPolicy +=
+          " (strictAccess=" +
+          context.strictAccess +
+          ": " +
+          (context.strictAccess ? "error" : "warning") +
+          ")";
+
       return CoreDiagnostics["EFFX0010"].emit(
         {
           _tag: "SeverityMismatch",
@@ -191,19 +224,14 @@ export const validateDiagnostics = (
           actualSeverity: diagnostic.severity,
           policy: expectedPolicy,
         },
-        options,
+        occurrenceOptions(diagnostic.location, related),
       );
     }
 
-    const checked: Diagnostic = {
-      code: diagnostic.code,
-      severity: diagnostic.severity,
-      message: diagnostic.message,
-      ...options,
-    };
+    return related === undefined || related === value.related ? value : { ...value, related };
+  };
 
-    return checked;
-  });
+  return occurrences(input);
 };
 
 /** A related contract error also blocks output even when its parent is informational. */

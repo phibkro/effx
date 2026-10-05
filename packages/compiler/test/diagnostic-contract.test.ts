@@ -23,6 +23,7 @@ import {
 } from "@effx/compiler";
 import { A, Annotation } from "@effx/runtime";
 import { IRGraph, StableId, make } from "@effx/ir";
+import { registryOf, validateDiagnostics } from "../src/diagnostics/validation.ts";
 
 const notice = defineDiagnostic(
   {
@@ -307,6 +308,74 @@ describe("checked diagnostic contract", () => {
 
           assert.isTrue(containsContract(direct), `direct ${stage}`);
         }
+      }),
+  );
+
+  it.effect(
+    "valid nested diagnostics retain root, occurrence, location and related-array identities",
+    () =>
+      Effect.sync(() => {
+        const registry = Option.getOrThrow(registryOf([plugin()]).value);
+
+        const leaf = notice.emit({ subject: "leaf" }, { location: otherLocation });
+
+        const children = [leaf];
+
+        const child = notice.emit({ subject: "child" }, { location, related: children });
+
+        const related = [child];
+
+        const parent = notice.emit({ subject: "parent" }, { location, related });
+
+        const diagnostics = [leaf, parent];
+
+        const checked = validateDiagnostics(diagnostics, registry, "fixture", { phase: "analyze" });
+
+        assert.strictEqual(checked, diagnostics);
+        assert.strictEqual(checked[0], leaf);
+        assert.strictEqual(checked[1], parent);
+        assert.strictEqual(checked[1]?.location, location);
+        assert.strictEqual(checked[1]?.related, related);
+        assert.strictEqual(checked[1]?.related?.[0], child);
+        assert.strictEqual(checked[1]?.related?.[0]?.related, children);
+        assert.strictEqual(checked[1]?.related?.[0]?.related?.[0], leaf);
+        assert.strictEqual(checked[1]?.related?.[0]?.related?.[0]?.location, otherLocation);
+
+        const emptyDiagnostics: Array<Diagnostic> = [];
+
+        assert.strictEqual(
+          validateDiagnostics(emptyDiagnostics, registry, "fixture"),
+          emptyDiagnostics,
+        );
+      }),
+  );
+
+  it.effect(
+    "an invalid descendant copies only its changed path and preserves valid sibling identities",
+    () =>
+      Effect.sync(() => {
+        const registry = Option.getOrThrow(registryOf([plugin()]).value);
+
+        const sibling = notice.emit({ subject: "sibling" }, { location });
+
+        const related = [
+          sibling,
+          ...forged([{ code: "EFFX1199", severity: "warning", message: "invalid" }]),
+        ];
+
+        const parent = notice.emit({ subject: "parent" }, { location, related });
+
+        const diagnostics = [sibling, parent];
+
+        const checked = validateDiagnostics(diagnostics, registry, "fixture");
+
+        assert.notStrictEqual(checked, diagnostics);
+        assert.strictEqual(checked[0], sibling);
+        assert.notStrictEqual(checked[1], parent);
+        assert.strictEqual(checked[1]?.location, location);
+        assert.notStrictEqual(checked[1]?.related, related);
+        assert.strictEqual(checked[1]?.related?.[0], sibling);
+        assert.strictEqual(checked[1]?.related?.[1]?.code, contractCode);
       }),
   );
 
