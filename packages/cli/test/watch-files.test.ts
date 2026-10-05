@@ -841,4 +841,34 @@ describe("explicit native project observation (EX-0031)", () => {
         }),
       ),
   );
+
+  it.effect(
+    "allows a repeated link with a different unresolved suffix instead of inventing a cycle",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const identityLink = path.join(dir, "a");
+          const redirected = path.join(dir, "x");
+          const terminalDirectory = path.join(dir, "y");
+          const logical = path.join(identityLink, "x", "dep.mjs");
+          yield* fs.makeDirectory(terminalDirectory);
+          yield* fs.writeFileString(path.join(terminalDirectory, "dep.mjs"), "a");
+          yield* fs.symlink(".", identityLink);
+          yield* fs.symlink("a/y", redirected);
+
+          const watch = yield* makeWatchFiles({ inputs: [{ path: logical, kind: "executable" }] });
+
+          const initial = yield* observe(watch);
+          assert.strictEqual(initial.error, undefined);
+          assert.isTrue(
+            initial.fingerprints[0]?.entries.some(
+              (entry) => entry.path === logical && entry.digest.length > 0,
+            ),
+          );
+          yield* fs.writeFileString(path.join(terminalDirectory, "dep.mjs"), "b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [logical]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+        }),
+      ),
+  );
 });

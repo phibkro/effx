@@ -111,7 +111,7 @@ const notDirectory = Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }
  * Executable intent is OR-retained until takeChanges, including coverage replacement.
  * Defaults admit 8192 paths (including routes/parents), 64 MiB/pass and 16 MiB/file.
  * Explicit logical routes expand successive raw link targets under the same path
- * budget; repeated non-progressing links fail with WatchLimit resource "cycle".
+ * and unresolved-component budgets; repeated route states fail with WatchLimit "cycle".
  * replaceInputs may atomically replace resolved exclusions; every pass captures
  * its coverage and exclusion policy, retaining unchanged fingerprints on cutover.
  * Directory listing IO returns a whole native array; these are retained/admitted
@@ -382,8 +382,11 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         .split(path.sep)
         .filter((part) => part.length > 0);
 
+      if (components.length > maxPaths)
+        return yield* new WatchLimit({ resource: "paths", path: input.path, limit: maxPaths });
+
       let componentIndex = 0;
-      const expandedLinks = new Map<string, number>();
+      const expandedLinks = new Set<string>();
 
       while (componentIndex < components.length) {
         const component = components[componentIndex++];
@@ -404,13 +407,12 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         const destination = yield* link(name);
 
         if (Option.isSome(destination)) {
-          const remaining = components.length - componentIndex;
-          const previousRemaining = expandedLinks.get(name);
+          const routeState = name + "\0" + components.slice(componentIndex).join(path.sep);
 
-          if (previousRemaining !== undefined && remaining >= previousRemaining)
+          if (expandedLinks.has(routeState))
             return yield* new WatchLimit({ resource: "cycle", path: name, limit: maxPaths });
 
-          expandedLinks.set(name, remaining);
+          expandedLinks.add(routeState);
           entries.set(name, {
             path: name,
             type: "symlink",
@@ -426,10 +428,12 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
             ? destination.value.slice(routeRoot.length)
             : destination.value;
 
-          components = [
-            ...target.split(path.sep).filter((part) => part.length > 0),
-            ...components.slice(componentIndex),
-          ];
+          const targetComponents = target.split(path.sep).filter((part) => part.length > 0);
+
+          if (targetComponents.length + components.length - componentIndex > maxPaths)
+            return yield* new WatchLimit({ resource: "paths", path: name, limit: maxPaths });
+
+          components = [...targetComponents, ...components.slice(componentIndex)];
           componentIndex = 0;
           continue;
         }
