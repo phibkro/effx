@@ -61,6 +61,7 @@ interface EditorReceipts {
     predicate?: (params: Schema.Json) => boolean,
   ) => Effect.Effect<Schema.Json>;
   readonly exit: Effect.Effect<{ code: number | null; signal: string | null }>;
+  readonly protocolErrorCount: Effect.Effect<number>;
 }
 
 const publication = Effect.fnUntraced(function* (
@@ -83,6 +84,10 @@ const stopEditor = Effect.fnUntraced(function* (peer: EditorReceipts) {
   yield* requireThat((yield* peer.request("shutdown")) === null, "LSP shutdown response");
   yield* peer.notification("exit");
   yield* requireThat((yield* peer.exit).code === 0, "LSP clean exit");
+  yield* requireThat(
+    (yield* peer.protocolErrorCount) === 0,
+    "maintained client observes protocol-only stdout",
+  );
 });
 
 const parameters = {
@@ -459,6 +464,10 @@ export default defineConfig({ outDir: ".effx/custom", generators: { http: true }
       yield* requireThat(!(yield* fs.exists(cfgSentinel)), "trust denied before config import");
       yield* denied.eof;
       yield* denied.exit;
+      yield* requireThat(
+        (yield* denied.protocolErrorCount) === 0,
+        "trust denial remains protocol-only stdout",
+      );
     }),
   ).pipe(Effect.timeout("30 seconds"));
   let diagnosticCount = 0;
@@ -678,7 +687,8 @@ export default defineConfig({ strictAccess: !enabled || !computed.enabled,
       ],
       cycles,
       diagnosticCount,
-      noWrite: true,
+      noWrite: { defaultDev: true, lsp: true },
+      protocolErrorCount: 0,
       tarballs: packages.length,
     })) + "\n",
   ).pipe(Stream.run(stdio.stdout()));
