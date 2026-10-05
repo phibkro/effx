@@ -1,0 +1,118 @@
+---
+title: effx lsp
+description: Stdio diagnostics for one selected project, including unsaved source and dependency buffers.
+---
+
+Configure your editor's LSP launcher to start one process:
+
+```sh
+effx lsp --project tsconfig.json
+```
+
+For a trusted executable config, choose one launch form:
+
+```sh
+effx lsp --project tsconfig.json --config ./effx.config.ts
+effx lsp --project tsconfig.json --trust-config
+```
+
+From a checkout, use `bun run effx lsp` with the same arguments.
+Do not send terminal commands into this process. Standard output contains only framed JSON-RPC; operational logs use stderr or protocol logs.
+There is no HTTP transport or bundled editor extension.
+
+## Project selection and trust
+
+One process owns one project. Explicit launch flags take precedence.
+Without `--project`, initialization selects one workspace folder, then `rootUri`, then `rootPath`, then startup cwd.
+The selected base uses the existing tsconfig/config discovery rules, not a recursive nearest-project search.
+Multiple workspace folders without an explicit project fail initialization. Non-file URIs are unsupported.
+The server does not support workspace-folder changes or infer projects per document.
+
+If discovery finds executable config, initialization requires launch-time `--trust-config` or explicit `--config`.
+Without authority, initialization fails and names the config. It does not silently use built-ins instead.
+Editor initialization options, workspace trust messages, and configuration notifications cannot grant execution authority or add executable coverage.
+Reflect the editor's trust decision in launcher arguments.
+
+Trusted config and its imports execute with process privileges. **LSP is not a sandbox.**
+The compiler and host write no artifacts, but a trusted plugin can cause its own side effects.
+Keep config imports free of application operation modules. Never treat coverage as credential or publication authority.
+
+Both `--exec-file` and `--exec-dir` are repeatable.
+Follow the [complete executable coverage rules](/docs/cli/dev#executable-coverage), including static package symlinks, exports, `#imports`, and external aliases.
+Omitted routes can change without detection. Initial import assumes stable inputs; observation is not an atomic snapshot.
+
+## Unsaved source and dependencies
+
+`didOpen` supplies authoritative text. Full replacements and incremental `didChange` edits stay in memory.
+Disk events never overwrite an open buffer. Open dependency buffers affect diagnostics in their consumers.
+An included new document can join the source roots. Opening an excluded file does not turn it into an operation root.
+There is no temporary save, tsbuildinfo, or disk overlay cache.
+
+Positions use zero-based UTF-16 code units. CRLF is one line break.
+Incremental edits apply in arrival order, including each change within a notification.
+Versions must increase within an open instance; gaps are permitted.
+Older/equal versions, unopened-document changes, invalid ranges, and positions that split surrogate pairs are rejected without state mutation.
+Reopening starts a new instance. Two open URIs cannot own the same physical file through different aliases.
+
+`didClose` discards the buffer and immediately clears that URI's diagnostics.
+The server then analyzes saved disk inputs for other open consumers.
+A deleted file's open text remains authoritative until close.
+`didSave` triggers reconciliation; optional save text does not replace the open buffer.
+
+## Diagnostics and restart
+
+The server uses the same compiler meaning as `effx check`, not a separate editor analyzer.
+Only open URIs receive complete diagnostic replacements. Repairs, close, faults, and restart clear old diagnostics.
+Version tags accompany publications when the client supports them. Superseded snapshots cannot publish.
+Compiler points become zero-length ranges; the server does not invent source spans.
+Codes, severity, messages, and supported related information remain compiler data.
+Unlocated findings use `window/logMessage` with code, severity, and `effx explain` guidance rather than a fabricated document location.
+
+Unsaved executable config/plugin text never executes. Its log explains that changes require save and restart.
+Until a saved covered executable changes, source checks use the selected saved config.
+A covered executable change reports `RestartRequired` once, clears diagnostics, and suspends analysis until a fresh authorized process.
+There are no automatic hot imports or restarts before every source analysis.
+Malformed saved JSON inputs clear stale success and can recover after repair.
+
+`workspace/didChangeConfiguration` accepts no mutable effx selection or trust policy.
+Unrelated settings are ignored; effx selection changes require restart.
+`workspace/didChangeWatchedFiles` triggers reconciliation but does not add authority or coverage.
+
+## Supported protocol
+
+| Input | Purpose |
+| --- | --- |
+| `initialize`, `initialized` | Select, admit, and start the project |
+| `textDocument/didOpen`, `didChange`, `didSave`, `didClose` | Maintain current in-memory text and reconcile saved inputs |
+| `workspace/didChangeConfiguration`, `didChangeWatchedFiles` | Validate notifications and reconcile without new authority |
+| `$/cancelRequest`, `$/setTrace` | Cancel requests and accept trace control |
+| `shutdown`, `exit` | Release project resources, then end the transport |
+
+Capabilities advertise UTF-16 positions and incremental text synchronization with open/close and save notifications without save text.
+The server publishes push diagnostics. It does not advertise completion, hover, formatting, refactoring, code actions, semantic tokens, or pull diagnostics.
+It does not replace the TypeScript language server or generated-code typecheck.
+
+## Capacity and shutdown
+
+| Resource | Limit |
+| --- | --- |
+| Frame body | 8 MiB |
+| Frame header | 8 KiB |
+| Admitted incoming messages, including active work | 64 messages and 8 MiB total |
+| Outstanding requests | 32 |
+| Pending output, including active writes | 32 messages and 8 MiB total |
+| Open documents | 128 |
+| Total current open text | 16 × 1,024 × 1,024 UTF-16 code units, not bytes |
+| Filesystem observer | 8,192 paths; 16 MiB per file; 64 MiB per pass |
+
+One analysis and one pending dirty token bound project work. One serialized writer respects transport drain.
+Unsafe transport saturation closes the session visibly rather than dropping edits. Document admission limits reject the invalid notification without changing current text.
+Filesystem observer failures are terminal. These bounds do not promise constant memory for TypeScript or native directory listings.
+
+Send `shutdown` and await its null response, then send `exit`.
+Shutdown closes the project scope before replying; the transport remains alive for exit.
+EOF, client disappearance when `processId` is supplied, transport failure, SIGINT, and SIGTERM also release owned resources.
+Exit before shutdown is unsuccessful. No analysis, observer, or late publication survives its owner.
+No output locks are acquired because LSP never calls the artifact writer.
+
+Source: `docs/specs/0018-watch-editor.md` (including amendment A), `packages/cli/src/lsp.ts`, `lsp-model.ts`, `lsp-transport.ts`, `documents.ts`, `project-session.ts`, `watch-files.ts`, and `commands.ts`.

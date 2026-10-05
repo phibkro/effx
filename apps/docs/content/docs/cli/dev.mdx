@@ -1,0 +1,118 @@
+---
+title: effx dev
+description: Check saved project inputs until you stop the session. Build writes require an explicit flag.
+---
+
+```sh
+effx dev --project tsconfig.json
+effx dev --project tsconfig.json --build --emit contract
+```
+
+From the repository root, use `bun run effx dev --project examples/users/tsconfig.json`.
+The command runs an initial check, then observes saved sources and dependencies.
+Each completed cycle prints an increasing marker, a complete diagnostic batch, and counts.
+A repair prints zero errors rather than leaving the previous batch active. The terminal is not cleared.
+
+`dev` uses the same frontend, compiler, extensions, and diagnostic registry as `check`.
+It does not execute application modules or start an application server.
+It accepts the shared project, config, output, emit, target, and strict-access flags from the [CLI overview](/docs/cli#flags).
+
+## Write intent
+
+By default, `dev` writes no compiler artifacts, even when config selects generators or an output directory.
+Only `--build` enables normal build emission for successful, current cycles.
+Errors and analysis faults preserve the last successful artifacts.
+Emit modes, generator toggles, manifest ownership, and obsolete-file restrictions remain [normal build policy](/docs/cli/build).
+One-shot build and watch-build share exact-directory output locks. Check-only dev does not acquire them.
+
+## Executable coverage
+
+The same coverage rules apply to [LSP](/docs/cli/lsp).
+Config and plugin modules are executable inputs, unlike application source that the compiler reads statically.
+`dev` retains normal CLI config discovery authority. LSP adds a launch-time trust gate.
+
+Both commands accept repeatable launch flags:
+
+```sh
+effx dev --exec-file ./package.json --exec-file ./node_modules/@acme/effx-plugin \
+  --exec-dir ../compiler-plugins --exec-dir ./config-helpers
+```
+
+Launch paths resolve from startup cwd. Each `--exec-dir` covers ordinary descendants recursively.
+Config can supply additional coverage through the public `@effx/cli/config` entry:
+
+```ts
+import { defineConfig } from "@effx/cli/config";
+
+export default defineConfig({
+  executableCoverage: {
+    files: ["package.json", "node_modules/@acme/effx-plugin"],
+    directories: [
+      { path: "config-helpers", recursive: true },
+      { path: "../compiler-plugins", recursive: true },
+    ],
+  },
+});
+```
+
+Config paths resolve beside the selected config, not beside the tsconfig or startup cwd.
+The CLI merges launch and config coverage by union. It retains distinct logical aliases to the same physical target.
+`recursive: false` observes the directory and its immediate entries without recursive descendant traversal.
+Recursive coverage does not follow arbitrary symlink trees. Declare external targets and logical link routes explicitly.
+
+**The caller must completely declare ALL otherwise-unobservable logical executable routes and resolution-sensitive inputs.**
+This includes static bare-package imports, not only computed imports:
+
+| Executable import route | Coverage to declare when otherwise unobserved |
+| --- | --- |
+| Static `@acme/effx-plugin` through a package symlink | The logical `node_modules/@acme/effx-plugin` link, its package metadata, and the external executable target tree |
+| Package `exports` selects another entry | The package metadata and all selection-sensitive executable candidates |
+| `#compiler-plugin` through package `imports` | The supplying `package.json`, logical aliases, and all executable candidates |
+| Extensionless, computed, or external alias | All candidate files, relevant directories, logical links, and physical executable targets |
+
+For example, a symlink from `node_modules/@acme/effx-plugin` to `../compiler-plugins/plugin-a` needs both routes.
+The example above is complete only if those declarations cover every otherwise-unobserved route in your actual config graph.
+Do not copy it as a universal coverage list.
+
+Known loaded physical files and observed TypeScript/config/resolution inputs supplement caller declarations.
+A physical module-cache key does not prove complete logical provenance.
+**Omitted routes can change without detection.** effx does not certify that your declarations are complete.
+Coverage authorizes observation, not a sandbox, credential access, dependency installation, or publication.
+
+Launch coverage exists before the single trusted import. Config-returned coverage establishes a post-import baseline.
+Initial import assumes stable inputs during that window unless complete pre-import launch coverage detects a change.
+Neither route provides an atomic filesystem snapshot.
+A detected import-window change requires restart rather than an initial trusted publication.
+
+## Reanalysis and restart
+
+| Saved change | Result |
+| --- | --- |
+| Application source or declaration dependency | Analyze again after edits settle |
+| tsconfig, membership, resolution metadata, or lockfile outside the executable closure | Refresh saved inputs and analyze again |
+| Covered config, executable helper, plugin, or executable selection route | Report `RestartRequired` once, clear diagnostic status, and suspend analysis and generation |
+
+Stop and start a fresh authorized process after `RestartRequired`.
+The session does not reevaluate config, evict modules, add import queries, or partially hot-reload plugins.
+Unchanged complete coverage permits repeated source analyses without restart.
+
+A malformed saved JSON input reports a failed cycle; a later repair can resume analysis.
+A source diagnostic error does not terminate the session. Invalid startup selection fails before watch or artifact writes.
+A filesystem observer failure is visible and terminal, not a healthy-looking session with incomplete coverage.
+
+## Bounds and stop
+
+One scope owns the session, filesystem observer, analysis, and optional writer.
+One analysis runs at a time, with at most one pending dirty/reconcile token.
+New input invalidates an older result before publication or generation.
+Synchronous TypeScript work is not preemptible; interruption does not make it cancellable.
+
+The observer admits at most 8,192 paths, 16 MiB per file, and 64 MiB per pass.
+Path counts include logical routes and relevant parents. Native directory listings are not a constant-memory guarantee.
+The sequential observer waits 250 milliseconds after each pass; this is not a latency promise.
+Output trees are excluded. Explicit inputs that overlap owned output fail selection rather than disappear from coverage.
+
+Stop with Ctrl-C. SIGINT and SIGTERM close the root scope and release its owned resources and output tokens.
+There is no detached watcher, application subprocess, persistent cache, or automatic stale-lock reclamation.
+
+Source: `docs/specs/0018-watch-editor.md` (including amendment A), `packages/cli/src/watch.ts`, `commands.ts`, `config.ts`, `config-runtime.ts`, `project-session.ts`, `watch-files.ts`, and `output-owner.ts`.
