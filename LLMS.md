@@ -1527,7 +1527,7 @@ checks and files. `extension` bundles implementations into an ordinary `Extensio
 you list in `effx.config.ts`.
 
 ```ts
-import { CoreDiagnostics, dataOf, extension, implement } from "@effx/compiler";
+import { CoreDiagnostics, type Diagnostic, dataOf, extension, implement } from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
 import { Option } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
@@ -1535,7 +1535,7 @@ import { RateLimit } from "./03_define-annotation.ts";
 const rateLimit = implement(RateLimit, {
   // Analyses read the normalized IR and return diagnostics (data, not failures).
   analyze: (ir, index) =>
-    ir.nodes.flatMap((node) => {
+    ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
       if (node._tag !== "Operation") return [];
 
       // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.

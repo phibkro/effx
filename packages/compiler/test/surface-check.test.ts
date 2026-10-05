@@ -115,7 +115,7 @@ describe("checkWiring (spec 0021 §4.2)", () => {
       facts: {
         workers: [],
         references: [],
-        undecidable: [{ location: at, reason: "import() with a non-literal specifier" }],
+        undecidable: [{ location: at, reason: { _tag: "DynamicImport" } }],
       },
     });
 

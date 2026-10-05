@@ -160,7 +160,7 @@ describe("diagnostic registry", () => {
           description: "Phase-dependent severity.",
           allowedSeverities: ["warning", "error"],
         },
-      };
+      } as const;
 
       const registry = yield* composeRegistry([named]);
       assert.deepStrictEqual(registry.entries[0], named);
