@@ -1,6 +1,5 @@
 ---
 "@effx/compiler": patch
-"@effx/frontend-ts": patch
 "@effx/cli": patch
 ---
 
