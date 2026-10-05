@@ -118,13 +118,6 @@ describe("concrete HttpApi endpoint inventory", () => {
           collected.diagnostics.filter((d) => d.severity === "error"),
           [],
         );
-        assert.deepStrictEqual(collected.httpApiGroups, [
-          {
-            root: { module: "../../root", export: "Root" },
-            group: "profile",
-            endpoints: ["handWritten", "read"],
-          },
-        ]);
         const result = yield* compileCollected(collected, Extensions.builtin);
         assert.deepStrictEqual(
           result.diagnostics.filter((d) => d.severity === "error"),
@@ -133,11 +126,11 @@ describe("concrete HttpApi endpoint inventory", () => {
         assert.isTrue(Option.isSome(result.files.value));
         const ir = Option.getOrThrow(result.ir.value);
         const group = ir.nodes.find((node) => node._tag === "HttpGroup");
-        assert.deepStrictEqual(
-          group?._tag === "HttpGroup" ? group.rootSymbol : undefined,
-          collected.httpApiGroups?.[0]?.root,
-        );
-        const without = { ...collected, httpApiGroups: [] };
+        assert.deepStrictEqual(group?._tag === "HttpGroup" ? group.rootSymbol : undefined, {
+          module: "../../root",
+          export: "Root",
+        });
+        const without = { ...collected, resolveHttpApiInventory: undefined };
         const rejected = yield* compileCollected(without, Extensions.builtin);
         assert.strictEqual(canonical(ir), canonical(Option.getOrThrow(rejected.ir.value)));
         assert.isTrue(rejected.diagnostics.some((d) => d.code === "EFFX2415"));
@@ -159,7 +152,7 @@ describe("concrete HttpApi endpoint inventory", () => {
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 
-  it.effect.each(["contract", "handlers", "all"] as const)(
+  it.effect.each(["handlers", "all"] as const)(
     "rejects a declared endpoint absent from the concrete root in %s mode",
     (emit) =>
       Effect.gen(function* () {
@@ -170,6 +163,66 @@ describe("concrete HttpApi endpoint inventory", () => {
         );
         assert.isTrue(Option.isNone(result.files.value));
       }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("contract does not require an endpoint to exist in the authored root", () =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(
+        yield* collectSource(undefined, "missing", "contract"),
+        Extensions.builtin,
+      );
+
+      assert.deepStrictEqual(
+        result.diagnostics.filter((d) => d.severity === "error"),
+        [],
+      );
+      assert.isTrue(Option.isSome(result.files.value));
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect.each(unsafeRoots)("contract ignores unprovable %s inventory", ([, type]) =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(
+        yield* collectSource(`export declare const Root: ${type};`, "read", "contract"),
+        Extensions.builtin,
+      );
+
+      assert.deepStrictEqual(
+        result.diagnostics.filter((d) => d.severity === "error"),
+        [],
+      );
+      assert.isTrue(Option.isSome(result.files.value));
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect.each([
+    "export const Root = { identifier: 'inventory', groups: {} };",
+    "export declare const Root: Omit<typeof Native, 'identifier'> & { identifier: string };",
+  ])("contract retains root brand and literal validation: %s", (root) =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(
+        yield* collectSource(root, "read", "contract"),
+        Extensions.builtin,
+      );
+
+      assert.isTrue(result.diagnostics.some((d) => d.severity === "error"));
+      assert.isTrue(Option.isNone(result.files.value));
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("contract retains malformed operationId validation", () =>
+    Effect.gen(function* () {
+      const result = yield* compileCollected(
+        yield* collectSource(undefined, "read", "contract", false),
+        Extensions.builtin,
+      );
+
+      assert.deepStrictEqual(
+        result.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+        ["EFFX2403"],
+      );
+      assert.isTrue(Option.isNone(result.files.value));
+    }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 
   it.effect("reveals the inventory defect after the earlier fatal contract defect is fixed", () =>
@@ -199,11 +252,12 @@ describe("concrete HttpApi endpoint inventory", () => {
   it.effect.each(unsafeRoots)("rejects unprovable %s before generation", ([, type]) =>
     Effect.gen(function* () {
       const collected = yield* collectSource(`export declare const Root: ${type};`);
-      assert.isTrue(
-        collected.diagnostics.some((d) => d.code === "EFFX2415" && d.location !== undefined),
-      );
-      assert.isUndefined(collected.httpApiGroups);
+      assert.isFalse(collected.diagnostics.some((d) => d.code === "EFFX2415"));
       const result = yield* compileCollected(collected, Extensions.builtin);
+      assert.deepStrictEqual(
+        result.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+        ["EFFX2415"],
+      );
       assert.isTrue(Option.isNone(result.files.value));
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
