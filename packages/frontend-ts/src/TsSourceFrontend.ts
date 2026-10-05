@@ -40,7 +40,7 @@ export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (
 ) {
   const path = yield* Path.Path;
 
-  const project = yield* loadProject(config).pipe(
+  const project = yield* loadProject(config, options).pipe(
     Effect.mapError((cause) =>
       isCompilerFault(cause)
         ? cause

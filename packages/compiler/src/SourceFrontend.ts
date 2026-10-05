@@ -10,6 +10,12 @@ import type { CompilerFault } from "./CompilerFault.ts";
  */
 export type DefinitionEntry = Pick<DefinitionData, "plan" | "target">;
 
+/** A logical dependency or resolution probe consulted by one analysis. */
+export interface ObservedInput {
+  readonly kind: "file" | "directory" | "missing" | "symlink";
+  readonly path: string;
+}
+
 /**
  * Per-call frontend input that is not serializable project configuration.
  *
@@ -23,6 +29,13 @@ export interface AnalyzeOptions {
    * 0015 takes the same path, by the name it carries.
    */
   readonly definitions?: ReadonlyMap<string, DefinitionEntry>;
+  /** Absolute logical source paths; undefined masks a file as absent. Never persisted.
+   * The caller excludes executable and selected JSON configuration overlays.
+   * Each execution copies this input before reading the saved project.
+   */
+  readonly sources?: ReadonlyMap<string, string | undefined>;
+  /** Synchronous observation only; no filesystem mutation or application evaluation. */
+  readonly onObserve?: (input: ObservedInput) => void;
 }
 
 /**
