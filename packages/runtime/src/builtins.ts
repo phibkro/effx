@@ -21,12 +21,10 @@ import { defineBuiltin, rest } from "./define/define.js";
 
 const callableAnnotator = A.symbol<HttpOperationAnnotator>({
   check: "callable",
-  message: "metadata.annotator must be an exported callable symbol",
 });
 
 const identity = A.symbol<ExportedFunctionSymbol>({
   check: "exported-function",
-  message: "commandIdentity must be an exported callable function",
 });
 
 const securityMarkers = A.array(A.symbol<ServiceLike>({ check: "security-marker" }));
@@ -45,7 +43,6 @@ const concealment = A.taggedUnion({ Reveal: {}, NotFound: { stages: names } });
 
 const exportedValue = A.symbol<(spec: HttpAccessAnnotationSpec) => Context.Context<never>>({
   check: "exported-value",
-  message: "access symbol must be an exported value",
 });
 
 /**
@@ -188,7 +185,6 @@ export const HttpProblems = defineBuiltin({
       registry: A.sourceOptional(
         A.symbol<ProblemRegistry>({
           check: "registry",
-          message: "registry must be an exported value symbol",
         }),
       ),
       codes: A.nonEmptyArray(A.nonEmptyString),
@@ -220,7 +216,6 @@ export const HttpAccess = defineBuiltin({
       ),
       canonicalScopeResolver: A.symbol<object>({
         check: "exported-value",
-        message: "access symbol must be an exported value",
       }),
       concealment: A.sourceOptional(concealment),
       // Optional to write: the 0013 pre-pass defaults it from the operation kind (spec 0024 §4).
@@ -260,7 +255,6 @@ export const HttpGroup = defineBuiltin({
               registry: A.optional(
                 A.symbol<ProblemRegistry>({
                   check: "registry",
-                  message: "registry must be an exported value symbol",
                 }),
               ),
             }),

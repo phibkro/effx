@@ -29,3 +29,11 @@ export const annotationSchemaLowering = defineDiagnostic(
 export const RuntimeDiagnostics = {
   [annotationSchemaLowering.entry.code]: annotationSchemaLowering,
 };
+
+/** Definition-owned defaults for symbol checks; custom expectations remain authored facts. */
+export const SymbolExpectations = {
+  callable: "metadata.annotator must be an exported callable symbol",
+  "exported-function": "commandIdentity must be an exported callable function",
+  "exported-value": "access symbol must be an exported value",
+  registry: "registry must be an exported value symbol",
+} as const;

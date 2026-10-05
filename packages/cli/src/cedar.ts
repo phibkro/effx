@@ -1,5 +1,11 @@
 import { Console, Effect, FileSystem, Option, Path } from "effect";
-import { CompilerFault, type Diagnostic, cedarOf, error, hasErrors, warning } from "@effx/compiler";
+import {
+  CompilerFault,
+  CoreDiagnostics,
+  type Diagnostic,
+  cedarOf,
+  hasErrors,
+} from "@effx/compiler";
 import { semanticHash } from "@effx/ir";
 import { CheckFailed, type Project, compileAndReport } from "./commands.ts";
 import { CEDAR_WASM_VERSION, type CedarIssue, CedarValidator } from "./cedar-validate.ts";
@@ -24,12 +30,25 @@ export interface CedarCommandOptions {
   readonly outDir: string | undefined;
 }
 
-const describeIssue = (file: string, issue: CedarIssue): string => {
-  const subject = issue.policyId === undefined ? file : `${file}: policy ${issue.policyId}`;
+const issueParams = (
+  file: string,
+  issue: CedarIssue,
+): Parameters<typeof CoreDiagnostics.EFFX4102.emit>[0] => {
+  if (issue.policyId === undefined) {
+    return issue.help === undefined
+      ? { _tag: "File", file, validatorMessage: issue.message }
+      : { _tag: "FileHelp", file, validatorMessage: issue.message, help: issue.help };
+  }
 
   return issue.help === undefined
-    ? `${subject}: ${issue.message}`
-    : `${subject}: ${issue.message} (${issue.help})`;
+    ? { _tag: "Policy", file, policyId: issue.policyId, validatorMessage: issue.message }
+    : {
+        _tag: "PolicyHelp",
+        file,
+        policyId: issue.policyId,
+        validatorMessage: issue.message,
+        help: issue.help,
+      };
 };
 
 export const cedarCommand = Effect.fn("cedar")(function* (
@@ -91,7 +110,7 @@ export const cedarCommand = Effect.fn("cedar")(function* (
         ...emitted.errors,
         ...emitted.warnings,
       ]
-        .map((issue) => describeIssue("emitted", issue))
+        .map((issue) => CoreDiagnostics.EFFX4102.emit(issueParams("emitted", issue)).message)
         .join("; ")}`,
     });
   }
@@ -111,10 +130,10 @@ export const cedarCommand = Effect.fn("cedar")(function* (
     const verdict = yield* validator.validate(files.schema, text);
 
     for (const issue of verdict.errors)
-      diagnostics.push(error("EFFX4102", describeIssue(file, issue)));
+      diagnostics.push(CoreDiagnostics.EFFX4102.emit(issueParams(file, issue)));
 
     for (const issue of verdict.warnings) {
-      diagnostics.push(warning("EFFX4106", describeIssue(file, issue)));
+      diagnostics.push(CoreDiagnostics.EFFX4106.emit(issueParams(file, issue)));
     }
   }
 

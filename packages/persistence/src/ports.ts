@@ -1,5 +1,5 @@
 import { Option, Order, Result, Schema } from "effect";
-import { error, warning, type Diagnostic } from "@effx/compiler";
+import { CoreDiagnostics, type Diagnostic } from "@effx/compiler";
 import { IRGraph, type ApplicationIR, type GraphIndex, type OperationNode } from "@effx/ir";
 
 export const PortData = Schema.Struct({ port: Schema.String });
@@ -43,12 +43,7 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
         : undefined;
 
     if (Result.isFailure(data) || owner?._tag !== "Operation") {
-      diagnostics.push(
-        error(
-          "EFFX3403",
-          `${node.id}: persistence.Port requires one operation owner and { port: string }`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX3403.emit({ _tag: "Ownership", subject: node.id }));
       continue;
     }
 
@@ -57,18 +52,13 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
 
     if (name.length === 0) {
       diagnostics.push(
-        error("EFFX3403", `${owner.name}: port methods must be named ${port}.<method>`),
+        CoreDiagnostics.EFFX3403.emit({ _tag: "MethodName", subject: owner.name, port }),
       );
       continue;
     }
 
     if (owner.binding !== "external" || owner.handler !== undefined) {
-      diagnostics.push(
-        error(
-          "EFFX3401",
-          `${owner.name}: persistence port methods must be declaration-only, without a local handler`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX3401.emit({ subject: owner.name }));
     }
 
     if (
@@ -76,19 +66,19 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
         (candidate) => candidate._tag === "Exposure" && candidate.operation === owner.id,
       )
     ) {
-      diagnostics.push(
-        error(
-          "EFFX3402",
-          `${owner.name}: persistence port methods cannot have HTTP, RPC or CLI exposures`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX3402.emit({ subject: owner.name }));
     }
 
     const methods = ports.get(port) ?? [];
 
     if (methods.some((method) => method.name === name)) {
       diagnostics.push(
-        error("EFFX3403", `${owner.name}: duplicate method ${name} in port ${port}`),
+        CoreDiagnostics.EFFX3403.emit({
+          _tag: "DuplicateMethod",
+          subject: owner.name,
+          method: name,
+          port,
+        }),
       );
     }
 
@@ -109,19 +99,14 @@ export const portsOf = (ir: ApplicationIR, index: GraphIndex): PortsResult => {
 
     if (other !== undefined && other !== port.name) {
       diagnostics.push(
-        error("EFFX3403", `${port.name}: generated filename collides with port ${other}`),
+        CoreDiagnostics.EFFX3403.emit({ _tag: "Filename", port: port.name, otherPort: other }),
       );
     }
 
     filenames.set(file, port.name);
 
     if (port.methods.every((method) => method.operation.kind === "Query")) {
-      diagnostics.push(
-        warning(
-          "EFFX3404",
-          `${port.name}: only Queries are declared; rollback and atomicity properties are vacuous`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX3404.emit({ port: port.name }));
     }
   }
 

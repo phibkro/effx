@@ -43,6 +43,7 @@ const d0001 = defineDiagnostic(
     severityPolicy: {
       kind: "named",
       name: "typescript-major-skew",
+      allowedSeverities: ["info", "warning"],
       description: "Same-major skew is info; different-major skew is warning.",
     },
   },
@@ -377,6 +378,7 @@ const d1106 = defineDiagnostic(
     severityPolicy: {
       kind: "named",
       name: "frontend-resolution-versus-core-contract",
+      allowedSeverities: ["warning", "error"],
       description:
         "Frontend runtime resolution is warning; source and IR binding contract violations are error.",
     },

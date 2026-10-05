@@ -10,7 +10,9 @@ import {
   StableId,
 } from "@effx/ir";
 import { type Declaration, TypeRef, symbolOf } from "../Collected.ts";
-import { type Diagnostic, error, warning } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { CoreDiagnostics } from "../diagnostics/core.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
 import { type Analysis, Contribution, type Extension } from "../Extension.ts";
 import {
   type ArgsCodec,
@@ -127,10 +129,7 @@ const inferredErrors = (
         Schema: ({ ref }) => values.push(ref),
         Opaque: ({ display }) =>
           diagnostics.push(
-            error(
-              "EFFX2203",
-              `${declaration.id}: inferred error \`${display}\` is not schema-addressable; map it with @Errors`,
-            ),
+            CoreDiagnostics.EFFX2203.emit({ subject: declaration.id, name: display }),
           ),
       },
       () => 0,
@@ -155,10 +154,7 @@ const inferredRequirements = (
           values.push({ id, node: { _tag: "Service", id, name: symbol.export, symbol } }),
         Opaque: ({ display }) =>
           diagnostics.push(
-            error(
-              "EFFX2304",
-              `${declaration.id}: cannot assign a stable effx identity to requirement \`${display}\`; declare or register the service`,
-            ),
+            CoreDiagnostics.EFFX2304.emit({ subject: declaration.id, name: display }),
           ),
       },
       () => 0,
@@ -196,12 +192,10 @@ const operation = (
           : !hasAuthoredHandler || declaration.handlerSignature === undefined
       ) {
         return Contribution.diagnostics(
-          error(
-            "EFFX1106",
-            external
-              ? `${declaration.id}: external operation must not carry a local handler or signature`
-              : `${declaration.id}: local operation requires an authored, typed handler`,
-          ),
+          CoreDiagnostics.EFFX1106.emit({
+            _tag: external ? "ExternalSource" : "LocalSource",
+            subject: declaration.id,
+          }),
         );
       }
 
@@ -281,17 +275,9 @@ const errorsAssertion = implement(Builtins.Errors, {
 
     return Contribution.diagnostics(
       ...undeclared.map((id) =>
-        error(
-          "EFFX2201",
-          `${declaration.id}: handler fails with ${id} but @Errors does not declare it`,
-        ),
+        CoreDiagnostics.EFFX2201.emit({ subject: declaration.id, name: id }),
       ),
-      ...stale.map((id) =>
-        error(
-          "EFFX2202",
-          `${declaration.id}: @Errors declares ${id} but the handler cannot fail with it`,
-        ),
-      ),
+      ...stale.map((id) => CoreDiagnostics.EFFX2202.emit({ subject: declaration.id, name: id })),
     );
   },
 });
@@ -316,17 +302,9 @@ const requirementsAssertion = implement(Builtins.Requirements, {
 
     return Contribution.diagnostics(
       ...undeclared.map((id) =>
-        error(
-          "EFFX2302",
-          `${declaration.id}: handler requires ${id} but @Requirements does not declare it`,
-        ),
+        CoreDiagnostics.EFFX2302.emit({ subject: declaration.id, name: id }),
       ),
-      ...stale.map((id) =>
-        error(
-          "EFFX2303",
-          `${declaration.id}: @Requirements declares ${id} but the handler no longer requires it`,
-        ),
-      ),
+      ...stale.map((id) => CoreDiagnostics.EFFX2303.emit({ subject: declaration.id, name: id })),
     );
   },
 });
@@ -413,23 +391,18 @@ const authorize = implement(Builtins.Authorize, {
 // ---------------------------------------------------------------------------
 
 const duplicateIds: Analysis = (_ir, index) =>
-  index.duplicates.map((id) =>
-    error("EFFX1001", `duplicate StableId ${id} with differing content`),
-  );
+  index.duplicates.map((id) => CoreDiagnostics.EFFX1001.emit({ id }));
 
 const missingTargets: Analysis = (_ir, index) =>
   IRGraph.missingTargets(index).map(({ edge, missing }) =>
-    error(
-      "EFFX1002",
-      `edge ${edge.kind} ${edge.from} → ${edge.to} references missing node(s) ${missing.join(", ")}`,
-    ),
+    CoreDiagnostics.EFFX1002.emit({ kind: edge.kind, from: edge.from, to: edge.to, missing }),
   );
 
 /** Every extension node needs a graph-visible owner; an orphan cannot be generated safely. */
 const orphanExtensions: Analysis = (ir, index) =>
   ir.nodes.flatMap((node) =>
     node._tag === "Extension" && IRGraph.outgoing(index, node.id, "ExtensionOf").length === 0
-      ? [error("EFFX1003", `extension ${node.id} has no ExtensionOf owner edge`)]
+      ? [CoreDiagnostics.EFFX1003.emit({ id: node.id })]
       : [],
   );
 
@@ -437,12 +410,7 @@ const orphanExtensions: Analysis = (ir, index) =>
 const invalidOperationBinding: Analysis = (ir) =>
   ir.nodes.flatMap((node) =>
     node._tag === "Operation" && (node.binding === "external") !== (node.handler === undefined)
-      ? [
-          error(
-            "EFFX1106",
-            `${node.name}: external bindings cannot have a handler; local operations require one`,
-          ),
-        ]
+      ? [CoreDiagnostics.EFFX1106.emit({ _tag: "IrBinding", subject: node.name })]
       : [],
   );
 
@@ -456,10 +424,11 @@ const externalExecutableProjection: Analysis = (ir, index) =>
 
       return exposure?._tag === "Exposure" && exposure.transport._tag !== "http"
         ? [
-            error(
-              "EFFX1107",
-              `${node.name}: external HTTP binding cannot implement ${exposure.transport._tag}`,
-            ),
+            CoreDiagnostics.EFFX1107.emit({
+              _tag: "Transport",
+              subject: node.name,
+              transport: exposure.transport._tag,
+            }),
           ]
         : [];
     });
@@ -470,9 +439,7 @@ const externalExecutableProjection: Analysis = (ir, index) =>
 
     return [
       ...transports,
-      ...foldkit.map(() =>
-        error("EFFX1107", `${node.name}: external HTTP binding cannot implement Foldkit.Command`),
-      ),
+      ...foldkit.map(() => CoreDiagnostics.EFFX1107.emit({ _tag: "Foldkit", subject: node.name })),
     ];
   });
 
@@ -517,10 +484,11 @@ const queryOverNonGet: Analysis = (ir, index) =>
                               (http.method === "POST" && hasQueryPayloadContract(operation, index))
                                 ? []
                                 : [
-                                    error(
-                                      "EFFX2401",
-                                      `${operation.name} is a Query but is exposed as HTTP ${http.method} ${http.path}; use GET or declare a Command`,
-                                    ),
+                                    HttpDiagnostics.EFFX2401.emit({
+                                      subject: operation.name,
+                                      method: http.method,
+                                      path: http.path,
+                                    }),
                                   ],
                             ),
                             Match.orElse(() => []),
@@ -542,12 +510,7 @@ const inferredOpaqueWarning: Analysis = (ir) =>
       {
         Operation: (operation) =>
           operation.errors.inferred && operation.errors.values.length === 0
-            ? [
-                warning(
-                  "EFFX2204",
-                  `${operation.name}: no schema-addressable errors inferred; boundary will expose none`,
-                ),
-              ]
+            ? [CoreDiagnostics.EFFX2204.emit({ subject: operation.name })]
             : [],
       },
       () => [],

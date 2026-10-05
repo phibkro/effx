@@ -1,12 +1,13 @@
 import { Option } from "effect";
-import { Contribution, extension, implement } from "@effx/compiler";
+import { Contribution, CoreDiagnostics, extension, implement } from "@effx/compiler";
 import { StableId } from "@effx/ir";
 import { persistenceGenerator } from "./generate.ts";
 import { portsOf } from "./ports.ts";
 import { Port } from "./syntax.ts";
 
 const port = implement(Port, {
-  duplicate: { code: "EFFX3403" },
+  duplicate: (subject, annotation) =>
+    CoreDiagnostics.EFFX3403.emit({ _tag: "DuplicateAnnotation", subject, annotation }),
   read: ([data], { ctx }) => {
     const operation = Option.getOrThrow(ctx.operationId);
     const id = StableId.make("ext", `persistence/${StableId.nameOf(operation)}`);

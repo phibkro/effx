@@ -7,8 +7,7 @@ import {
   hasErrors,
   surfaceOf,
   surfaceText,
-  error,
-  warning,
+  CoreDiagnostics,
 } from "@effx/compiler";
 import { Wiring } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
@@ -32,7 +31,7 @@ export const wiringDiagnostics = Effect.fn("wiringDiagnostics")(function* (
   const entry = path.resolve(against);
 
   if (!(yield* fs.exists(entry))) {
-    return [error("EFFX2804", `cannot read the --against file ${against}`)];
+    return [CoreDiagnostics.EFFX2804.emit({ against })];
   }
 
   // After the pipeline succeeded every stage produced a value; absence is an invariant breach.
@@ -62,7 +61,7 @@ export const wiringDiagnostics = Effect.fn("wiringDiagnostics")(function* (
   const onDisk = path.join(project.effxDir, SURFACE_FILE);
 
   if ((yield* fs.exists(onDisk)) && (yield* fs.readFileString(onDisk)) !== surfaceText(surface)) {
-    diagnostics.push(warning("EFFX2805", `${onDisk} differs from the current IR; run effx build`));
+    diagnostics.push(CoreDiagnostics.EFFX2805.emit({ file: onDisk }));
   }
 
   return diagnostics;

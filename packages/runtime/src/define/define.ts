@@ -1,6 +1,7 @@
 import type { Context } from "effect";
 import type { Annotation } from "../Annotation.js";
 import { record } from "../Annotation.js";
+import { annotationSchemaLowering } from "../diagnostics.js";
 import type { Arg, Field, LiveStruct, ReadStruct } from "./arg.js";
 import { invalidLeaves } from "./from-schema.js";
 import type { ArgsPlan, Plan } from "./plan.js";
@@ -150,10 +151,10 @@ export interface DefineOptions<
  * A problem `define` found in a definition without throwing (`define` is total). The compiler reports
  * each as an error (`definitionDiagnostics`); today only `A.fromSchema` produces one, `EFFX1301`.
  */
-export interface DefinitionDiagnostic {
-  readonly code: "EFFX1301";
-  readonly message: string;
-}
+export type DefinitionDiagnostic = Pick<
+  ReturnType<typeof annotationSchemaLowering.emit>,
+  "code" | "message"
+>;
 
 /**
  * The data half of a definition: everything the compiler and frontend read; no call signature. `effect`
@@ -218,10 +219,15 @@ const planDiagnostics = (name: string, plan: ArgsPlan): ReadonlyArray<Definition
   [
     ...plan.items.flatMap((item, i) => invalidLeaves(item, `$[${i}]`)),
     ...(plan.rest === undefined ? [] : invalidLeaves(plan.rest, "$[]")),
-  ].map((leaf) => ({
-    code: "EFFX1301",
-    message: `annotation ${name}: args ${leaf.path}: Schema node ${leaf.kind} cannot be lowered from source (A.fromSchema)`,
-  }));
+  ].map((leaf) => {
+    const { code, message } = annotationSchemaLowering.emit({
+      annotation: name,
+      path: leaf.path,
+      nodeKind: leaf.kind,
+    });
+
+    return { code, message };
+  });
 
 const build = <
   Name extends string,

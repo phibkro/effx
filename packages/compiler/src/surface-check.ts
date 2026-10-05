@@ -1,4 +1,5 @@
-import { type Diagnostic, type Location, error, warning } from "./Diagnostic.ts";
+import type { Diagnostic, Location } from "./Diagnostic.ts";
+import { CoreDiagnostics } from "./diagnostics/core.ts";
 import { LOCAL_WIRING, type Surface } from "./surface.ts";
 
 /*
@@ -18,7 +19,10 @@ export interface WiringFacts {
   readonly workers: ReadonlyArray<Location>;
   readonly references: ReadonlyArray<WiringReference>;
   /** Sites where wiring cannot be established statically (spec 0021 §4.2). */
-  readonly undecidable: ReadonlyArray<{ readonly location: Location; readonly reason: string }>;
+  readonly undecidable: ReadonlyArray<{
+    readonly location: Location;
+    readonly reason: Parameters<typeof CoreDiagnostics.EFFX2806.emit>[0];
+  }>;
 }
 
 export interface GeneratedSource {
@@ -64,12 +68,7 @@ export const checkWiring = (input: CheckWiringInput): ReadonlyArray<Diagnostic> 
   const diagnostics: Array<Diagnostic> = [];
 
   if (facts.workers.length === 0) {
-    diagnostics.push(
-      error(
-        "EFFX2801",
-        `${entry} is not, and does not reach, a recognized Alchemy Worker program (a call of Cloudflare.Worker imported from "alchemy/Cloudflare")`,
-      ),
-    );
+    diagnostics.push(CoreDiagnostics.EFFX2801.emit({ entry }));
   }
 
   const names = unique([
@@ -88,12 +87,7 @@ export const checkWiring = (input: CheckWiringInput): ReadonlyArray<Diagnostic> 
   }
 
   if (expected.size === 0) {
-    diagnostics.push({
-      code: "EFFX2807",
-      severity: "info",
-      message:
-        "the selected emit mode generates no wiring exports (AppRoutes / <Group>ApiHandlers); nothing to check",
-    });
+    diagnostics.push(CoreDiagnostics.EFFX2807.emit({}));
   }
 
   const referenced = new Map<string, WiringReference>();
@@ -113,10 +107,7 @@ export const checkWiring = (input: CheckWiringInput): ReadonlyArray<Diagnostic> 
   for (const [id, wanted] of sortedExpected) {
     if (!referenced.has(id)) {
       diagnostics.push(
-        error(
-          "EFFX2802",
-          `missing wiring: the surface requires ${wanted.name} (from ${baseName(wanted.file)}) but ${entry} never references it`,
-        ),
+        CoreDiagnostics.EFFX2802.emit({ name: wanted.name, file: baseName(wanted.file), entry }),
       );
     }
   }
@@ -128,19 +119,16 @@ export const checkWiring = (input: CheckWiringInput): ReadonlyArray<Diagnostic> 
   for (const [id, reference] of sortedReferenced) {
     if (!expected.has(id)) {
       diagnostics.push(
-        error(
-          "EFFX2803",
-          `extra wiring: ${reference.name} from ${baseName(reference.file)} is referenced but the current build does not produce it`,
-          reference.location,
+        CoreDiagnostics.EFFX2803.emit(
+          { name: reference.name, file: baseName(reference.file) },
+          { location: reference.location },
         ),
       );
     }
   }
 
   for (const site of facts.undecidable) {
-    diagnostics.push(
-      warning("EFFX2806", `wiring is not statically decidable here: ${site.reason}`, site.location),
-    );
+    diagnostics.push(CoreDiagnostics.EFFX2806.emit(site.reason, { location: site.location }));
   }
 
   return diagnostics;

@@ -1,4 +1,5 @@
 import type { Schema } from "effect";
+import { SymbolExpectations } from "../diagnostics.js";
 import { planOfSchemaAst } from "./from-schema.js";
 import type { ArgsPlan, FieldKeys, Plan, SymbolCheck } from "./plan.js";
 
@@ -284,7 +285,16 @@ export const A = {
   symbol: <Live, Read = SymbolMarker>(options: SymbolOptions): Arg<Live, Read> => {
     const plan: Draft<PlanOf<"Symbol">> = { _tag: "Symbol", check: options.check };
 
-    if (options.message !== undefined) plan.message = options.message;
+    const message =
+      options.message ??
+      (options.check === "callable" ||
+      options.check === "exported-function" ||
+      options.check === "exported-value" ||
+      options.check === "registry"
+        ? SymbolExpectations[options.check]
+        : undefined);
+
+    if (message !== undefined) plan.message = message;
 
     return make(plan);
   },

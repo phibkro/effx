@@ -1,7 +1,8 @@
 import { Result, Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
 import type { Annotation, Declaration } from "./Collected.ts";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { CoreDiagnostics } from "./diagnostics/core.ts";
 
 /**
  * A lowered Schema reference. `fields` are its static field keys where the position records them;
@@ -29,10 +30,12 @@ export const decodeArgs = <S extends Schema.ConstraintDecoder<unknown>>(
   declaration: Declaration,
 ): Result.Result<S["Type"], Diagnostic> =>
   Result.mapError(Schema.decodeResult(schema)(annotation.args), (schemaError) =>
-    error(
-      "EFFX1102",
-      `@${annotation.name} on ${declaration.id}: malformed arguments — ${schemaError.message}`,
-    ),
+    CoreDiagnostics.EFFX1102.emit({
+      _tag: "Decode",
+      annotation: annotation.name,
+      subject: declaration.id,
+      schemaIssue: schemaError.message,
+    }),
   );
 
 /** @internal */

@@ -1,7 +1,8 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { composeRegistry, type Diagnostic } from "@effx/diagnostics";
 import { annotationSchemaLowering } from "@effx/runtime/diagnostics";
+import { A, Annotation } from "@effx/runtime";
 import { CoreDiagnostics, coreEntries } from "../src/diagnostics/core.ts";
 
 // Frozen spec0016 producer inventory, excluding HTTP/access (17 codes) and adding0010.
@@ -1399,6 +1400,64 @@ describe("core diagnostic registry", () => {
     assert.strictEqual(emitted.related, related);
     assert.notProperty(CoreDiagnostics.EFFX1001.entry, "location");
     assert.notProperty(CoreDiagnostics.EFFX1001.emit({ id: "operation/User.Get" }), "location");
+  });
+
+  it("declares exactly the existing named severity outcomes", () => {
+    assert.deepStrictEqual(CoreDiagnostics.EFFX0001.entry.severityPolicy.allowedSeverities, [
+      "info",
+      "warning",
+    ]);
+    assert.deepStrictEqual(CoreDiagnostics.EFFX1106.entry.severityPolicy.allowedSeverities, [
+      "warning",
+      "error",
+    ]);
+    expectTypeOf<
+      (typeof CoreDiagnostics.EFFX0001.entry.severityPolicy.allowedSeverities)[number]
+    >().toEqualTypeOf<"info" | "warning">();
+  });
+
+  it("keeps runtime definition metadata projected to code and message only", () => {
+    const definition = Annotation.define({
+      name: "test.UnsupportedSchema",
+      target: "operation",
+      args: { value: A.fromSchema(Schema.DateTimeUtcFromString) },
+    });
+
+    assert.isNotEmpty(definition.diagnostics);
+
+    for (const diagnostic of definition.diagnostics) {
+      assert.deepStrictEqual(Object.keys(diagnostic), ["code", "message"]);
+      assert.strictEqual(diagnostic.code, annotationSchemaLowering.entry.code);
+    }
+  });
+
+  it("keeps default symbol expectations in runtime plans and preserves authored overrides", () => {
+    assert.propertyVal(
+      A.symbol({ check: "callable" }).plan,
+      "message",
+      "metadata.annotator must be an exported callable symbol",
+    );
+    assert.propertyVal(
+      A.symbol({ check: "exported-function" }).plan,
+      "message",
+      "commandIdentity must be an exported callable function",
+    );
+    assert.propertyVal(
+      A.symbol({ check: "exported-value" }).plan,
+      "message",
+      "access symbol must be an exported value",
+    );
+    assert.propertyVal(
+      A.symbol({ check: "registry" }).plan,
+      "message",
+      "registry must be an exported value symbol",
+    );
+    assert.propertyVal(
+      A.symbol({ check: "callable", message: "custom expectation" }).plan,
+      "message",
+      "custom expectation",
+    );
+    assert.notProperty(A.symbol({ check: "generic" }).plan, "message");
   });
 
   it("keeps literal keys and typed variant facts", () => {

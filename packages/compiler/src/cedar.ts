@@ -1,6 +1,7 @@
 import { Option, Result, Schema } from "effect";
 import { type ApplicationIR, type GraphIndex, IRGraph, StableId, type SymbolRef } from "@effx/ir";
 import type { Diagnostic } from "./Diagnostic.ts";
+import { CoreDiagnostics } from "./diagnostics/core.ts";
 import { AccessContractData } from "./extensions/access-contract.ts";
 
 /*
@@ -114,20 +115,6 @@ const cedarString = (text: string): string =>
     return char;
   }).join("")}"`;
 
-const info = (code: string, message: string): Diagnostic => ({ code, severity: "info", message });
-
-const failure = (code: string, message: string): Diagnostic => ({
-  code,
-  severity: "error",
-  message,
-});
-
-const caution = (code: string, message: string): Diagnostic => ({
-  code,
-  severity: "warning",
-  message,
-});
-
 type CapabilityExpression = AccessContractData["capabilities"];
 
 interface OperationProjection {
@@ -168,12 +155,7 @@ export const cedarOf = (
   if (!isCedarNamespace(namespace)) {
     return {
       files: Option.none(),
-      diagnostics: [
-        failure(
-          "EFFX4101",
-          `--namespace ${JSON.stringify(namespace)} is not a Cedar namespace (unreserved identifiers joined by "::")`,
-        ),
-      ],
+      diagnostics: [CoreDiagnostics.EFFX4101.emit({ _tag: "Namespace", namespace })],
     };
   }
 
@@ -244,10 +226,7 @@ export const cedarOf = (
       for (const requirement of contract.requirements) {
         if (requirement.parameters !== undefined) {
           diagnostics.push(
-            caution(
-              "EFFX4103",
-              `${node.name}: requirement ${JSON.stringify(requirement.id)} has parameters; projected id-only, the Cedar model does not enforce them`,
-            ),
+            CoreDiagnostics.EFFX4103.emit({ subject: node.name, requirement: requirement.id }),
           );
         }
       }
@@ -266,21 +245,19 @@ export const cedarOf = (
           : { _tag: "All", capabilities: names };
       principals = [GENERIC_PRINCIPAL];
 
-      diagnostics.push(
-        info(
-          "EFFX4105",
-          `${node.name}: capability without an AccessContract; principal type is the generic ${GENERIC_PRINCIPAL}`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX4105.emit({ subject: node.name }));
     }
 
     if (expression._tag === "All") {
       diagnostics.push(
-        caution(
-          "EFFX4104",
+        CoreDiagnostics.EFFX4104.emit(
           contract === undefined
-            ? `${node.name}: ${expression.capabilities.length} capabilities are all required, which one Cedar request cannot express; the operation action has no capability group parent`
-            : `${node.name}: capabilities All cannot be one Cedar request; the operation action has no capability group parent`,
+            ? {
+                _tag: "LinkedCapabilities",
+                subject: node.name,
+                count: expression.capabilities.length,
+              }
+            : { _tag: "Contract", subject: node.name },
         ),
       );
     }
@@ -299,10 +276,7 @@ export const cedarOf = (
   if (operations.length === 0) {
     return {
       files: Option.none(),
-      diagnostics: [
-        ...diagnostics,
-        info("EFFX4107", "nothing to project: no operation has a capability or an AccessContract"),
-      ],
+      diagnostics: [...diagnostics, CoreDiagnostics.EFFX4107.emit({})],
     };
   }
 
@@ -335,17 +309,11 @@ export const cedarOf = (
   for (const [name, sources] of entitySources) {
     if (!isEntityTypeName(name)) {
       diagnostics.push(
-        failure(
-          "EFFX4101",
-          `${JSON.stringify(name)} (${[...sources].toSorted(byCodeUnit).join(", ")}) is not a valid Cedar entity type name`,
-        ),
+        CoreDiagnostics.EFFX4101.emit({ _tag: "EntityName", name, sources: [...sources] }),
       );
     } else if (sources.size > 1) {
       diagnostics.push(
-        failure(
-          "EFFX4101",
-          `entity type ${name} would name distinct sources: ${[...sources].toSorted(byCodeUnit).join(", ")}`,
-        ),
+        CoreDiagnostics.EFFX4101.emit({ _tag: "EntityCollision", name, sources: [...sources] }),
       );
     }
   }
@@ -361,7 +329,7 @@ export const cedarOf = (
 
   for (const id of [...grantIds, ...requireIds]) {
     if (seenIds.has(id)) {
-      diagnostics.push(failure("EFFX4101", `policy id ${JSON.stringify(id)} is not unique`));
+      diagnostics.push(CoreDiagnostics.EFFX4101.emit({ _tag: "PolicyId", id }));
     }
 
     seenIds.add(id);
