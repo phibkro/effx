@@ -22,7 +22,7 @@ const repositoryCopy = Effect.fnUntraced(function* (prefix: string) {
 
   yield* fs.makeDirectory(path.join(directory, "packages", "frontend-ts"), { recursive: true });
 
-  for (const name of ["runtime", "compiler", "ir", "cli"])
+  for (const name of ["diagnostics", "runtime", "compiler", "ir", "cli"])
     yield* fs.symlink(
       path.join(repoRoot, "packages", name),
       path.join(directory, "packages", name),
