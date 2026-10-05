@@ -221,6 +221,55 @@ export const inspectDiagnosticSource = (file: string, source: string): Conforman
     );
   };
 
+  // Runtime definitions already own code/message; this one adapter restores canonical severity.
+  const isRuntimeProjection = (node: ts.ObjectLiteralExpression): boolean => {
+    if (file !== "packages/compiler/src/annotation.ts" || node.properties.length !== 2)
+      return false;
+
+    const spread = node.properties.find(ts.isSpreadAssignment);
+
+    const severity = node.properties.find(
+      (property) => ts.isPropertyAssignment(property) && propertyName(property.name) === "severity",
+    );
+
+    if (
+      spread?.expression.getText(tree) !== "problem" ||
+      severity === undefined ||
+      !ts.isPropertyAssignment(severity)
+    )
+      return false;
+
+    if (
+      ![
+        'RuntimeDiagnostics["EFFX1301"].entry.severity',
+        "RuntimeDiagnostics['EFFX1301'].entry.severity",
+      ].includes(severity.initializer.getText(tree))
+    )
+      return false;
+
+    for (
+      let parent: ts.Node | undefined = node.parent;
+      parent !== undefined;
+      parent = parent.parent
+    ) {
+      if (
+        ts.isArrowFunction(parent) ||
+        ts.isFunctionExpression(parent) ||
+        ts.isFunctionDeclaration(parent)
+      ) {
+        const declaration = parent.parent;
+
+        return (
+          ts.isVariableDeclaration(declaration) &&
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === "definitionDiagnostics"
+        );
+      }
+    }
+
+    return false;
+  };
+
   const visit = (node: ts.Node): void => {
     if (ts.isStringLiteral(node) && codePattern.test(node.text) && isDeclaration(node))
       declarations.push(node.text);
@@ -239,7 +288,8 @@ export const inspectDiagnosticSource = (file: string, source: string): Conforman
       !isEntryObject(node) &&
       !inEntryArgument(node) &&
       !isSchemaFields(node) &&
-      !isWireDecoderFixture(node)
+      !isWireDecoderFixture(node) &&
+      !isRuntimeProjection(node)
     ) {
       const properties = new Map(
         node.properties.flatMap((property): Array<[string, ts.Expression]> => {

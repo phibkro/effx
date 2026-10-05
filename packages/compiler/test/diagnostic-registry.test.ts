@@ -195,6 +195,33 @@ describe("diagnostic registry conformance", () => {
     assert.deepStrictEqual(inspected.declarations, ["EFFX[plugin]/0001"]);
   });
 
+  it("allows only the named runtime definition projection adapter", () => {
+    const source =
+      'const definitionDiagnostics = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });';
+
+    assert.deepStrictEqual(
+      inspectDiagnosticSource("packages/compiler/src/annotation.ts", source).violations,
+      [],
+    );
+    assert.isTrue(
+      inspectDiagnosticSource("packages/compiler/src/injected.ts", source).violations.some(
+        (violation) => violation.includes("raw Diagnostic construction"),
+      ),
+    );
+    assert.isTrue(
+      inspectDiagnosticSource(
+        "packages/compiler/src/annotation.ts",
+        source.replace("definitionDiagnostics", "injected"),
+      ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
+    );
+    assert.isTrue(
+      inspectDiagnosticSource(
+        "packages/compiler/src/annotation.ts",
+        'const definitionDiagnostics = () => { const injected = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity }); };',
+      ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
+    );
+  });
+
   for (const source of [
     'const label = "EFFX1001";',
     'log("EFFX1001");',
