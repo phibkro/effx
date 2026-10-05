@@ -491,9 +491,10 @@ investigation. Only the requested draft commit's normal lightweight hooks are ex
 
 ## 10. Phase 1 implementation evidence — 2026-10-05
 
-The registry/help/catalogue phase is implemented without migrating existing emitters.
-The distribution has 69 entries: 68 legacy identifiers and EFFX0010.
-Core and HTTP factories cover their existing typed message variants.
+This section records the historical phase 1 state, before the emission migration completed in phase 2 (§11).
+At that checkpoint, the registry/help/catalogue existed but existing emitters were not yet migrated.
+The distribution had 69 entries: 68 legacy identifiers and EFFX0010.
+Core and HTTP factories covered their existing typed message variants.
 
 - Focused registry/renderer/CLI suites: eight files, 303 tests passed.
 - After a pre-command global-option correction, the focused explain suite passed all 37 tests.
@@ -511,9 +512,9 @@ This comparison includes Collected data and every diagnostic code/message/severi
 Intended changes to existing compiler diagnostics, IR, semantic hashes and generated application bytes: **none**.
 The new EFFX0010 paths handle registry-contract errors; explanatory/docs bytes are new outputs.
 
-The operator reported that inventory-bootstrap landed at 7290ea5 and authorized phase 2 after this phase is committed and reported.
-Phase 2 rebases onto that commit and updates EFFX2415 to the generation-only, whole-root contract in spec 0010:262-305.
-No push or fast-forward of main is authorized.
+The director reported that inventory-bootstrap landed at 7290ea5 and authorized phase 2 after the phase 1 commit and report.
+Phase 2 then rebased onto that commit and updated EFFX2415 to the generation-only, whole-root contract in spec 0010:262-305.
+At that checkpoint, no push or fast-forward of main was authorized.
 
 ## 11. Phase 2 implementation evidence — 2026-10-05
 
