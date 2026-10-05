@@ -57,13 +57,21 @@ const generatedDocument = Effect.fnUntraced(function* () {
     path.join(root, "support.ts"),
     `
 import { Schema } from "effect";
-import { HttpApi } from "effect/http-api";
-export const Root = HttpApi.make("StatusTestRoot");
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 export const Input = Schema.Struct({});
 export const Body = Schema.Struct({ id: Schema.String, label: Schema.String }).annotate({ identifier: "SharedBody" });
 export const AlreadyCreated = Body.annotate({ identifier: "AlreadyCreated", httpApiStatus: 201 });
 export const BareBody = Body.annotate({ identifier: "BareBody", httpApiStatus: 202 });
 export const ResponseHeaders = Schema.Struct({ "x-revision": Schema.String });
+export const Root = HttpApi.make("StatusTestRoot").add(HttpApiGroup.make("shared").add(
+  HttpApiEndpoint.get("read", "/read", { success: [HttpApiSchema.WithHeaders(Body, ResponseHeaders).pipe(HttpApiSchema.status(200)), HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), ResponseHeaders)] }),
+  HttpApiEndpoint.post("create", "/create", { success: HttpApiSchema.WithHeaders(Body, ResponseHeaders).pipe(HttpApiSchema.status(201)) }),
+  HttpApiEndpoint.get("override", "/override", { success: HttpApiSchema.WithHeaders(AlreadyCreated, ResponseHeaders).pipe(HttpApiSchema.status(200)) }),
+  HttpApiEndpoint.get("inherit", "/inherit", { success: HttpApiSchema.WithHeaders(AlreadyCreated, ResponseHeaders) }),
+  HttpApiEndpoint.get("bareInherited", "/bare-inherited", { success: BareBody }),
+  HttpApiEndpoint.post("bareCreated", "/bare-created", { success: BareBody.pipe(HttpApiSchema.status(201)) }),
+  HttpApiEndpoint.get("bareOverride", "/bare-override", { success: BareBody.pipe(HttpApiSchema.status(200)) }),
+));
 `,
   );
   yield* fs.writeFileString(
@@ -156,7 +164,7 @@ describe("generated response status envelopes", () => {
         ["/inherit", "get", ["201"]],
       ] as const) {
         const responses = doc.paths[route]![method]!.responses;
-        assert.deepStrictEqual(
+        assert.deepStrictEqual<ReadonlyArray<string>>(
           Object.keys(responses).filter((code) => Number(code) < 400),
           statuses,
         );
@@ -187,7 +195,11 @@ describe("generated response status envelopes", () => {
         );
         const response = responses[status]!;
         assert.isUndefined(response.headers);
-        const ref = response.content!["application/json"]!.schema.$ref!;
+
+        const ref = yield* Schema.decodeUnknownEffect(Schema.String)(
+          response.content!["application/json"]!.schema.$ref,
+        );
+
         assert.deepStrictEqual(
           doc.components.schemas[ref.slice("#/components/schemas/".length)],
           expectedBody,
