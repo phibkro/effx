@@ -81,6 +81,15 @@ const discover = Effect.gen(function* () {
   return cases;
 });
 
+/** Execution-only resolvers capture the frontend Program and are already omitted by JSON. */
+export const collectedSnapshot = (
+  collected: Collected,
+): Omit<Collected, "resolveEffectModule" | "resolveHttpApiInventory"> => {
+  const { resolveEffectModule: _modules, resolveHttpApiInventory: _inventory, ...data } = collected;
+
+  return data;
+};
+
 const snapshot = (project: Case) =>
   Effect.gen(function* () {
     const { name: _name, ...config } = project;
@@ -89,7 +98,10 @@ const snapshot = (project: Case) =>
     const hash = ir === undefined ? null : yield* semanticHash(ir);
 
     return {
-      collected: result.collected.value._tag === "Some" ? result.collected.value.value : null,
+      collected:
+        result.collected.value._tag === "Some"
+          ? collectedSnapshot(result.collected.value.value)
+          : null,
       diagnostics: result.diagnostics,
       canonical: ir === undefined ? null : canonical(ir),
       hash,
@@ -161,4 +173,4 @@ const program = Effect.gen(function* () {
   yield* fs.writeFileString(out, JSON.stringify(results, null, 1));
 });
 
-await Effect.runPromise(program.pipe(Effect.provide(Services)));
+if (import.meta.main) await Effect.runPromise(program.pipe(Effect.provide(Services)));
