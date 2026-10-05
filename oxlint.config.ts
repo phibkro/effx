@@ -65,6 +65,7 @@ export const effectConfig = {
     {
       files: [
         "packages/cli/src/main.ts",
+        "packages/cli/test/lsp-transport-peer.ts",
         "examples/*/src/*-main.ts",
         "examples/*/src/**/*-main.ts",
         "scripts/**/*.ts",
@@ -73,6 +74,22 @@ export const effectConfig = {
       platform: "bun",
       strictness: "strict",
       ruleOptions: bunNodeModules,
+    },
+    {
+      files: ["packages/cli/src/lsp-transport.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      boundaries: ["external-data"],
+      strictness: "strict",
+      ruleOptions: {
+        "no-cross-runtime": {
+          extraAllowedModules: [
+            ...bunNodeModules["no-cross-runtime"].extraAllowedModules,
+            "node:stream",
+            "vscode-jsonrpc/node",
+          ],
+        },
+      },
     },
     {
       files: ["**/*.test.ts"],

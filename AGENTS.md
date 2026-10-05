@@ -34,6 +34,14 @@ composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind 
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
+EX-0030 permits Node-compatible stdio and the pinned `vscode-jsonrpc` ABI only in
+`packages/cli/src/lsp-transport.ts`. Its scoped integration peer lives at
+`packages/cli/test/lsp-transport-peer.ts`; portable session code cannot import these APIs.
+EX-0031 records native sequential filesystem observation instead of the installed
+unbounded push-watch backend. Both open records, exact versions, tests and retirement
+triggers live in `docs/research/0018-watch-editor-design.md` §6. They are not verified
+until the real boundary and cleanup tests pass. No global Bun resolver hook is permitted.
+
 ## Commands
 
 Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e.tgz` is built from source at public commit `2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e` (package version `0.1.0`); it is **not** the npm-published `@phibkro/oxlint-effect-plugin@0.1.0` artifact, even though both report version `0.1.0`. Reason: npm's `0.1.0` has `peerDependencies.oxlint: "1.76.0"`, which does not satisfy the repository's Oxlint `1.86.0`; the tarball's embedded `package.json` has `peerDependencies.oxlint: "^1.56.0"`, which does. MIT; identity and integrity (name, version, `sha256` of the tarball bytes, peer range) are checked by `tools/conventions/tests/vendor-manifest.test.ts` against `tools/vendor/manifest.json`. Replace the tarball when an npm release with a compatible peer range exists.
