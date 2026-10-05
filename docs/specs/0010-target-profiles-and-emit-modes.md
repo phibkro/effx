@@ -287,6 +287,16 @@ leaf cannot be proven to have a different identifier: it may replace the
 apparently healthy group. A resolved remainder therefore does not prove that
 group complete. Earlier fatal diagnostics still defer inventory diagnostics.
 
+**Known limit — completion callback annotations.** Native Effect permits an
+explicitly incorrect callback parameter type such as
+`(handlers: AlreadyComplete) => handlers` without actual endpoint registrations.
+Readonly `HandledIdentifiers` allows covariant widening: see rc.116
+`HttpApiBuilder.ts:285-319` and stable `4.0.0` `HttpApiBuilder.ts:291-326`.
+The same annotation bypasses native `HttpApiBuilder.group` completeness. A tiny
+stable type test confirms this behavior and rejection of an unannotated incomplete
+callback. Unannotated mixed-group completions remain checked. This is an Effect
+type limit; effx adds no cast or workaround.
+
 Cold `--emit=all` remains atomic: it reports the one root inventory diagnostic
 and writes **nothing**, including no contract or manifest. Contract-first is
 required. This preserves the CLI ownership transaction: error rejection occurs
