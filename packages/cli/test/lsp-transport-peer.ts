@@ -27,6 +27,25 @@ export class PeerError extends Schema.TaggedError<PeerError>()("PeerError", {
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.Json);
 
+const isJson = Schema.is(Schema.Json);
+
+const ResponseFailure = Schema.Struct({
+  code: Schema.Int,
+  message: Schema.String,
+  data: Schema.optionalKey(Schema.Json),
+});
+
+const decodeResponseFailure = Schema.decodeUnknownEffect(ResponseFailure);
+
+const decodeProcessId = Schema.decodeUnknownEffect(Schema.Union([Schema.Int, Schema.Null]));
+
+export interface PeerLaunch {
+  readonly cwd: string;
+  readonly main?: string;
+  /** Full actual CLI arguments, including the lsp subcommand. */
+  readonly args: ReadonlyArray<string>;
+}
+
 export const maintainedBufferLaw = Effect.sync(() => {
   const buffer = RAL().messageBuffer.create("utf-8");
 
@@ -81,12 +100,19 @@ export const frames = Effect.fnUntraced(function* (messages: ReadonlyArray<Schem
   return bytes;
 });
 
-export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
+export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launch?: PeerLaunch) {
   const child = yield* Effect.acquireRelease(
     Effect.sync(() =>
-      spawn(process.execPath, [new URL(import.meta.url).pathname, "serve"], {
-        stdio: ["pipe", "pipe", "pipe"],
-      }),
+      spawn(
+        process.execPath,
+        launch
+          ? [launch.main ?? new URL("../src/main.ts", import.meta.url).pathname, ...launch.args]
+          : [new URL(import.meta.url).pathname, "serve"],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+          cwd: launch?.cwd,
+        },
+      ),
     ),
     (child) =>
       Effect.callback<void>((resume) => {
@@ -128,10 +154,13 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
 
   child.on("close", childClosed);
 
-  const notifications: Array<{ method: string; params: unknown }> = [];
+  const notifications: Array<{ method: string; params: Schema.Json }> = [];
   const waiters = new Set<() => void>();
   connection.onNotification((method, params) => {
-    notifications.push({ method, params });
+    const body: unknown = params ?? null;
+
+    if (!isJson(body)) throw new PeerError({ cause: "Invalid peer notification JSON" });
+    notifications.push({ method, params: body });
 
     for (const waiter of waiters) waiter();
   });
@@ -171,10 +200,16 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
     });
   });
 
-  const waitNotification = Effect.fnUntraced(function* (method: string) {
-    return yield* Effect.callback<unknown>((resume) => {
+  const waitNotification = Effect.fnUntraced(function* (
+    method: string,
+    predicate?: (params: Schema.Json) => boolean,
+  ) {
+    return yield* Effect.callback<Schema.Json>((resume) => {
       const check = () => {
-        const index = notifications.findIndex((message) => message.method === method);
+        const index = notifications.findIndex(
+          (message) =>
+            message.method === method && (predicate === undefined || predicate(message.params)),
+        );
 
         if (index !== -1) resume(Effect.succeed(notifications.splice(index, 1)[0]!.params));
       };
@@ -190,6 +225,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
 
   return {
     exit,
+    pid: Effect.fromNullishOr(child.pid).pipe(Effect.mapError((cause) => new PeerError({ cause }))),
     request: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
       const value: unknown = yield* Effect.tryPromise({
         try: () => connection.sendRequest(method, params),
@@ -197,6 +233,23 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
       });
 
       return yield* decodeJson(value);
+    }),
+    requestError: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
+      const exit = yield* Effect.exit(
+        Effect.tryPromise({
+          try: () => connection.sendRequest<unknown>(method, params),
+          catch: (cause) => new PeerError({ cause }),
+        }),
+      );
+
+      if (Exit.isSuccess(exit))
+        return yield* new PeerError({ cause: "Expected a rejected RPC request" });
+
+      const failure = exit.cause.reasons.find(Cause.isFailReason);
+
+      if (failure) return yield* decodeResponseFailure(failure.error.cause);
+
+      return yield* Effect.failCause(exit.cause);
     }),
     notification: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
       yield* Effect.tryPromise({
@@ -225,6 +278,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
     write,
     waitNotification,
     receivedMethods: Effect.sync(() => notifications.map((message) => message.method)),
+    notifications: Effect.sync(() => notifications.map((message) => ({ ...message }))),
     waitStderr: Effect.fnUntraced(function* (receipt: string) {
       yield* Effect.callback<void>((resume) => {
         const check = () => {
@@ -265,6 +319,24 @@ if (process.argv[2] === "serve") {
       const gate = yield* Deferred.make<void>();
       transport = yield* acquireLspTransport(stdioLspIO, {
         request: Effect.fnUntraced(function* (message) {
+          if (message.method === "watch-client") {
+            const processId = yield* decodeProcessId(message.params).pipe(
+              Effect.mapError(
+                () => new RpcFailure({ code: -32602, message: "Invalid client process ID" }),
+              ),
+            );
+
+            yield* transport
+              .watchClient(processId)
+              .pipe(
+                Effect.mapError(
+                  () => new RpcFailure({ code: -32603, message: "Client observation failed" }),
+                ),
+              );
+
+            return null;
+          }
+
           if (message.method === "cancel-publication-scenario") {
             const activeFrame = yield* Effect.forkChild(
               transport
@@ -399,9 +471,17 @@ if (process.argv[2] === "serve") {
             return yield* Effect.never;
           }
 
-          if (message.method === "edit") edits.push(message.params ?? null);
+          if (message.method === "edit") {
+            edits.push(message.params ?? null);
+            yield* transport
+              .sendNotification("edited", { index: edits.length, value: message.params ?? null })
+              .pipe(Effect.orDie);
+          }
         }),
       });
+
+      if (process.argv[3] === "watch-parent")
+        yield* Effect.scoped(transport.watchClient(process.ppid));
       yield* transport.sendNotification("ready", null);
       yield* transport.awaitClosed.pipe(
         Effect.catchTag("TransportError", (error) =>
@@ -419,6 +499,57 @@ if (process.argv[2] === "serve") {
     },
     () => {
       process.stderr.write("root-failed\n");
+      process.exitCode = 1;
+    },
+  );
+}
+
+// The controlled parent does not read stdin: its server inherits the still-open
+// grandparent-owned pipe. Abrupt parent death therefore cannot masquerade as EOF.
+if (process.argv[2] === "parent-client") {
+  const parent = Effect.scoped(
+    Effect.gen(function* () {
+      const child = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          spawn(process.execPath, [new URL(import.meta.url).pathname, "serve", "watch-parent"], {
+            stdio: "inherit",
+          }),
+        ),
+        (owned) =>
+          Effect.callback<void>((resume) => {
+            if (owned.exitCode !== null || owned.signalCode !== null) {
+              resume(Effect.void);
+
+              return;
+            }
+
+            const closed = () => resume(Effect.void);
+
+            owned.once("close", closed);
+            owned.kill("SIGKILL");
+
+            return Effect.sync(() => {
+              owned.off("close", closed);
+            });
+          }),
+      );
+
+      yield* Effect.callback<void>((resume) => {
+        const closed = () => resume(Effect.void);
+
+        child.once("close", closed);
+
+        return Effect.sync(() => {
+          child.off("close", closed);
+        });
+      });
+    }),
+  );
+
+  Effect.runPromise(parent).then(
+    () => {},
+    () => {
+      process.stderr.write("parent-client-failed\n");
       process.exitCode = 1;
     },
   );
