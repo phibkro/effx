@@ -15,10 +15,11 @@ Source: spec 0018 §3, `packages/cli/src/lsp.ts`, `lsp-model.ts`, and `commands.
 ### Complete executable coverage
 
 Both commands accept repeatable `--exec-file <path>` and `--exec-dir <path>`.
-Launch paths resolve from startup cwd; launch directories cover ordinary descendants recursively.
+Launch paths resolve from startup cwd; launch directories cover ordinary descendants recursively, including ordinary nested `node_modules` directories.
 The config accepts `executableCoverage: { files?: readonly string[], directories?: readonly { path: string, recursive: boolean }[] }`.
 Config coverage paths resolve beside that config. Launch and config declarations merge by union while retaining logical aliases.
 Recursive directories do not follow arbitrary symlink trees. Declare external targets and logical links explicitly.
+Implicit source observation does not recursively scan installed packages; explicit executable directories authorize the requested ordinary subtree within finite bounds.
 
 **The caller must completely declare ALL otherwise-unobservable logical executable routes and resolution-sensitive inputs.**
 This includes ordinary static bare-package symlinks, package exports, `#imports`, extensionless candidates, and computed/external aliases.
@@ -46,8 +47,10 @@ Two URIs cannot own the same physical file. Included new files can join roots; e
 
 Only open URIs receive diagnostic replacements. Close immediately clears the URI and returns dependent analysis to disk.
 Repairs, faults, and restart clear stale diagnostics. A superseded snapshot cannot publish.
-Compiler points become zero-length ranges; codes, messages, severity, and supported related information retain compiler meaning.
-Unlocated findings use logs with code, severity, and `effx explain` guidance, not invented document locations.
+Compiler points become zero-length ranges; codes, severity, and primary occurrence messages retain compiler meaning.
+Located related occurrences use supported related-information fields; other related context remains readable without invented locations.
+Unlocated findings use logs with code, severity, and explain guidance, not invented document locations.
+Third-party explanation guidance includes `--config <selected path>`; bundled catalogue links explain only bundled codes.
 Version tags are supplied when supported by the client.
 Unsaved executable config/plugin text never executes; its log requires save and restart.
 
@@ -55,6 +58,8 @@ Capabilities advertise UTF-16 and incremental synchronization with open/close an
 Supported inputs are initialize/initialized, document open/change/save/close, watched-file/configuration notifications, cancellation, trace control, shutdown, and exit.
 No completion, hover, formatting, refactoring, code actions, semantic tokens, pull diagnostics, HTTP transport, or multi-project inference is provided.
 This server does not replace the TypeScript server or generated-code typecheck.
+Saved tsconfig output-policy changes refresh exclusions without executable config reevaluation.
+Selected source/config roots inside output fail selection rather than disappear from observation.
 Source: spec 0018 §§4–6, `packages/cli/src/documents.ts`, `lsp.ts`, and `lsp-model.ts`.
 
 ### Finite ownership
@@ -69,14 +74,19 @@ LSP frame limits are 8 MiB per body and 8 KiB per header.
 Incoming admission is 64 messages and 8 MiB total; outstanding requests are limited to 32.
 Output admission is 32 messages and 8 MiB total, with one serialized writer.
 Open text is limited to 128 documents and 16 × 1,024 × 1,024 UTF-16 code units total, not bytes.
-Unsafe transport saturation closes the session visibly rather than dropping edits.
-Document limits reject invalid admission without changing current text. Observer failures are visible and terminal.
+Excess requests receive bounded correlated rejection without another domain handler when output capacity remains available.
+Unsafe notification/byte or output saturation closes the session visibly rather than dropping edits.
+Aggregate document-count or text-capacity overflow also closes the session, rather than dropping an edit and retaining divergent text.
+Stale-version and invalid-range rejection remain separate; they do not mutate current text. Observer failures are visible and terminal.
+Safely framed malformed JSON receives `-32700`; invalid request envelopes receive `-32600`.
+The session continues after safe bounded error responses; bad framing, charset, oversize frames, and truncated EOF remain terminal.
 
 SIGINT/SIGTERM close the root scope. LSP shutdown releases the project before its null reply; exit then ends the transport.
 EOF, transport failure, and supplied client-process disappearance also release ownership.
 No watcher, analysis, or late publication survives its owner.
 Build and watch-build acquire `.effx-output-owner.lock` in exact canonical generated and metadata/manifest directories.
-Competing owners fail without waiting. Only the owner's token is released; crash locks require explicit operator recovery.
+Saved output-policy changes refresh exclusions and migrate watch-build custody between completed write batches.
+No active batch loses custody; competing owners fail without waiting. Only the owner's token is released; crash locks require explicit operator recovery.
 There is no automatic stale-lock reclamation, nested-output exclusion guarantee, or distributed lease claim.
 Check-only dev and LSP acquire no output locks.
 Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `project-session.ts`, and `output-owner.ts`.
