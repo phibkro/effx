@@ -65,6 +65,63 @@ const runCli = (project: string, ...args: ReadonlyArray<string>) =>
   });
 
 describe("effx CLI child process (spec 0003)", () => {
+  it.effect("cold all failure leaves owned output and manifest unchanged", () =>
+    withProject("operations.ts", (project, dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* fs.writeFileString(
+          path.join(dir, "src", "operations.ts"),
+          `
+import { Schema } from "effect";
+import { Http, Operation } from "@effx/runtime";
+import { Root } from "./root.ts";
+export const Input = Schema.Struct({});
+export const Output = Schema.String;
+export const Profile = Http.group({ root: Root, group: "profile" });
+export const Read = Operation.query({ name: "Read", input: Input, success: Output })
+  .in(Profile).http.get("/")
+  .http.contract({ success: Output, metadata: { operationId: "profile.read" } }).declare();
+`,
+        );
+        yield* fs.writeFileString(
+          path.join(dir, "src", "root.ts"),
+          `
+import { Schema } from "effect";
+import { HttpApi, HttpApiGroup, HttpApiEndpoint } from "effect/http-api";
+import { readBoard } from "../.effx/generated/onboarding-contract.ts";
+export const Root = HttpApi.make("inventory")
+  .add(HttpApiGroup.make("profile").add(HttpApiEndpoint.get("read", "/", { success: Schema.String })))
+  .add(HttpApiGroup.make("onboarding").add(readBoard));
+`,
+        );
+        const output = path.join(dir, ".effx");
+        yield* fs.makeDirectory(path.join(output, "generated"), { recursive: true });
+        yield* fs.writeFileString(path.join(output, "manifest.json"), "unchanged manifest\n");
+        yield* fs.writeFileString(
+          path.join(output, "generated", "sentinel.ts"),
+          "unchanged output\n",
+        );
+        const result = yield* runCli(project, "build", "--emit=all");
+
+        assert.strictEqual(result.code, 1, result.stdout + result.stderr);
+        assert.strictEqual((result.stdout + result.stderr).match(/EFFX2415 error/g)?.length, 1);
+        assert.include(result.stdout + result.stderr, "readBoard");
+        assert.strictEqual(
+          yield* fs.readFileString(path.join(output, "manifest.json")),
+          "unchanged manifest\n",
+        );
+        assert.strictEqual(
+          yield* fs.readFileString(path.join(output, "generated", "sentinel.ts")),
+          "unchanged output\n",
+        );
+        assert.deepStrictEqual(yield* fs.readDirectory(path.join(output, "generated")), [
+          "sentinel.ts",
+        ]);
+      }),
+    ).pipe(Effect.provide(BunServices.layer)),
+  );
+
   it.effect("renders built-in help for all four subcommands", () =>
     Effect.gen(function* () {
       const result = yield* runCli("tsconfig.json", "--help");
