@@ -101,6 +101,8 @@ export const sameFingerprint = (a: WatchFingerprint, b: WatchFingerprint): boole
 
 const nonLink = Schema.is(Schema.Struct({ code: Schema.Literal("EINVAL") }));
 
+const notDirectory = Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }));
+
 /** EX-0031: sequential native observation of caller-declared coverage, not discovery.
  * Construction is lazy. The caller scope owns one polling fiber; start is idempotent.
  * One pass is active, zero passes wait, and one dirty state coalesces notifications.
@@ -194,7 +196,10 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
       return yield* fs.readLink(name).pipe(
         Effect.asSome,
         Effect.catchIf(
-          (error) => error.reason._tag === "NotFound" || nonLink(error.reason.cause),
+          (error) =>
+            error.reason._tag === "NotFound" ||
+            nonLink(error.reason.cause) ||
+            (error.reason._tag === "BadResource" && notDirectory(error.reason.cause)),
           () => Effect.succeed(Option.none<string>()),
         ),
       );
@@ -205,6 +210,10 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         Effect.asSome,
         Effect.catchReason("PlatformError", "NotFound", () =>
           Effect.succeed(Option.none<FileSystem.File.Info>()),
+        ),
+        Effect.catchIf(
+          (error) => error.reason._tag === "BadResource" && notDirectory(error.reason.cause),
+          () => Effect.succeed(Option.none<FileSystem.File.Info>()),
         ),
       );
     });

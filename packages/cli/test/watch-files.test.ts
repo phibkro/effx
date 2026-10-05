@@ -379,4 +379,110 @@ describe("explicit native project observation (EX-0031)", () => {
       }),
     ),
   );
+
+  it.effect("observes missing ancestors and repairs a non-directory resolution route", () =>
+    fixture((fs, path, dir) =>
+      Effect.gen(function* () {
+        const parent = path.join(dir, "future");
+        const name = path.join(parent, "nested", "dep.ts");
+        const watch = yield* makeWatchFiles({ inputs: [{ path: name, kind: "source" }] });
+
+        yield* observe(watch);
+        yield* fs.writeFileString(parent, "not a directory");
+        yield* observe(watch);
+        yield* fs.remove(parent);
+        yield* fs.makeDirectory(path.dirname(name), { recursive: true });
+        yield* fs.writeFileString(name, "created");
+        assert.deepStrictEqual((yield* observe(watch)).changedPaths, [name]);
+      }),
+    ),
+  );
+
+  it.effect("preserves declared directory aliases and skips implicit node_modules traversal", () =>
+    fixture((fs, path, dir) =>
+      Effect.gen(function* () {
+        const external = yield* fs.makeTempDirectoryScoped({ prefix: "effx-explicit-directory-" });
+        const alias = path.join(dir, "alias");
+        yield* fs.symlink(external, alias);
+        yield* fs.makeDirectory(path.join(external, "node_modules"));
+        yield* fs.writeFileString(path.join(external, "node_modules", "unrelated"), "too large");
+        yield* fs.writeFileString(path.join(external, "dep.ts"), "a");
+
+        const watch = yield* makeWatchFiles({
+          inputs: [
+            { path: external, kind: "source", directory: true, recursive: true },
+            { path: alias, kind: "source", directory: true, recursive: true },
+          ],
+          maxFileBytes: 1,
+        });
+
+        yield* observe(watch);
+        yield* fs.writeFileString(path.join(external, "dep.ts"), "b");
+
+        const changed = yield* observe(watch);
+        assert.deepStrictEqual(changed.changedPaths, [external, alias]);
+        assert.strictEqual(changed.fingerprints.length, 2);
+        assert.isFalse(
+          changed.fingerprints.some((fingerprint) =>
+            fingerprint.entries.some((entry) => entry.path.endsWith("unrelated")),
+          ),
+        );
+      }),
+    ),
+  );
+
+  it.effect(
+    "keeps permission failures typed and retains executable intent on failed observation",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const failure = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "readLink",
+            pathOrDescriptor: dir,
+          });
+
+          const controlled = { ...fs, readLink: () => Effect.fail(failure) };
+
+          const watch = yield* makeWatchFiles({
+            inputs: [{ path: path.join(dir, "config.ts"), kind: "executable" }],
+          }).pipe(Effect.provideService(FileSystem.FileSystem, controlled));
+
+          assert.strictEqual(yield* Effect.flip(watch.poll), failure);
+          assert.strictEqual((yield* watch.current).error, failure);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
+        }),
+      ),
+  );
+
+  it.effect("closing a successful or failing owner stops escaped observer handles", () =>
+    fixture((_fs, _path, _dir) =>
+      Effect.gen(function* () {
+        const succeeded = yield* Effect.scoped(makeWatchFiles({ inputs: [] }));
+        assert.strictEqual((yield* Effect.flip(succeeded.start))._tag, "WatchClosed");
+
+        const acquired = yield* Deferred.make<WatchFiles>();
+        const failure = new WatchLimit({ resource: "selection", path: "test-owner", limit: 1 });
+
+        const failed = yield* Effect.flip(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const watch = yield* makeWatchFiles({ inputs: [] });
+              yield* Deferred.succeed(acquired, watch);
+              yield* watch.start;
+
+              return yield* failure;
+            }),
+          ),
+        );
+
+        assert.strictEqual(failed, failure);
+
+        const escaped = yield* Deferred.await(acquired);
+        assert.strictEqual((yield* Effect.flip(escaped.poll))._tag, "WatchClosed");
+        assert.deepStrictEqual((yield* escaped.current).fingerprints, []);
+      }),
+    ),
+  );
 });
