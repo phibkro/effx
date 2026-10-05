@@ -3,6 +3,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { type EmitMode, Extensions, SourceFrontend, compileCollected } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
+import type { CompilerFault, HttpApiGroupInventory, StageResult } from "@effx/compiler";
+import type { SymbolRef } from "@effx/ir";
 
 const testDirectory = new URL("./", import.meta.url).pathname;
 
@@ -67,6 +69,61 @@ const compileProject = Effect.fnUntraced(function* (tsconfigPath: string, emit: 
 });
 
 describe("cold HttpApi contract bootstrap", () => {
+  it.effect.each([
+    ["contract", false, 0],
+    ["handlers", false, 1],
+    ["handlers", true, 0],
+  ] as const)(
+    "resolver evaluation follows demand (emit=%s fatal=%s calls=%s)",
+    ([emit, fatal, expectedCalls]) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const { directory, tsconfigPath } = yield* project(true);
+
+        if (fatal) {
+          yield* fs.writeFileString(
+            path.join(directory, "operations.ts"),
+            declarations(true).replace("profile.read", "invalid.read"),
+          );
+        }
+
+        const collected = yield* SourceFrontend.use((frontend) =>
+          frontend.analyze({ tsconfigPath, entry: ["operations.ts"], emit }),
+        );
+
+        const resolve: (
+          root: SymbolRef,
+        ) => Effect.Effect<StageResult<ReadonlyArray<HttpApiGroupInventory>>, CompilerFault> =
+          collected.resolveHttpApiInventory!;
+
+        let calls = 0;
+
+        const resolveHttpApiInventory: typeof resolve = (root) =>
+          Effect.sync(() => {
+            calls++;
+          }).pipe(Effect.flatMap(() => resolve(root)));
+
+        const probed = { ...collected, resolveHttpApiInventory };
+
+        assert.strictEqual(calls, 0);
+        const result = yield* compileCollected(probed, Extensions.builtin);
+
+        assert.strictEqual(calls, expectedCalls);
+        assert.deepStrictEqual(
+          result.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+          fatal ? ["EFFX2403"] : [],
+        );
+
+        if (!fatal && emit === "handlers") {
+          assert.includeMembers(
+            Option.getOrThrow(result.files.value).map((file) => file.path),
+            ["profile-handlers.ts", "onboarding-handlers.ts"],
+          );
+        }
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
   it.effect.each([false, true])(
     "full contract permits full and healthy-only handlers (authored=%s)",
     (authored) =>
