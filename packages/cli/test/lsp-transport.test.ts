@@ -318,6 +318,54 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     ),
   );
 
+  it.live("interrupted queued publication never emits after the active native frame drains", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer(false);
+        const scenario = yield* Effect.forkChild(peer.request("cancel-publication-scenario"));
+
+        yield* peer.waitStderr("publication-cancelled");
+        yield* peer.resumeOutput;
+        assert.deepStrictEqual(yield* Fiber.join(scenario), { interrupted: true });
+        yield* peer.waitNotification("after-cancel");
+
+        const methods = yield* peer.receivedMethods;
+
+        assert.strictEqual(methods.filter((method) => method === "active-frame").length, 1);
+        assert.notInclude(methods, "cancelled-publication");
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+
+        const log = yield* peer.stderr;
+
+        assert.strictEqual(log.split("root-released").length - 1, 1);
+        assert.notInclude(log, "terminal:");
+      }),
+    ),
+  );
+
+  it.live("EOF closes an interrupted queued publication and blocked active frame once", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer(false);
+
+        const scenario = yield* Effect.forkChild(
+          peer.request("cancel-publication-scenario").pipe(Effect.exit),
+        );
+
+        yield* peer.waitStderr("publication-cancelled");
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+
+        const log = yield* peer.stderr;
+
+        assert.strictEqual(log.split("root-released").length - 1, 1);
+        assert.notInclude(log, "root-failed");
+        yield* Fiber.join(scenario);
+      }),
+    ),
+  );
+
   it.live.each([null, "count"] as const)(
     "slow output reader cannot retain unlimited mandatory writes (%s) or a child",
     (variant) =>

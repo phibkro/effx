@@ -127,6 +127,8 @@ export interface LspHandlers<R> {
 }
 
 export interface LspTransport {
+  /** Interruption removes an unsent queued publication and its output credits.
+   * Once the single stock writer starts a frame, its header/body complete atomically. */
   readonly sendNotification: (
     method: string,
     params: Schema.Json,
@@ -188,11 +190,14 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   let inputBytes = 0;
   let outputBytes = 0;
   let outputCount = 0;
+  let notificationAdmission: AbortSignal | undefined;
   let activeWrite: Promise<void> | undefined;
 
   const pending: Array<{
     message: Message;
     bytes: Uint8Array;
+    started: boolean;
+    detach: () => void;
     resolve: () => void;
     reject: (cause: unknown) => void;
   }> = [];
@@ -224,7 +229,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     for (const fiber of fibers.state._tag === "Open" ? fibers.state.backing : [])
       fiber.interruptUnsafe();
 
-    for (const item of pending.splice(0)) item.reject(error ?? fault("Closed"));
+    for (const item of pending.splice(0)) {
+      item.detach();
+      item.reject(error ?? fault("Closed"));
+    }
 
     for (const waiter of closedWaiters) waiter(terminal);
     closedWaiters.clear();
@@ -287,6 +295,8 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     const item = pending.shift();
 
     if (!item) return;
+    item.started = true;
+    item.detach();
     encoded.set(item.message, item.bytes);
     activeWrite = stock.write(item.message).then(
       () => {
@@ -331,6 +341,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
   class Writer extends AbstractMessageWriter {
     write(message: Message): Promise<void> {
+      // Maintained sendNotification invokes this writer synchronously. Capture
+      // only that call's signal; mandatory response writes have no admission signal.
+      const signal = notificationAdmission;
+
       // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
       if (state !== "Open") return Promise.reject(fault("Closed"));
 
@@ -343,11 +357,24 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
       outputCount++;
 
+      if (signal?.aborted) {
+        outputCount--;
+
+        // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: interrupted publication admits no frame.
+        return Promise.resolve();
+      }
+
       return RAL()
         .applicationJson.encoder.encode(message, { charset: "utf-8" })
         .then(
           (bytes) => {
             if (state !== "Open") throw fault("Closed");
+
+            if (signal?.aborted) {
+              outputCount--;
+
+              return;
+            }
 
             if (bytes.byteLength > BODY || outputBytes + bytes.byteLength > BODY) {
               stop(fault("Capacity"));
@@ -358,7 +385,35 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
             // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
             return new Promise<void>((resolve, reject) => {
-              pending.push({ message, bytes, resolve, reject });
+              const cancel = () => {
+                if (item.started || state === "Closed") return;
+
+                const index = pending.indexOf(item);
+
+                if (index === -1) return;
+
+                pending.splice(index, 1);
+                outputCount--;
+                outputBytes -= bytes.byteLength;
+                item.detach();
+                // The calling Effect is interrupted. Fulfill the native ABI so
+                // its logger does not turn intentional cancellation into a fault.
+                resolve();
+              };
+
+              const item = {
+                message,
+                bytes,
+                resolve,
+                reject,
+                started: false,
+                detach: () => {
+                  signal?.removeEventListener("abort", cancel);
+                },
+              };
+
+              signal?.addEventListener("abort", cancel, { once: true });
+              pending.push(item);
               drain();
             });
           },
@@ -770,7 +825,15 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     admitPending,
     sendNotification: Effect.fnUntraced(function* (method: string, params: Schema.Json) {
       yield* Effect.tryPromise({
-        try: () => connection.sendNotification(method, params),
+        try: (signal) => {
+          notificationAdmission = signal;
+
+          try {
+            return connection.sendNotification(method, params);
+          } finally {
+            notificationAdmission = undefined;
+          }
+        },
         catch: (cause) => fault("IO", cause),
       });
     }),
