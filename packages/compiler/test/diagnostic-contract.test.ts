@@ -518,11 +518,23 @@ describe("checked diagnostic contract", () => {
         from: "fixture",
       });
 
+      assert.strictEqual(warning.severity, "warning");
+
       const error = CoreDiagnostics["EFFX1106"].emit({ _tag: "LocalSource", subject: "Fixture" });
+      assert.strictEqual(error.severity, "error");
       const validCollect = yield* compileCollected({ ...empty, diagnostics: [warning] }, []);
       assert.deepStrictEqual(validCollect.diagnostics, [warning]);
       const invalidCollect = yield* compileCollected({ ...empty, diagnostics: [error] }, []);
       assert.isTrue(containsContract(invalidCollect.diagnostics));
+      assert.deepStrictEqual(invalidCollect.diagnostics, [
+        CoreDiagnostics["EFFX0010"].emit({
+          _tag: "SeverityMismatch",
+          owner: "source frontend",
+          code: "EFFX1106",
+          actualSeverity: "error",
+          policy: "frontend-resolution-versus-core-contract (collect: warning)",
+        }),
+      ]);
 
       for (const stage of ["interpret", "analyze"] as const) {
         const selected = plugin({
@@ -548,6 +560,11 @@ describe("checked diagnostic contract", () => {
             : analyze(make([], []), IRGraph.toGraph(make([], [])), [valid]);
 
         assert.isFalse(containsContract(validResult));
+        assert.strictEqual(validResult[0]?.severity, "error");
+        assert.include(
+          result[0]!.message,
+          "frontend-resolution-versus-core-contract (" + stage + ": error)",
+        );
       }
     }),
   );
@@ -560,6 +577,8 @@ describe("checked diagnostic contract", () => {
           strictAccess: emittedStrict,
         });
 
+        assert.strictEqual(diagnostic.severity, emittedStrict ? "error" : "warning");
+
         const result = yield* compileCollected(
           empty,
           [plugin({ analyses: [() => [diagnostic]] })],
@@ -570,6 +589,15 @@ describe("checked diagnostic contract", () => {
 
         if (strictAccess === emittedStrict)
           assert.deepStrictEqual(result.diagnostics, [diagnostic]);
+        else
+          assert.include(
+            result.diagnostics[0]!.message,
+            "strictAccess (strictAccess=" +
+              strictAccess +
+              ": " +
+              (strictAccess ? "error" : "warning") +
+              ")",
+          );
       }
     }),
   );

@@ -7,6 +7,8 @@ import {
 } from "@effx/diagnostics";
 import { type Diagnostic, Location, Severity, StageResult } from "../Diagnostic.ts";
 import type { Extension } from "../Extension.ts";
+import { bindingSeverity } from "./core.ts";
+import { missingAccessSeverity } from "./http.ts";
 import { bundledDiagnosticEntries, CoreDiagnostics, HttpDiagnostics } from "./index.ts";
 
 const decodeEntries = Schema.decodeUnknownResult(Schema.Array(DiagnosticEntry));
@@ -190,31 +192,33 @@ export const validateDiagnostics = (
     const bindingPhase =
       diagnostic.code === CoreDiagnostics["EFFX1106"].entry.code && context.phase !== undefined;
 
-    if (bindingPhase)
-      permitted =
-        permitted && diagnostic.severity === (context.phase === "collect" ? "warning" : "error");
+    const expectedBindingSeverity = bindingPhase
+      ? bindingSeverity(context.phase === "collect")
+      : undefined;
+
+    if (expectedBindingSeverity !== undefined)
+      permitted = permitted && diagnostic.severity === expectedBindingSeverity;
 
     const accessMode =
       diagnostic.code === HttpDiagnostics["EFFX2504"].entry.code &&
       context.strictAccess !== undefined;
 
-    if (accessMode)
-      permitted = permitted && diagnostic.severity === (context.strictAccess ? "error" : "warning");
+    const expectedAccessSeverity = accessMode
+      ? missingAccessSeverity(context.strictAccess)
+      : undefined;
+
+    if (expectedAccessSeverity !== undefined)
+      permitted = permitted && diagnostic.severity === expectedAccessSeverity;
 
     if (!permitted) {
       let expectedPolicy = policy.kind === "fixed" ? "fixed " + entry.value.severity : policy.name;
 
-      if (bindingPhase)
-        expectedPolicy +=
-          " (" + context.phase + ": " + (context.phase === "collect" ? "warning" : "error") + ")";
+      if (expectedBindingSeverity !== undefined)
+        expectedPolicy += " (" + context.phase + ": " + expectedBindingSeverity + ")";
 
-      if (accessMode)
+      if (expectedAccessSeverity !== undefined)
         expectedPolicy +=
-          " (strictAccess=" +
-          context.strictAccess +
-          ": " +
-          (context.strictAccess ? "error" : "warning") +
-          ")";
+          " (strictAccess=" + context.strictAccess + ": " + expectedAccessSeverity + ")";
 
       return CoreDiagnostics["EFFX0010"].emit(
         {

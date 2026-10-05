@@ -564,6 +564,10 @@ const d2503 = defineDiagnostic(
     `${subject}: protected access requires an Http.Contract security middleware marker`,
 );
 
+/** EFFX2504 severity authority shared by emission and access-mode boundary validation. */
+export const missingAccessSeverity = (strictAccess: boolean): "warning" | "error" =>
+  strictAccess ? "error" : "warning";
+
 const d2504 = defineDiagnostic(
   {
     code: "EFFX2504",
@@ -589,7 +593,7 @@ const d2504 = defineDiagnostic(
   } as const,
   Schema.Struct({ subject: Schema.String, strictAccess: Schema.Boolean }),
   ({ subject }) => `${subject}: HTTP exposure requires @Http.Access`,
-  ({ strictAccess }) => (strictAccess ? "error" : "warning"),
+  ({ strictAccess }) => missingAccessSeverity(strictAccess),
 );
 
 const d2505 = defineDiagnostic(

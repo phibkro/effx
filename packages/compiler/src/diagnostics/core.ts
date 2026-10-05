@@ -364,6 +364,10 @@ const BindingParams = Schema.TaggedUnion({
   IrBinding: subject,
 });
 
+/** EFFX1106 severity authority shared by emission and phase-boundary validation. */
+export const bindingSeverity = (runtimeResolution: boolean): "warning" | "error" =>
+  runtimeResolution ? "warning" : "error";
+
 const d1106 = defineDiagnostic(
   {
     ...entry(
@@ -393,7 +397,7 @@ const d1106 = defineDiagnostic(
     IrBinding: ({ subject }) =>
       `${subject}: external bindings cannot have a handler; local operations require one`,
   }),
-  (params) => (params._tag === "RuntimeResolution" ? "warning" : "error"),
+  (params) => bindingSeverity(params._tag === "RuntimeResolution"),
 );
 
 const d1107 = defineDiagnostic(
