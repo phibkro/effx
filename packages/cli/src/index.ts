@@ -8,6 +8,8 @@ export {
   graphCommand,
   inspectCommand,
   resolveProject,
+  rereadProject,
+  type ResolveOptions,
 } from "./commands.ts";
 
 export { defineConfig, type EffxConfig } from "./config.ts";
@@ -23,3 +25,7 @@ export { count, formatDiagnostic, report, summary } from "./report.ts";
 export { writeSurface } from "./surface-file.ts";
 
 export { surfaceCheck } from "./surface.ts";
+
+export { dev, type DevOptions } from "./watch.ts";
+
+export { lsp, type LspOptions } from "./lsp.ts";
