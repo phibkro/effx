@@ -76,7 +76,8 @@ export const effectConfig = {
       ruleOptions: bunNodeModules,
     },
     {
-      files: ["packages/cli/src/lsp-transport.ts"],
+      files: ["packages/cli/src/lsp-transport.ts", "packages/cli/src/config-runtime.ts"],
+      // EX-0033: read-only evaluated module inventory at the owned runtime boundary.
       role: "runtime-adapter",
       platform: "bun",
       boundaries: ["external-data"],

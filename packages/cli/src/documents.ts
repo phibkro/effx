@@ -340,12 +340,9 @@ export const canonicalDocument = Effect.fnUntraced(function* (uri: string) {
   const suffix: Array<string> = [];
 
   for (;;) {
-    const physical = yield* fs.realPath(candidate).pipe(
-      Effect.catchIf(
-        (error) => error._tag === "SystemError" && error.reason === "NotFound",
-        () => Effect.void,
-      ),
-    );
+    const physical = yield* fs
+      .realPath(candidate)
+      .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void));
 
     if (Predicate.isString(physical))
       return { uri, file, identity: path.join(physical, ...suffix.reverse()) };

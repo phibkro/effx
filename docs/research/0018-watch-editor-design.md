@@ -1,12 +1,12 @@
 # 0018 — Watch/editor implementation design for review
 
-Status: **portable components approved in principle; config amendment pending**, 2026-10-05.
+Status: **operator defaults and amendment A approved; full implementation active**, 2026-10-05.
 Frozen contract: [`../specs/0018-watch-editor.md`](../specs/0018-watch-editor.md),
 commit `9ac1bff`; preserved draft parent `d37f77e`; baseline main `3d66eda`.
 The operator approved the four product policies with **"approve defaults"**.
 The director approved the session, overlay, native polling and transport plan
-in principle, subject to real boundary tests and exception records. Config coverage
-still requires a separate approved amendment. No landing authority is granted.
+in principle, subject to real boundary tests and exception records. The operator
+separately approved amendment A. No landing authority is granted.
 
 The approved component dependencies were installed with ordinary `bun install`.
 `vscode-jsonrpc` resolves to 9.0.3. Published and installed source establish API
@@ -413,6 +413,22 @@ until their named tests and the final gate pass. Config coverage remains unresol
 - Retirement: TypeScript exposes a typed public virtual-directory matching ABI,
   or a public host path provides identical membership without this assertion.
 
+**EX-0033 — read-only evaluated physical module inventory (open).**
+
+- Owner: repository root, `AGENTS.md`; `packages/cli`.
+- Scope: `packages/cli/src/config-runtime.ts` only.
+- Rules: FX001 version authority, FX002 native-first, FX004 checked boundary, FX012 lifecycle.
+- Missing capability: installed Effect has no evaluated module-cache inventory.
+- Native alternative: TS host probes cover compiler inputs, not evaluated Bun imports.
+- ABI: node-compatible createRequire/cache keys on Bun1.3.13. Enumerate keys only;
+  never read exports, evict keys, import application modules or install a hook.
+- Examined: Bun1.3.13, bun-types1.4.2, Effect/platform-bun4.0.0, tsgo0.48.0.
+- Evidence: pinned CommonJS.ts392-412 and the limitations in §5.
+- Verification: actual loaded CJS/ESM/config helper files, no re-evaluation and
+  logical declared-alias restart tests; no acceptance result claimed yet.
+- Retirement: maintained native evaluated-module inventory; upgrades reopen review.
+  This record never claims complete logical provenance or a sandbox.
+
 No implementation claim, alternate protocol framework or generic poll/credit engine
 is hidden in these records. Real packed CLI and maintained-client acceptance,
 unchanged IR/hash/surface/generated-byte proof and final committed full gate remain
@@ -423,11 +439,11 @@ unmerged, dirty, unknown-owner and separately owned 0016 trees are excluded.
 
 ## 7. Proposed contract amendment — explicit executable coverage
 
-**Proposed 2026-10-05; not approved and not applied to the frozen spec.**
+**Operator-approved A on 2026-10-05; incorporated into frozen spec commit74c4fe1.**
 
-The director approved isolated portable components with tests against explicit
-dependency sets. The operator approved only the four product defaults so far.
-Config-coverage integration still waits for a separate operator decision.
+The director approved isolated portable components with explicit dependency tests.
+The operator approved the four defaults and then **"A"**. The authoritative frozen
+amendment is commit74c4fe1; config coverage integration now follows that contract.
 
 ### Caller data and when it exists
 

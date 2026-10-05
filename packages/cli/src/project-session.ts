@@ -95,6 +95,8 @@ export const makeProjectSession = Effect.fnUntraced(function* <R>(
       }),
     );
 
+    if (!current(snapshot)) return;
+
     if (options.beforePublish !== undefined) yield* options.beforePublish;
 
     if (current(snapshot)) yield* publish(event);
@@ -193,12 +195,19 @@ export const makeProjectSession = Effect.fnUntraced(function* <R>(
     if (closed) return yield* new SessionClosed();
 
     if (restartReason !== undefined) return;
+    const callerId = yield* Effect.withFiberSucceed((fiber) => fiber.id);
+    const self = active !== undefined && active.id === callerId;
     restartReason = reason;
     epoch++;
     revision++;
-    Queue.offerUnsafe(wake, undefined);
 
-    if (active !== undefined) yield* Fiber.interrupt(active);
+    if (!self) {
+      Queue.offerUnsafe(wake, undefined);
+      const target = active;
+
+      if (target !== undefined) yield* Fiber.interrupt(target);
+    }
+
     const snapshot = yield* documents.snapshot;
     yield* publish({ _tag: "RestartRequired", reason, documents: snapshot });
   });

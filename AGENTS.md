@@ -46,6 +46,10 @@ only inside `packages/frontend-ts/src/ts.ts`. It preserves native include/exclud
 semantics for virtual source membership without a second glob implementation.
 The runtime export is guarded; its local ABI assertion and retirement are recorded
 in the same design evidence. No TypeScript object crosses the frontend service.
+EX-0033 permits read-only Bun evaluated module-cache key inventory only in
+`packages/cli/src/config-runtime.ts`. It never inspects exports, evicts modules or
+installs hooks. Physical file keys supplement complete caller-declared logical
+coverage; they are not full provenance. Versions and retirement are in the same evidence.
 
 ## Commands
 
