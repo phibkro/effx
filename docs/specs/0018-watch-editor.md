@@ -126,6 +126,47 @@ separately prove untrusted configs never execute. Config that writes during impo
 is not made read-only by calling it from LSP. No config or plugin is evaluated from
 an unsaved overlay or temporary file.
 
+### Executable coverage — operator amendment A, 2026-10-05
+
+`EffxConfig` and its existing Schema decoder MUST accept optional
+`executableCoverage: { files?: readonly string[], directories?: readonly
+{ path: string, recursive: boolean }[] }`. `defineConfig` retains its identity
+behavior. `dev` and `lsp` MUST accept repeatable `--exec-file <path>` and
+`--exec-dir <path>` launch inputs; a launch directory covers ordinary descendants
+recursively. Launch paths resolve from startup cwd; config paths resolve beside
+the selected config. Merge coverage by union while retaining logical aliases.
+Project/config selection and supported executable config syntax MUST NOT change.
+Editor messages MUST NOT grant trust or add executable coverage authority. Coverage
+data MUST stay outside ProjectConfig, IR, semanticHash and generated artifacts.
+
+Executable observation MUST use caller coverage plus known loaded physical files
+and observed TS/config/resolution inputs. The caller MUST completely declare ALL
+otherwise-unobservable logical routes and resolution-sensitive inputs. This includes
+ordinary static bare-package symlinks omitted by known logical/TS coverage, package
+exports, `#imports`, extensionless candidates and computed/external aliases. The
+guarantee is conditional on complete caller data. Omitted routes can change without
+detection; effx MUST NOT certify completeness or infer full provenance from a
+canonical module-cache file. Declarations authorize observation, not a sandbox or
+credential access. Known physical cache keys supplement, never replace, the route
+declaration. One-shot check/build semantics remain unchanged.
+
+Observe the selected logical config and launch declarations before the single
+trusted import. After existing config decoding, add config coverage and known
+physical executable files, then reconcile before initial publication. Refresh known
+files after admitted analyses without config re-evaluation, cache-busting or another
+resolver. Config-returned coverage is unavailable before import and establishes a
+post-import baseline. Initial config import assumes stable inputs in that window
+unless complete pre-import launch coverage can detect a change. Neither path
+claims an atomic filesystem snapshot. A detected import-window change MUST yield
+RestartRequired rather than a trusted initial publication.
+
+Covered changes that can replace executable code MUST transition once to
+RestartRequired, clear diagnostics and suspend analysis/generation until a fresh
+authorized process. Unchanged complete coverage MUST permit repeated source/overlay
+analyses without restart. The rejected unobservable-epoch restart-before-every-
+generation policy MUST NOT be implemented. The director approved component design;
+only the operator approved the four product defaults and this A amendment.
+
 ### Reload versus restart
 
 | Input change                                                                                                     | Required outcome                                                                                                                                                                                                                                           |
@@ -137,11 +178,12 @@ an unsaved overlay or temporary file.
 | Unsaved executable config/plugin document                                                                        | Never execute it; log that changes apply only after save and restart. Continue source diagnostics using the previously selected saved config until a saved executable input changes.                                                                       |
 | `workspace/didChangeConfiguration`                                                                               | Validate settings; no mutable compilation/trust settings are supported in this slice. Ignore unrelated editor settings; report changes to effx selection as restart-required. No implicit config import.                                                   |
 
-Executable dependency closure includes imported config helpers and selected extension
-implementations. Dependency replacement must be classified conservatively: if an
-edit might replace executable config/plugin code, require restart rather than
-claiming a trustworthy hot reload. Restart-required is a session status/log message,
-not a made-up compiler diagnostic code. Reusing stale config silently is a falsifier.
+Executable replacement coverage includes imported config helpers and selected
+extensions under the explicit conditional coverage rule above. If a COVERED edit
+can replace executable code or its selection, require restart rather than hot reload.
+RestartRequired is session status/log data, not a compiler diagnostic code. Silently
+using stale covered executable inputs is a falsifier; omitted unobservable inputs
+remain the caller completeness limitation, not an automatic provenance guarantee.
 
 ## 4. Project membership, watching and overlay semantics
 
@@ -150,11 +192,33 @@ registration, and reconcile coverage after every accepted snapshot. Events are
 invalidation hints, not an ordered file history. Atomic-save rename, duplicate
 notifications and create/remove races must converge on actual current inputs.
 
-Coverage includes root membership directories (new included files), imported
-source/declaration dependencies, unresolved-import lookup directories, selected and
-extended/referenced tsconfigs, config/plugin closure, package metadata selecting TS
-and Effect, and relevant lockfiles/resolution directories. Do not recursively watch
-all `node_modules` or the whole monorepo by default. Watch dependency files or their
+Source/config coverage includes root membership directories, imported source and
+declaration files, failed lookup parents, selected/extended/referenced tsconfigs,
+metadata selecting TS/Effect and relevant lockfiles/resolution directories. Executable
+coverage is the conditional union defined in §3. Do not recursively watch all
+`node_modules` or the whole monorepo by default.
+
+Explicit executable files MUST retain their logical routes and observe each symlink
+component, raw destination, successive target expansion, target identity/content
+and relevant parent membership. Missing routes retain their unresolved suffix and
+nearest existing ancestor so intermediate/final creation becomes observable.
+Directory fingerprints include sorted entry names, kinds and link destinations.
+Explicit external directories authorize those trees, within finite documented
+path/depth/byte limits. Ordinary descendants of recursive declarations are covered.
+Do not traverse arbitrary child links into undeclared trees; use separately declared
+routes or known dependency edges. Deduplicate physical traversal without discarding
+logical aliases. Cycles, inaccessible inputs, limits and owned-output overlaps MUST
+fail visibly, never silently truncate coverage. Existing output/cache/VCS exclusions
+remain; no implicit scan of every installed package or the whole filesystem.
+
+For executable exports/`#imports`/extensionless or missing candidates, callers MUST
+declare otherwise-unobserved package.json/tsconfig/lockfiles and candidate-directory
+or missing-parent inputs. An eventual loaded file does not cover changed selection
+or a new higher-priority candidate. Use declared membership coverage; do not add
+a second Bun resolver or a global hook. The ordinary package-link and computed
+external-alias examples in the approved research §7 define the intended observation.
+
+Watch dependency files or their
 nearest existing parent needed to notice replacement, including symlinked workspace
 dependencies outside the project. Deletion or rename reparses membership and clears
 diagnostics for the old URI; a renamed included declaration is analyzed at its new
@@ -521,3 +585,31 @@ publication, deployment or landing authority:
    multiple projects from workspace roots or document paths (§3).
 
 This amendment freezes the contract; it does not claim implementation acceptance.
+
+### Operator coverage amendment A — 2026-10-05
+
+The operator wrote, verbatim: **"A"**. This approves the explicit conditional
+executable-coverage proposal in
+[`../research/0018-watch-editor-design.md` §7](../research/0018-watch-editor-design.md#7-proposed-contract-amendment--explicit-executable-coverage),
+clarified at commit `ab45c48`. It does not approve unconditional full provenance,
+credentials, publication, deployment or main landing. Original four defaults remain
+binding. The director—not the operator—approved isolated component implementation
+design before this amendment. Normative §§3–4 now incorporate this approved rule.
+
+#### Additional acceptance — part of §8
+
+10. Through actual packed dev/LSP journeys, exercise an ordinary static package
+    symlink and a computed external alias. Retarget each while its old canonical
+    target remains unchanged. Complete caller declarations MUST cause one
+    RestartRequired status, diagnostic clearing and no further writes/analyses until
+    a new authorized process. Also exercise successive link chains, missing
+    intermediate creation, explicit external trees, executable exports/`#imports`
+    candidate/metadata changes and visible traversal/permission/overlap limits.
+    Unchanged declared inputs MUST permit multiple source/error/repair cycles and
+    unsaved overlay generations without restarting or re-evaluating config. Test
+    launch-relative/config-relative path union, pre-import launch observation and
+    detected import-window changes. State the initial-import stability assumption
+    for post-import config declarations. Documentation and client messages MUST
+    state caller completeness; canonical cache files alone do not prove it. An
+    omitted unobservable route is an explicit limitation, not silently claimed
+    detected coverage. No global hook, sandbox, syntax restriction or hidden import.
