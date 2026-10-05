@@ -1642,3 +1642,2043 @@ export default defineConfig({
   extensions: [persistenceExtension],
 });
 ```
+
+# Diagnostic catalogue
+
+| Code | Title | Default severity |
+| --- | --- | --- |
+| [EFFX0001](#diagnostic-effx0001) | Analysis and project TypeScript versions differ | info |
+| [EFFX0010](#diagnostic-effx0010) | Diagnostic registry contract violated | error |
+| [EFFX1001](#diagnostic-effx1001) | Stable identity has conflicting content | error |
+| [EFFX1002](#diagnostic-effx1002) | Graph edge references an absent node | error |
+| [EFFX1003](#diagnostic-effx1003) | Extension node has no owner | error |
+| [EFFX1101](#diagnostic-effx1101) | No interpreter for annotation | error |
+| [EFFX1102](#diagnostic-effx1102) | Malformed or unlowerable annotation arguments | error |
+| [EFFX1103](#diagnostic-effx1103) | Annotation needs an operation | error |
+| [EFFX1104](#diagnostic-effx1104) | Unsupported declaration syntax | error |
+| [EFFX1105](#diagnostic-effx1105) | Handler return type is not Effect | error |
+| [EFFX1106](#diagnostic-effx1106) | Runtime resolution or handler binding mismatch | error |
+| [EFFX1107](#diagnostic-effx1107) | External binding cannot implement an executable projection | error |
+| [EFFX1301](#diagnostic-effx1301) | Schema argument cannot be lowered from source | error |
+| [EFFX1302](#diagnostic-effx1302) | Annotation name invalid or declared twice | error |
+| [EFFX1303](#diagnostic-effx1303) | Annotation target does not fit syntax | error |
+| [EFFX1304](#diagnostic-effx1304) | Annotation effect key identity collision | error |
+| [EFFX1306](#diagnostic-effx1306) | Definition module reaches application code | error |
+| [EFFX2201](#diagnostic-effx2201) | Inferred error missing from assertion | error |
+| [EFFX2202](#diagnostic-effx2202) | Declared error no longer inferred | error |
+| [EFFX2203](#diagnostic-effx2203) | Inferred error lacks a Schema address | error |
+| [EFFX2204](#diagnostic-effx2204) | Boundary has no inferred addressable errors | warning |
+| [EFFX2205](#diagnostic-effx2205) | Problem mapping does not cover operation errors | error |
+| [EFFX2206](#diagnostic-effx2206) | Problem mapping points outside declared codes | error |
+| [EFFX2302](#diagnostic-effx2302) | Inferred requirement missing from assertion | error |
+| [EFFX2303](#diagnostic-effx2303) | Declared requirement no longer inferred | error |
+| [EFFX2304](#diagnostic-effx2304) | Requirement has no stable identity | error |
+| [EFFX2401](#diagnostic-effx2401) | Query uses a mutating HTTP verb | error |
+| [EFFX2402](#diagnostic-effx2402) | Invalid HTTP contract or group | error |
+| [EFFX2403](#diagnostic-effx2403) | Invalid external HTTP binding | error |
+| [EFFX2404](#diagnostic-effx2404) | Invalid HTTP group association | error |
+| [EFFX2405](#diagnostic-effx2405) | Conflicting HTTP group defaults | error |
+| [EFFX2406](#diagnostic-effx2406) | Generated HTTP export collision | error |
+| [EFFX2410](#diagnostic-effx2410) | Ambiguous or conflicting request channels | error |
+| [EFFX2411](#diagnostic-effx2411) | Unknown request input field keys | error |
+| [EFFX2414](#diagnostic-effx2414) | Access decision time cannot be inferred | error |
+| [EFFX2415](#diagnostic-effx2415) | Concrete HTTP endpoint inventory unavailable | error |
+| [EFFX2500](#diagnostic-effx2500) | Malformed or duplicate access contract | error |
+| [EFFX2501](#diagnostic-effx2501) | Command access decides in a read snapshot | error |
+| [EFFX2502](#diagnostic-effx2502) | Query declares a transaction decision | warning |
+| [EFFX2503](#diagnostic-effx2503) | Protected access lacks security middleware | error |
+| [EFFX2504](#diagnostic-effx2504) | HTTP exposure lacks access declaration | warning |
+| [EFFX2505](#diagnostic-effx2505) | HTTP root mixes visibility modes | error |
+| [EFFX2506](#diagnostic-effx2506) | Invalid command snapshot decision claim | error |
+| [EFFX2601](#diagnostic-effx2601) | Foldkit command or tagged Message contract invalid | error |
+| [EFFX2701](#diagnostic-effx2701) | Project target or Effect installation unsupported | error |
+| [EFFX2801](#diagnostic-effx2801) | Deployment entry does not reach a Worker | error |
+| [EFFX2802](#diagnostic-effx2802) | Required generated wiring is not referenced | error |
+| [EFFX2803](#diagnostic-effx2803) | Deployment references obsolete generated wiring | error |
+| [EFFX2804](#diagnostic-effx2804) | Surface comparison entry cannot be read | error |
+| [EFFX2805](#diagnostic-effx2805) | Persisted surface differs from current IR | warning |
+| [EFFX2806](#diagnostic-effx2806) | Wiring cannot be decided statically | warning |
+| [EFFX2807](#diagnostic-effx2807) | Emit mode has no wiring to check | info |
+| [EFFX2901](#diagnostic-effx2901) | Example operation is deprecated | warning |
+| [EFFX2902](#diagnostic-effx2902) | Example deprecated annotation is malformed | error |
+| [EFFX3401](#diagnostic-effx3401) | Persistence method must be declaration-only | error |
+| [EFFX3402](#diagnostic-effx3402) | Persistence port method has transport exposure | error |
+| [EFFX3403](#diagnostic-effx3403) | Persistence port shape or identity invalid | error |
+| [EFFX3404](#diagnostic-effx3404) | Query-only port has vacuous transaction laws | warning |
+| [EFFX4101](#diagnostic-effx4101) | Cedar projection identity invalid or ambiguous | error |
+| [EFFX4102](#diagnostic-effx4102) | Application Cedar policy validation error | error |
+| [EFFX4103](#diagnostic-effx4103) | Parameterized requirement projected by id only | warning |
+| [EFFX4104](#diagnostic-effx4104) | All capabilities cannot be one Cedar request | warning |
+| [EFFX4105](#diagnostic-effx4105) | Capability uses generic Cedar principal | info |
+| [EFFX4106](#diagnostic-effx4106) | Application Cedar policy validation warning | warning |
+| [EFFX4107](#diagnostic-effx4107) | No authorization facts to project | info |
+| [EFFX9001](#diagnostic-effx9001) | Example Command lacks Audit annotation | warning |
+| [EFFX9002](#diagnostic-effx9002) | Example Audit annotation needs an operation | error |
+| [EFFX9101](#diagnostic-effx9101) | Example RateLimit requires HTTP exposure | error |
+| [EFFX9102](#diagnostic-effx9102) | Example rate limit is effectively unlimited | warning |
+
+<a id="diagnostic-effx0001" />
+
+## EFFX0001 — Analysis and project TypeScript versions differ
+
+Owner: frontend
+
+Default severity: info
+
+Severity policy: typescript-major-skew — Same-major skew is info; different-major skew is warning.
+
+The frontend analyses with its bundled TypeScript version while the project pins another. tsc/tsgo remains authoritative. Same-major skew is informational; different-major skew warns. A package range is compared using its first numeric major, not by resolving that range.
+
+### Example 1
+
+Before:
+
+```ts
+effx TypeScript 6.0.2; project typescript 7.0.2
+```
+
+After:
+
+```ts
+effx TypeScript 6.0.2; project typescript 6.0.2
+```
+
+Align the project's pin with the analysis version when practical, and always run the project's type gate.
+
+<a id="diagnostic-effx0010" />
+
+## EFFX0010 — Diagnostic registry contract violated
+
+Owner: registry
+
+Default severity: error
+
+Severity policy: Fixed
+
+Registry data must decode as DiagnosticEntry, codes must be unique across owners, and reported diagnostics (including related diagnostics) must have a registered code and a permitted severity. Invalid registry data, duplicate codes, undeclared emissions and severity-policy mismatches stop generation; they are user or extension contract diagnostics, not CompilerFault.
+
+### Example 1
+
+Before:
+
+```ts
+extensions: [firstCopy, secondCopy]
+```
+
+After:
+
+```ts
+extensions: [firstCopy]
+```
+
+Load each owner once, declare every emitted code, and emit severity using its named policy.
+
+<a id="diagnostic-effx1001" />
+
+## EFFX1001 — Stable identity has conflicting content
+
+Owner: kernel
+
+Default severity: error
+
+Severity policy: Fixed
+
+Two nodes with the same StableId have different semantic content. Equivalent duplicate contributions can normalize together, but differing nodes cannot share an identity.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query({ name: "User.Get", input: A, success: A }); Operation.query({ name: "User.Get", input: B, success: B });
+```
+
+After:
+
+```ts
+Operation.query({ name: "User.GetA", input: A, success: A }); Operation.query({ name: "User.GetB", input: B, success: B });
+```
+
+Give distinct operations distinct names, or make duplicate contributions identical.
+
+<a id="diagnostic-effx1002" />
+
+## EFFX1002 — Graph edge references an absent node
+
+Owner: kernel
+
+Default severity: error
+
+Severity policy: Fixed
+
+An IR edge names a source or target that is absent from the node set. This covers either or both endpoints and every edge kind.
+
+### Example 1
+
+Before:
+
+```ts
+{ nodes: [operation], edges: [{ kind: "Requires", from: operation.id, to: missingService.id }] }
+```
+
+After:
+
+```ts
+{ nodes: [operation, service], edges: [{ kind: "Requires", from: operation.id, to: service.id }] }
+```
+
+Contribute each referenced node, or remove the edge when removing its node.
+
+<a id="diagnostic-effx1003" />
+
+## EFFX1003 — Extension node has no owner
+
+Owner: kernel
+
+Default severity: error
+
+Severity policy: Fixed
+
+Every Extension node needs an outgoing ExtensionOf edge to its semantic owner. An orphan extension cannot be safely interpreted or generated.
+
+### Example 1
+
+Before:
+
+```ts
+Contribution.make([extensionNode], [])
+```
+
+After:
+
+```ts
+Contribution.make([extensionNode], [{ kind: "ExtensionOf", from: extensionNode.id, to: operationId }])
+```
+
+Contribute the owner edge with the extension node.
+
+<a id="diagnostic-effx1101" />
+
+## EFFX1101 — No interpreter for annotation
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+The frontend collected an annotation name, but no selected extension owns an interpreter for it. This includes generic Annotate and extension-defined spellings.
+
+### Example 1
+
+Before:
+
+```ts
+@Annotate("Audit", { level: "sensitive" })
+```
+
+After:
+
+```ts
+extensions: [...builtin, auditExtension]
+```
+
+Register the interpreter through the selected config, and check the exact case-sensitive annotation name.
+
+<a id="diagnostic-effx1102" />
+
+## EFFX1102 — Malformed or unlowerable annotation arguments
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+An annotation argument does not decode against its definition, cannot be represented by source lowering, or cannot be printed for an effect clause. Source lowering accepts supported literals, object properties and exported Schema/service/runtime references, not arbitrary evaluation. It rejects computed keys, unsupported expressions and runtime calls, unresolved or unexported symbols, invalid capability/focus construction, invalid Schema/HTTP root shapes and tuple spreads whose readonly const runtime initializers disagree with their types, cycle or contain non-string elements. Definition-specific symbol checks retain the declared expectation; Schema issue text retains the decoder detail. Effect clauses additionally reject lambdas and non-finite numbers that the writer cannot print.
+
+### Example 1
+
+Before:
+
+```ts
+@RateLimit({ perMinute: "many" })
+```
+
+After:
+
+```ts
+@RateLimit({ perMinute: 60 })
+```
+
+Match the argument Schema, use literal source data and exported references, repair readonly tuple initializers, and replace unprintable effect-clause arguments.
+
+<a id="diagnostic-effx1103" />
+
+## EFFX1103 — Annotation needs an operation
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+An operation-target built-in annotation was applied to a declaration without Query or Command. There is no operation node to own the contribution.
+
+### Example 1
+
+Before:
+
+```ts
+@Http.Get("/users") static get() { return handler(); }
+```
+
+After:
+
+```ts
+@Query({ input: Input, success: User }) @Http.Get("/users") static get() { return handler(); }
+```
+
+Add the operation declaration, or remove the operation-target annotation.
+
+<a id="diagnostic-effx1104" />
+
+## EFFX1104 — Unsupported declaration syntax
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+Source collection requires called decorators on static methods in exported classes, exported group/model classes and exported builder values. Persistent models need one options object; group/model builders need their defined constructor forms. Operation chains must terminate with handler(fn) or declare(), with a callable handler and recognized steps. with(...) accepts one applied annotation call. Class-only decorators cannot decorate methods and operation decorators cannot decorate arbitrary class members.
+
+### Example 1
+
+Before:
+
+```ts
+class UserOps { @Query(options) get() { return handler(); } }
+```
+
+After:
+
+```ts
+export class UserOps { @Query(options) static get() { return handler(); } }
+```
+
+Export the declaration, use the supported decorator target and call shape, and terminate the builder chain correctly.
+
+<a id="diagnostic-effx1105" />
+
+## EFFX1105 — Handler return type is not Effect
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+Handler signature inference requires Effect.Effect<A, E, R>. Promise, plain values and other return types do not expose the required success/error/service channels.
+
+### Example 1
+
+Before:
+
+```ts
+handler: () => Promise.resolve(user)
+```
+
+After:
+
+```ts
+handler: () => Effect.succeed(user)
+```
+
+Return an Effect with the intended channels.
+
+<a id="diagnostic-effx1106" />
+
+## EFFX1106 — Runtime resolution or handler binding mismatch
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: frontend-resolution-versus-core-contract — Frontend runtime resolution is warning; source and IR binding contract violations are error.
+
+Frontend resolution warns when @effx/runtime cannot be resolved, because no effx declarations can be recognized. Core interpretation rejects an external operation carrying a local handler or signature, or a local operation lacking an authored typed handler. IR analysis also rejects either invalid binding/handler pair. These are phase-specific policies under one legacy code, not interchangeable severities.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query(options).declare() /* local handler intended */
+```
+
+After:
+
+```ts
+Operation.query(options).handler(handler)
+```
+
+Install and resolve @effx/runtime for frontend warnings; use declare() for external bindings and a typed handler for local operations.
+
+<a id="diagnostic-effx1107" />
+
+## EFFX1107 — External binding cannot implement an executable projection
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+An external HTTP operation has no local implementation for RPC, CLI or Foldkit.Command. Each unsupported transport and Foldkit contribution is diagnosed separately.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query(options).rpc.expose().declare()
+```
+
+After:
+
+```ts
+Operation.query(options).rpc.expose().handler(handler)
+```
+
+Supply a local typed handler for executable projections, or keep the declaration HTTP-only.
+
+<a id="diagnostic-effx1301" />
+
+## EFFX1301 — Schema argument cannot be lowered from source
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+A.fromSchema encountered an unsupported Schema AST node. Each invalid leaf is reported with its path in the annotation argument list, including object fields, arrays, records and union cases. Definition construction remains total; the compiler reports these recorded problems before interpreting uses. Replace the unsupported node with an argument-algebra description or a Schema shape the frontend can lower; a runtime transformation cannot be evaluated during source collection.
+
+### Example 1
+
+Before:
+
+```ts
+args: { value: A.fromSchema(Schema.DateTimeUtcFromString) }
+```
+
+After:
+
+```ts
+args: { value: A.string }
+```
+
+Keep the source argument a string and perform the date conversion in the interpreter, rather than asking source lowering to run a Schema transformation.
+
+<a id="diagnostic-effx1302" />
+
+## EFFX1302 — Annotation name invalid or declared twice
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+Annotation names must match [A-Za-z][A-Za-z0-9._-]* and have exactly one selected definition owner. Both invalid grammar and duplicate definitions share this code.
+
+### Example 1
+
+Before:
+
+```ts
+Annotation.define({ name: "bad name", target: "operation", args: {} })
+```
+
+After:
+
+```ts
+Annotation.define({ name: "app.Valid", target: "operation", args: {} })
+```
+
+Choose a valid namespaced name and register only one definition for it.
+
+<a id="diagnostic-effx1303" />
+
+## EFFX1303 — Annotation target does not fit syntax
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+An operation-target user annotation cannot decorate a class. A builder with(...) application must also target operation, not another declared target. This guard is based on the definition, not the spelling of the use.
+
+### Example 1
+
+Before:
+
+```ts
+@RateLimit({ perMinute: 60 }) export class UserOps {}
+```
+
+After:
+
+```ts
+export class UserOps { @Query(options) @RateLimit({ perMinute: 60 }) static get() { return handler(); } }
+```
+
+Apply the annotation to an operation, or declare the target that fits the intended syntax.
+
+<a id="diagnostic-effx1304" />
+
+## EFFX1304 — Annotation effect key identity collision
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+Two selected annotation definitions use the same effect.key id. That id is the runtime identity, so one contribution would overwrite another on an endpoint. Key ids must be literal source identities; the currently emitted form reports duplicate owners.
+
+### Example 1
+
+Before:
+
+```ts
+const first = Context.Reference("app/key", { defaultValue: () => 0 }); const second = Context.Reference("app/key", { defaultValue: () => 0 });
+```
+
+After:
+
+```ts
+const first = Context.Reference("app/first", { defaultValue: () => 0 }); const second = Context.Reference("app/second", { defaultValue: () => 0 });
+```
+
+Give each distinct annotation a unique literal key id, or share one annotation definition instead of duplicating it.
+
+<a id="diagnostic-effx1306" />
+
+## EFFX1306 — Definition module reaches application code
+
+Owner: annotation
+
+Default severity: error
+
+Severity policy: Fixed
+
+Config evaluation loads definition modules, so their runtime import closure must not reach a module declaring application operations or groups. Transitive imports count; external Effect/@effx modules and definition modules form the safe boundary.
+
+### Example 1
+
+Before:
+
+```ts
+// rate-limit.ts
+import { UserOperations } from "./users.ts";
+```
+
+After:
+
+```ts
+// rate-limit.ts
+import { A, Annotation } from "@effx/runtime";
+```
+
+Move shared argument definitions into a leaf module without application imports, and keep operation modules downstream.
+
+<a id="diagnostic-effx2201" />
+
+## EFFX2201 — Inferred error missing from assertion
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+A local handler can fail with an inferred Schema error absent from @Errors. The assertion must exactly match the handler error channel.
+
+### Example 1
+
+Before:
+
+```ts
+@Errors(NotFound) // handler also fails with Conflict
+```
+
+After:
+
+```ts
+@Errors(NotFound, Conflict)
+```
+
+Add the inferred error Schema or remove that handler failure.
+
+<a id="diagnostic-effx2202" />
+
+## EFFX2202 — Declared error no longer inferred
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+@Errors declares a Schema that the local handler cannot fail with. It is an exact assertion, not permission to expose extra errors.
+
+### Example 1
+
+Before:
+
+```ts
+@Errors(NotFound, Conflict) // handler fails only with NotFound
+```
+
+After:
+
+```ts
+@Errors(NotFound)
+```
+
+Remove the stale declaration or restore the intentional typed handler failure.
+
+<a id="diagnostic-effx2203" />
+
+## EFFX2203 — Inferred error lacks a Schema address
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+An inferred opaque error cannot become a stable exported Schema reference for generation. This is not the same as a missing @Errors member.
+
+### Example 1
+
+Before:
+
+```ts
+handler: (): Effect.Effect<User, string> => effect
+```
+
+After:
+
+```ts
+@Errors(NotFound) // map the handler error to the exported Schema
+```
+
+Map the opaque error to an exported Schema and declare it with @Errors.
+
+<a id="diagnostic-effx2204" />
+
+## EFFX2204 — Boundary has no inferred addressable errors
+
+Owner: contracts
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The operation uses inferred errors, but no Schema-addressable errors survived inference. The generated boundary exposes none; this warning does not invent a response contract.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query(options).handler(opaqueErrorHandler)
+```
+
+After:
+
+```ts
+Operation.query(options).errors(NotFound).handler(schemaErrorHandler)
+```
+
+Use an exported error Schema when the boundary must expose a failure, or accept that it exposes none.
+
+<a id="diagnostic-effx2205" />
+
+## EFFX2205 — Problem mapping does not cover operation errors
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+Http.Problems either maps a tag that is not an operation error, or leaves an operation error without a mapping or sourced HTTP status. Tags use the sourced _tag where available, not necessarily the Schema export name.
+
+### Example 1
+
+Before:
+
+```ts
+@Http.Problems({ registry: Problems, codes: ["user.not-found"], map: {} })
+```
+
+After:
+
+```ts
+@Http.Problems({ registry: Problems, codes: ["user.not-found"], map: { UserNotFound: "user.not-found" } })
+```
+
+Remove map keys outside the error set and map every unsourced-status error tag.
+
+<a id="diagnostic-effx2206" />
+
+## EFFX2206 — Problem mapping points outside declared codes
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+A Http.Problems map value is absent from its codes list. The map associates an operation error tag with a code already declared by that contract.
+
+### Example 1
+
+Before:
+
+```ts
+codes: ["user.not-found"], map: { Conflict: "user.conflict" }
+```
+
+After:
+
+```ts
+codes: ["user.not-found", "user.conflict"], map: { Conflict: "user.conflict" }
+```
+
+Add the mapped code to codes or point the tag at an existing declared code.
+
+<a id="diagnostic-effx2302" />
+
+## EFFX2302 — Inferred requirement missing from assertion
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+A local handler requires a service absent from @Requirements. The assertion must exactly match its inferred requirement channel.
+
+### Example 1
+
+Before:
+
+```ts
+@Requirements(Store) // handler also requires ClockService
+```
+
+After:
+
+```ts
+@Requirements(Store, ClockService)
+```
+
+Add the required service or remove its use from the handler.
+
+<a id="diagnostic-effx2303" />
+
+## EFFX2303 — Declared requirement no longer inferred
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+@Requirements names a service the local handler no longer requires. External declarations have different semantics; this is a local exact-assertion mismatch.
+
+### Example 1
+
+Before:
+
+```ts
+@Requirements(Store, ClockService) // handler only uses Store
+```
+
+After:
+
+```ts
+@Requirements(Store)
+```
+
+Remove the stale assertion or restore the intended service use.
+
+<a id="diagnostic-effx2304" />
+
+## EFFX2304 — Requirement has no stable identity
+
+Owner: contracts
+
+Default severity: error
+
+Severity policy: Fixed
+
+An opaque inferred requirement cannot be assigned a stable effx service identity. Declare or register an exported service so the graph can address it.
+
+### Example 1
+
+Before:
+
+```ts
+handler: (): Effect.Effect<User, never, AnonymousRequirement> => effect
+```
+
+After:
+
+```ts
+export class Store extends Context.Service<Store, StoreApi>()("app/Store") {}
+```
+
+Use or register an exported service with a stable key and source reference.
+
+<a id="diagnostic-effx2401" />
+
+## EFFX2401 — Query uses a mutating HTTP verb
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+A Query normally uses GET. A Query over POST needs the explicit payloadIsQuery contract; other verbs require a Command.
+
+### Example 1
+
+Before:
+
+```text
+@Query(...)
+@Http.Put("/users")
+```
+
+After:
+
+```text
+@Query(...)
+@Http.Get("/users")
+```
+
+Use GET for reads, or declare a Command for mutation.
+
+<a id="diagnostic-effx2402" />
+
+## EFFX2402 — Invalid HTTP contract or group
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers. Http.Problems variants cover duplicate contracts, missing HTTP exposure, malformed ProblemContract data with validator detail, unsafe or empty identifier overrides, and repeated problem codes.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", success: User })
+```
+
+After:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", params: UserId, success: User })
+```
+
+Declare params with exactly the id field. For other variants, correct the named contract constraint; attach a single contract to one operation, export one valid group and supply its concrete root when external.
+
+### Example 2
+
+Before:
+
+```text
+@Http.Problems({ registry: Problems, codes: ["NotFound", "NotFound"] })
+```
+
+After:
+
+```text
+@Http.Problems({ registry: Problems, codes: ["NotFound"] })
+```
+
+Keep one Problems contract on an HTTP-exposed operation. Remove duplicate codes, use a nonempty identifier-safe identifier when overriding schema identity, and correct fields named by the ProblemContract validator.
+
+<a id="diagnostic-effx2403" />
+
+## EFFX2403 — Invalid external HTTP binding
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+Externally bound operations need a contract and metadata.operationId of the form group.endpointKey. Endpoint keys are identifier-safe and unique. A root/group cannot mix local and external bindings.
+
+### Example 1
+
+Before:
+
+```text
+metadata: { operationId: "get-user" }
+```
+
+After:
+
+```text
+metadata: { operationId: "users.getUser" }
+```
+
+Use the declared group prefix and a unique identifier-safe endpoint key; keep every binding in a group consistently local or external.
+
+<a id="diagnostic-effx2404" />
+
+## EFFX2404 — Invalid HTTP group association
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+Group associations require an operation and exactly one exported Http.group value or @Http.Group class. Multiple group declarations, repeated .in(Group), unresolved references and malformed associations are rejected.
+
+### Example 1
+
+Before:
+
+```text
+Operation.query({ input: Input, output: Output }).in(Users).in(Users)
+```
+
+After:
+
+```text
+Operation.query({ input: Input, output: Output }).in(Users)
+```
+
+Associate the operation once with one exported group; remove duplicate decorators and ensure the reference resolves to the group itself.
+
+<a id="diagnostic-effx2405" />
+
+## EFFX2405 — Conflicting HTTP group defaults
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+An associated HTTP operation still requires an explicit Http.Contract. Its explicit root/group must agree with its group. query: true only derives a GET Query input not already assigned to another channel.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Contract({ root: "other", group: "users", success: User })
+```
+
+After:
+
+```text
+@Http.Contract({ root: "api", group: "users", success: User })
+```
+
+Align the contract with the associated group whose root is api; remove an invalid query default or specify its channel explicitly.
+
+<a id="diagnostic-effx2406" />
+
+## EFFX2406 — Generated HTTP export collision
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+Different root/group identities can normalize to the same generated class, API or handler export. Empty groups are checked too.
+
+### Example 1
+
+Before:
+
+```text
+Http.group({ root: "api", group: "user-list" })
+Http.group({ root: "api", group: "user_list" })
+```
+
+After:
+
+```text
+Http.group({ root: "api", group: "user-list" })
+Http.group({ root: "api", group: "accounts" })
+```
+
+Rename one group so its generated export names no longer collide.
+
+<a id="diagnostic-effx2410" />
+
+## EFFX2410 — Ambiguous or conflicting request channels
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+An input marked Http.headers cannot also be a body or compete with another headers schema. When input fields mix route parameters and other fields, the compiler will not invent split schemas: explicitly declare params and query or payload.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", success: User })
+```
+
+After:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", params: UserId, query: Search, success: User })
+```
+
+Split id into UserId and search fields into Search; for mutating verbs declare payload instead of query. A headers-marked input must use the same headers channel.
+
+<a id="diagnostic-effx2411" />
+
+## EFFX2411 — Unknown request input field keys
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+GET or DELETE with path parameters and input keys unavailable to static analysis cannot distinguish params from query. Either explicit channel resolves this ambiguity.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", success: User })
+```
+
+After:
+
+```text
+@Http.Get("/users/:id")
+@Http.Contract({ group: "users", params: UserId, query: Search, success: User })
+```
+
+Declare the request channels explicitly rather than relying on inaccessible input keys.
+
+<a id="diagnostic-effx2414" />
+
+## EFFX2414 — Access decision time cannot be inferred
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+Http.Access omits decisionTime, but its declaration has no single Query or Command from which to infer SnapshotRead or Transaction.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Access({ ...accessOptions })
+```
+
+After:
+
+```text
+@Http.Access({ ...accessOptions, decisionTime: "Transaction" })
+```
+
+Write decisionTime explicitly, or attach access to exactly one operation of the intended kind.
+
+<a id="diagnostic-effx2415" />
+
+## EFFX2415 — Concrete HTTP endpoint inventory unavailable
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+The concrete HttpApi root must have finite required group and endpoint keys with matching literal identifiers. The group inventory must resolve unambiguously, and every bound endpoint key must exist in the declared group.
+
+### Example 1
+
+Before:
+
+```text
+HttpApi.make("api").add(HttpApiGroup.make("other"))
+```
+
+After:
+
+```text
+HttpApi.make("api").add(HttpApiGroup.make("users").add(HttpApiEndpoint.get("getUser", "/users/:id")))
+```
+
+Declare the users group and getUser endpoint in the exported root, matching metadata.operationId users.getUser. Keep finite required literal inventory keys rather than dynamic or optional keys.
+
+<a id="diagnostic-effx2500" />
+
+## EFFX2500 — Malformed or duplicate access contract
+
+Owner: access
+
+Default severity: error
+
+Severity policy: Fixed
+
+Access annotations and semantic contracts must be singular. Malformed AccessContract data includes the Schema validator detail after the stable prefix.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Access(accessOptions)
+@Http.Access(accessOptions)
+```
+
+After:
+
+```text
+@Http.Access(accessOptions)
+```
+
+Remove the duplicate. For malformed data, correct the fields named by the validator; extension producers must conform to AccessContractData.
+
+<a id="diagnostic-effx2501" />
+
+## EFFX2501 — Command access decides in a read snapshot
+
+Owner: access
+
+Default severity: error
+
+Severity policy: Fixed
+
+A Command cannot authorize from a read snapshot unless it makes the constrained snapshotDecisionForCommand claim. Ordinary command decisions belong in its transaction.
+
+### Example 1
+
+Before:
+
+```text
+decisionTime: "SnapshotRead"
+```
+
+After:
+
+```text
+decisionTime: "Transaction"
+```
+
+Decide access inside the mutation transaction, so the decision and write share the relevant state.
+
+<a id="diagnostic-effx2502" />
+
+## EFFX2502 — Query declares a transaction decision
+
+Owner: access
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A Query with decisionTime Transaction is accepted with a warning: the usual read-only access decision uses SnapshotRead.
+
+### Example 1
+
+Before:
+
+```text
+decisionTime: "Transaction"
+```
+
+After:
+
+```text
+decisionTime: "SnapshotRead"
+```
+
+Use a snapshot read decision unless the query intentionally needs transactional decision semantics.
+
+<a id="diagnostic-effx2503" />
+
+## EFFX2503 — Protected access lacks security middleware
+
+Owner: access
+
+Default severity: error
+
+Severity policy: Fixed
+
+Protected HTTP access needs a security middleware marker in Http.Contract. Declaring capabilities alone does not authenticate requests.
+
+### Example 1
+
+Before:
+
+```text
+@Http.Contract({ group: "users", success: User })
+```
+
+After:
+
+```text
+@Http.Contract({ group: "users", success: User, middleware: [Security] })
+```
+
+Include the exported middleware marker declared with security: true, whose application implementation authenticates the accepted credentials.
+
+<a id="diagnostic-effx2504" />
+
+## EFFX2504 — HTTP exposure lacks access declaration
+
+Owner: access
+
+Default severity: warning
+
+Severity policy: strictAccess — Warning by default; error when strictAccess is true.
+
+HTTP exposure requires an explicit @Http.Access contract. This is a warning by default and an error under strictAccess (including --strict-access). Declare public access explicitly too; absence is not a public-access contract.
+
+### Example 1
+
+Before:
+
+```text
+@Query(...)
+@Http.Get("/users")
+```
+
+After:
+
+```text
+@Query(...)
+@Http.Get("/users")
+@Http.Access(accessOptions)
+```
+
+Declare an access contract with the intended credentials, principal kinds, capabilities, scope resolver and decision time. Do not disable strict mode to hide missing access.
+
+<a id="diagnostic-effx2505" />
+
+## EFFX2505 — HTTP root mixes visibility modes
+
+Owner: access
+
+Default severity: error
+
+Severity policy: Fixed
+
+A generated ForApi client exposes its entire root. Internal and External operations cannot share a root; visibility must be uniform.
+
+### Example 1
+
+Before:
+
+```text
+root: "api", exposure: "Internal"
+root: "api", exposure: "External"
+```
+
+After:
+
+```text
+root: "internalApi", exposure: "Internal"
+root: "api", exposure: "External"
+```
+
+Separate internal and external operations into different roots, or align their intended visibility.
+
+<a id="diagnostic-effx2506" />
+
+## EFFX2506 — Invalid command snapshot decision claim
+
+Owner: access
+
+Default severity: error
+
+Severity policy: Fixed
+
+snapshotDecisionForCommand requires a Command, SnapshotRead decision time, no requirements, exactly ObjectCapability credentials and exactly CapabilityHolder principals. All violated conditions are reported in their original order. An accepted shape is a reviewable assertion, not proof of resolver or guard behavior.
+
+### Example 1
+
+Before:
+
+```text
+snapshotDecisionForCommand: true, decisionTime: "Transaction"
+```
+
+After:
+
+```text
+snapshotDecisionForCommand: false, decisionTime: "Transaction"
+```
+
+Remove the claim and use transactional command authorization. Only retain a snapshot claim when every narrow capability-only condition holds and the resolver/guard have been reviewed.
+
+<a id="diagnostic-effx2601" />
+
+## EFFX2601 — Foldkit command or tagged Message contract invalid
+
+Owner: foldkit
+
+Default severity: error
+
+Severity policy: Fixed
+
+This legacy code covers both Foldkit IR validation and frontend Message-schema lowering. Foldkit.Command needs valid UiCommand data, exactly one qualified owner edge to an operation, one command contribution, exactly one HTTP exposure and an external (not Internal) HTTP root. The interpreter also rejects duplicate annotations. Independently, frontend success/failure Message fields must reference exported tagged Schemas whose Type has a literal-union _tag. Preserve both meanings; this number is not a new target-only diagnostic.
+
+### Example 1
+
+Before:
+
+```ts
+@Foldkit.Command({ success: Schema.String, failure: Schema.String })
+```
+
+After:
+
+```ts
+@Foldkit.Command({ success: Saved, failure: SaveFailed }) // exported tagged Message Schemas
+```
+
+Use exported tagged Messages, attach one command to one operation and one external HTTP exposure, and repair malformed IR ownership/data.
+
+<a id="diagnostic-effx2701" />
+
+## EFFX2701 — Project target or Effect installation unsupported
+
+Owner: project
+
+Default severity: error
+
+Severity policy: Fixed
+
+The tsconfig effx settings may be invalid, effect/package.json may be unresolved or invalid, the installed Effect version may not select a supported target, or a generated source module may be unsupported for the selected target. These are configuration/target diagnostics, not arbitrary generator failures.
+
+### Example 1
+
+Before:
+
+```ts
+"effx": { "target": "unknown" }
+```
+
+After:
+
+```ts
+"effx": { "target": "effect-4.0" }
+```
+
+Select a supported target, install a supported Effect cohort, resolve its package from the project and use source modules available in that target.
+
+<a id="diagnostic-effx2801" />
+
+## EFFX2801 — Deployment entry does not reach a Worker
+
+Owner: surface
+
+Default severity: error
+
+Severity policy: Fixed
+
+The against entry neither is nor reaches a recognized Alchemy Worker program: recognition is a call of Cloudflare.Worker imported from alchemy/Cloudflare. Arbitrary similarly named functions do not count.
+
+### Example 1
+
+Before:
+
+```ts
+effx surface check --against src/schema.ts
+```
+
+After:
+
+```ts
+effx surface check --against alchemy.run.ts
+```
+
+Point --against at the deployment program that reaches the recognized Worker call.
+
+<a id="diagnostic-effx2802" />
+
+## EFFX2802 — Required generated wiring is not referenced
+
+Owner: surface
+
+Default severity: error
+
+Severity policy: Fixed
+
+The current surface requires a generated wiring export, but the selected deployment entry never references that export. A type-only import does not wire runtime behavior. The message uses the generated file basename.
+
+### Example 1
+
+Before:
+
+```ts
+import type { AppRoutes } from "./.effx/generated/http.ts";
+```
+
+After:
+
+```ts
+import { AppRoutes } from "./.effx/generated/http.ts"; // use in Worker wiring
+```
+
+Reference the generated runtime wiring from the deployment entry.
+
+<a id="diagnostic-effx2803" />
+
+## EFFX2803 — Deployment references obsolete generated wiring
+
+Owner: surface
+
+Default severity: error
+
+Severity policy: Fixed
+
+The deployment references a generated wiring export that the current build does not produce. This includes removed groups and stale modules. The message uses the generated file basename.
+
+### Example 1
+
+Before:
+
+```ts
+import { RemovedApiHandlers } from "./.effx/generated/removed.ts";
+```
+
+After:
+
+```ts
+import { UsersApiHandlers } from "./.effx/generated/users.ts";
+```
+
+Remove obsolete wiring or replace it with the current generated export.
+
+<a id="diagnostic-effx2804" />
+
+## EFFX2804 — Surface comparison entry cannot be read
+
+Owner: surface
+
+Default severity: error
+
+Severity policy: Fixed
+
+The file selected with --against does not exist at the resolved path. This data diagnostic covers the existence check; other filesystem failures retain their existing failure taxonomy.
+
+### Example 1
+
+Before:
+
+```ts
+effx surface check --against missing.ts
+```
+
+After:
+
+```ts
+effx surface check --against alchemy.run.ts
+```
+
+Supply an existing deployment entry and resolve its path from the command directory.
+
+<a id="diagnostic-effx2805" />
+
+## EFFX2805 — Persisted surface differs from current IR
+
+Owner: surface
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The existing .effx/surface.json contents differ from the current normalized IR projection. Surface checking does not write or repair that file itself.
+
+### Example 1
+
+Before:
+
+```ts
+// .effx/surface.json from before operation changes
+```
+
+After:
+
+```ts
+effx build
+```
+
+Regenerate the persisted surface with effx build and review the updated wiring.
+
+<a id="diagnostic-effx2806" />
+
+## EFFX2806 — Wiring cannot be decided statically
+
+Owner: surface
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A dynamic import with a non-literal specifier or computed namespace access into a generated module prevents static wiring analysis. The source location belongs to the undecidable expression; the warning does not claim the wiring is absent.
+
+### Example 1
+
+Before:
+
+```ts
+const routes = generated[key];
+```
+
+After:
+
+```ts
+const routes = generated.AppRoutes;
+```
+
+Use a literal module specifier and a statically named export so the checker can follow runtime references.
+
+<a id="diagnostic-effx2807" />
+
+## EFFX2807 — Emit mode has no wiring to check
+
+Owner: surface
+
+Default severity: info
+
+Severity policy: Fixed
+
+The selected emit mode generates no AppRoutes or group ApiHandlers exports. Surface checking has nothing to compare for wiring in this mode.
+
+### Example 1
+
+Before:
+
+```ts
+effx surface check --emit contract
+```
+
+After:
+
+```ts
+effx surface check --emit all
+```
+
+Use a wiring-producing emit mode when deployment wiring verification is intended.
+
+<a id="diagnostic-effx2901" />
+
+## EFFX2901 — Example operation is deprecated
+
+Owner: example.deprecated
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The shipped example.deprecated extension found a deprecated annotation and reports its authored reason for each operation owner. This numeric code is a grandfathered example reservation, not a general third-party range.
+
+### Example 1
+
+Before:
+
+```ts
+@Annotate("example.deprecated", { reason: "Use User.GetV2" })
+```
+
+After:
+
+```ts
+// switch callers to User.GetV2 and remove the obsolete operation
+```
+
+Follow the authored replacement reason before removing the deprecated operation.
+
+<a id="diagnostic-effx2902" />
+
+## EFFX2902 — Example deprecated annotation is malformed
+
+Owner: example.deprecated
+
+Default severity: error
+
+Severity policy: Fixed
+
+The deprecated example requires one argument shaped { reason: string } and an operation declaration to own it. Both malformed arguments and missing operation ownership are diagnosed.
+
+### Example 1
+
+Before:
+
+```ts
+@Annotate("example.deprecated", { reason: 42 })
+```
+
+After:
+
+```ts
+@Query(options) @Annotate("example.deprecated", { reason: "Use User.GetV2" })
+```
+
+Supply a string reason and apply the annotation to a Query or Command.
+
+<a id="diagnostic-effx3401" />
+
+## EFFX3401 — Persistence method must be declaration-only
+
+Owner: persistence
+
+Default severity: error
+
+Severity policy: Fixed
+
+A persistence port method has a local handler or local binding. Ports describe an adapter capability and must not embed an application implementation.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query({ name: "Store.Get", input: Input, success: User }).with(Port({ port: "Store" })).handler(handler)
+```
+
+After:
+
+```ts
+Operation.query({ name: "Store.Get", input: Input, success: User }).with(Port({ port: "Store" })).declare()
+```
+
+Use declare() and place implementation in the adapter, not the port definition.
+
+<a id="diagnostic-effx3402" />
+
+## EFFX3402 — Persistence port method has transport exposure
+
+Owner: persistence
+
+Default severity: error
+
+Severity policy: Fixed
+
+Persistence port methods cannot have HTTP, RPC or CLI exposures. They are an internal adapter interface, not an application transport boundary.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query(options).with(Port({ port: "Store" })).http.get("/users").declare()
+```
+
+After:
+
+```ts
+Operation.query(options).with(Port({ port: "Store" })).declare()
+```
+
+Expose a separate application operation that calls the port.
+
+<a id="diagnostic-effx3403" />
+
+## EFFX3403 — Persistence port shape or identity invalid
+
+Owner: persistence
+
+Default severity: error
+
+Severity policy: Fixed
+
+A Port contribution needs one operation owner and { port: string }. Methods must have the port-name prefix and a nonempty method name, without duplicates. Different port names cannot collapse to the same generated filename. Duplicate Port annotations on a declaration are also rejected under this code.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query({ ...options, name: "Get" }).with(Port({ port: "Store" })).declare()
+```
+
+After:
+
+```ts
+Operation.query({ ...options, name: "Store.Get" }).with(Port({ port: "Store" })).declare()
+```
+
+Repair ownership/data, use PortName.method naming, declare each method once and choose port names whose escaped lowercase filenames differ.
+
+<a id="diagnostic-effx3404" />
+
+## EFFX3404 — Query-only port has vacuous transaction laws
+
+Owner: persistence
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The port declares only Queries. Generated rollback and atomicity properties are vacuous because no Command mutation exists to exercise them. This is not evidence that an adapter supports transactional writes.
+
+### Example 1
+
+Before:
+
+```ts
+Store: { Get: Query }
+```
+
+After:
+
+```ts
+Store: { Get: Query, Put: Command }
+```
+
+Add a real Command if transactional write conformance is required; otherwise accept the query-only limitation.
+
+<a id="diagnostic-effx4101" />
+
+## EFFX4101 — Cedar projection identity invalid or ambiguous
+
+Owner: cedar
+
+Default severity: error
+
+Severity policy: Fixed
+
+The namespace must consist of unreserved Cedar identifiers joined by ::. Entity type names must be valid, nonreserved and not Action, and cannot merge distinct source identities into one name. Generated policy ids must also be unique. Each variant blocks projection rather than silently renaming or dropping a source.
+
+### Example 1
+
+Before:
+
+```ts
+effx cedar --namespace 1bad
+```
+
+After:
+
+```ts
+effx cedar --namespace App::Authz
+```
+
+Use valid unreserved namespace/entity names, disambiguate source exports and ensure distinct policy identities.
+
+<a id="diagnostic-effx4102" />
+
+## EFFX4102 — Application Cedar policy validation error
+
+Owner: cedar
+
+Default severity: error
+
+Severity policy: Fixed
+
+The Cedar validator rejected an application-authored --policies file against the emitted schema. Findings retain the file, optional policy id, exact validator message and optional help. Generated Cedar validation failures remain CompilerFault invariant failures, not this diagnostic.
+
+### Example 1
+
+Before:
+
+```ts
+permit(principal, action == Effx::Action::"operation/User.Gett", resource);
+```
+
+After:
+
+```ts
+permit(principal, action == Effx::Action::"operation/User.Get", resource);
+```
+
+Repair the policy using the emitted actions/entity types and the validator help, then validate again.
+
+<a id="diagnostic-effx4103" />
+
+## EFFX4103 — Parameterized requirement projected by id only
+
+Owner: cedar
+
+Default severity: warning
+
+Severity policy: Fixed
+
+An AccessContract requirement has parameters. The Cedar projection records its id but does not enforce parameter constraints. Do not mistake successful projection for full authorization equivalence.
+
+### Example 1
+
+Before:
+
+```ts
+requirements: [{ id: "workspace.member", parameters: { role: "admin" } }]
+```
+
+After:
+
+```ts
+// enforce role parameters in the application authorization decision
+```
+
+Keep parameter enforcement in the application or an explicitly authored policy; the emitted id-only model is insufficient.
+
+<a id="diagnostic-effx4104" />
+
+## EFFX4104 — All capabilities cannot be one Cedar request
+
+Owner: cedar
+
+Default severity: warning
+
+Severity policy: Fixed
+
+An AccessContract capabilities All expression, or several linked capabilities without a contract, requires all capabilities at once. One Cedar request cannot represent that conjunction, so the operation action has no capability-group parent. The legacy no-contract form reports the capability count.
+
+### Example 1
+
+Before:
+
+```ts
+capabilities: Capability.all("read", "write")
+```
+
+After:
+
+```ts
+// authorize the required conjunction explicitly in application policy/decision logic
+```
+
+Retain the conjunction in application authorization; do not change All to Any just to silence the warning.
+
+<a id="diagnostic-effx4105" />
+
+## EFFX4105 — Capability uses generic Cedar principal
+
+Owner: cedar
+
+Default severity: info
+
+Severity policy: Fixed
+
+An operation declares a capability without an AccessContract. The projection falls back to the generic Principal entity type because no principalKinds contract exists. This is informational, not a statement that credentials have been checked.
+
+### Example 1
+
+Before:
+
+```ts
+@Authorize(ReadCapability) // no Http.Access
+```
+
+After:
+
+```ts
+@Http.Access({ ...accessContract, principalKinds: ["User"] })
+```
+
+Declare an AccessContract when the Cedar model needs the actual principal kinds.
+
+<a id="diagnostic-effx4106" />
+
+## EFFX4106 — Application Cedar policy validation warning
+
+Owner: cedar
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The Cedar validator warned about an application-authored --policies file. Findings preserve file, optional policy id, exact validator message and optional help. Warnings do not block by default, but --deny-warnings makes the command fail without changing diagnostic severity.
+
+### Example 1
+
+Before:
+
+```ts
+permit(principal, action == Effx::Action::"operation/User.Get", resource) when { false };
+```
+
+After:
+
+```ts
+permit(principal, action == Effx::Action::"operation/User.Get", resource);
+```
+
+Review and repair the validator finding; use --deny-warnings when policy warnings must fail the command.
+
+<a id="diagnostic-effx4107" />
+
+## EFFX4107 — No authorization facts to project
+
+Owner: cedar
+
+Default severity: info
+
+Severity policy: Fixed
+
+No operation has a capability or AccessContract. Cedar writes nothing because there is no authorization model to project, rather than emitting an empty misleading schema.
+
+### Example 1
+
+Before:
+
+```ts
+@Query(options) static get() { return handler(); }
+```
+
+After:
+
+```ts
+@Query(options) @Authorize(ReadCapability) static get() { return handler(); }
+```
+
+Declare the intended capability/access facts before requesting a Cedar projection, or accept that nothing is written.
+
+<a id="diagnostic-effx9001" />
+
+## EFFX9001 — Example Command lacks Audit annotation
+
+Owner: ai-docs
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The shipped handwritten Audit extension warns for each Command without its Audit ExtensionOf contribution. Queries do not trigger this rule. This is an example-owned numeric reservation only.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.command(options).handler(handler)
+```
+
+After:
+
+```ts
+Operation.command(options).annotate("Audit", { level: "sensitive" }).handler(handler)
+```
+
+Attach an Audit annotation and select auditExtension if the example audit policy is intended.
+
+<a id="diagnostic-effx9002" />
+
+## EFFX9002 — Example Audit annotation needs an operation
+
+Owner: ai-docs
+
+Default severity: error
+
+Severity policy: Fixed
+
+The shipped handwritten Audit interpreter cannot attach an Audit contribution when no operation id exists. This reservation is specific to the authoring example.
+
+### Example 1
+
+Before:
+
+```ts
+@Annotate("Audit", { level: "standard" }) static get() { return handler(); }
+```
+
+After:
+
+```ts
+@Query(options) @Annotate("Audit", { level: "standard" }) static get() { return handler(); }
+```
+
+Add Query or Command so the Audit node has an operation owner.
+
+<a id="diagnostic-effx9101" />
+
+## EFFX9101 — Example RateLimit requires HTTP exposure
+
+Owner: ai-docs
+
+Default severity: error
+
+Severity policy: Fixed
+
+The shipped implement(RateLimit) example checks for an HTTP exposure on the annotated operation. RPC-only and unexposed operations cannot use that example rate-limit policy.
+
+### Example 1
+
+Before:
+
+```ts
+Operation.query(options).with(RateLimit({ perMinute: 60 })).handler(handler)
+```
+
+After:
+
+```ts
+Operation.query(options).http.get("/users").with(RateLimit({ perMinute: 60 })).handler(handler)
+```
+
+Expose the operation through HTTP or remove this HTTP-specific example annotation.
+
+<a id="diagnostic-effx9102" />
+
+## EFFX9102 — Example rate limit is effectively unlimited
+
+Owner: ai-docs
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The shipped RateLimit example warns when perMinute exceeds 10,000. At or below that threshold this analysis emits nothing; the warning does not itself enforce requests.
+
+### Example 1
+
+Before:
+
+```ts
+@RateLimit({ perMinute: 20000 })
+```
+
+After:
+
+```ts
+@RateLimit({ perMinute: 60 })
+```
+
+Choose the intended finite policy value and enforce it in the relevant runtime boundary.
