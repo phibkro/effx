@@ -2,7 +2,7 @@
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
 import type { Readable, Writable } from "node:stream";
 import * as process from "node:process";
-import { Effect, Exit, FiberSet, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
 import {
   AbstractMessageBuffer,
   AbstractMessageReader,
@@ -78,6 +78,15 @@ const BODY = 8 * 1024 * 1024;
 
 const HEADER = 8 * 1024;
 
+const isGone = Schema.is(Schema.Struct({ code: Schema.Literal("ESRCH") }));
+
+const isDenied = Schema.is(Schema.Struct({ code: Schema.Literal("EPERM") }));
+
+class ClientProbeError extends Schema.TaggedError<ClientProbeError>()("ClientProbeError", {
+  reason: Schema.Literals(["Gone", "Denied", "IO"]),
+  cause: Schema.Defect(),
+}) {}
+
 // Opaque outside this module: the factory owns the underlying streams and close receipt.
 export interface LspIO {
   readonly _tag: "LspIO";
@@ -138,6 +147,10 @@ export interface LspTransport {
    * comparing publication revisions, not inside a notification handler. Partial
    * frames are retained; this does not speculate about bytes a peer has not sent. */
   readonly admitPending: Effect.Effect<void, TransportError>;
+  /** Registers one scope-owned 250 ms liveness observation loop and returns.
+   * Null skips registration; disappearance closes the adapter. EPERM means alive,
+   * while invalid IDs and unknown probe faults fail with structural errors. */
+  readonly watchClient: (processId: number | null) => Effect.Effect<void, TransportError>;
   readonly close: Effect.Effect<void>;
 }
 
@@ -168,6 +181,8 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const io = bindings.get(handle);
 
   if (!io) return yield* fault("IO", "IO handle was not acquired by this boundary");
+  const ownerScope = yield* Effect.scope;
+  let clientMonitor: Fiber.Fiber<void, TransportError> | undefined;
   const fibers = yield* FiberSet.make<unknown, unknown>();
   const run = yield* FiberSet.runtimePromise(fibers)<RH>();
   const fork = yield* FiberSet.runtime(fibers)<RH>();
@@ -225,6 +240,8 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     io.input.pause();
 
     if (error) process.stderr.write(`effx lsp transport: ${error.reason}\n`);
+
+    clientMonitor?.interruptUnsafe();
 
     for (const fiber of fibers.state._tag === "Open" ? fibers.state.backing : [])
       fiber.interruptUnsafe();
@@ -729,6 +746,12 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const close = Effect.gen(function* () {
     if (state === "Closed") return;
     stop();
+
+    if (clientMonitor) {
+      yield* Fiber.interrupt(clientMonitor);
+      clientMonitor = undefined;
+    }
+
     yield* FiberSet.clear(fibers);
 
     if (activeWrite) {
@@ -819,10 +842,79 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     });
   });
 
+  let watchedClient: number | undefined;
+
+  const watchClient = Effect.fnUntraced(function* (processId: number | null) {
+    if (processId === null) return;
+
+    if (state !== "Open") return yield* fault("Closed");
+
+    if (
+      !Number.isSafeInteger(processId) ||
+      processId <= 0 ||
+      (watchedClient !== undefined && watchedClient !== processId)
+    ) {
+      const error = fault("IO", "Invalid or changed client process ID");
+      stop(error);
+
+      return yield* error;
+    }
+
+    if (watchedClient === processId) return;
+
+    const probe = Effect.try({
+      try: () => process.kill(processId, 0),
+      catch: (cause) =>
+        new ClientProbeError({
+          reason: isGone(cause) ? "Gone" : isDenied(cause) ? "Denied" : "IO",
+          cause,
+        }),
+    }).pipe(
+      Effect.catchTag("ClientProbeError", (error) =>
+        error.reason === "Denied"
+          ? Effect.succeed(true)
+          : Effect.fail(fault(error.reason === "Gone" ? "Closed" : "IO", error.cause)),
+      ),
+    );
+
+    const initial = yield* Effect.exit(probe);
+
+    if (Exit.isFailure(initial)) {
+      const failure = initial.cause.reasons.find(Cause.isFailReason);
+
+      if (failure) stop(failure.error);
+
+      return yield* Effect.failCause(initial.cause);
+    }
+
+    watchedClient = processId;
+    clientMonitor = yield* Effect.forkIn(
+      Effect.gen(function* () {
+        while (state === "Open") {
+          yield* Effect.sleep("250 millis");
+
+          if (state !== "Open") return;
+          const observed = yield* Effect.exit(probe);
+
+          if (Exit.isFailure(observed)) {
+            const failure = observed.cause.reasons.find(Cause.isFailReason);
+
+            if (!failure) return yield* Effect.failCause(observed.cause);
+            stop(failure.error.reason === "Closed" ? undefined : failure.error);
+
+            return;
+          }
+        }
+      }).pipe(Effect.interruptible),
+      ownerScope,
+    );
+  }, Effect.uninterruptible);
+
   return {
     close,
     awaitClosed,
     admitPending,
+    watchClient,
     sendNotification: Effect.fnUntraced(function* (method: string, params: Schema.Json) {
       yield* Effect.tryPromise({
         try: (signal) => {

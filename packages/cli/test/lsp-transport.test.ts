@@ -413,6 +413,94 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       }),
     ),
   );
+  it.live("typed notification predicates preserve earlier queued receipts", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        yield* peer.notification("edit", { version: 1 });
+        yield* peer.notification("edit", { version: 2 });
+        const state = yield* decodeInspect(yield* peer.request("inspect"));
+
+        assert.deepStrictEqual(state.edits, [{ version: 1 }, { version: 2 }]);
+
+        const Receipt = Schema.Struct({ index: Schema.Int, value: Schema.Json });
+
+        const second = yield* peer.waitNotification(
+          "edited",
+          (params) => Schema.is(Receipt)(params) && params.index === 2,
+        );
+
+        assert.deepStrictEqual(second, { index: 2, value: { version: 2 } });
+        assert.deepStrictEqual(
+          (yield* peer.notifications).find((message) => message.method === "edited")?.params,
+          { index: 1, value: { version: 1 } },
+        );
+        assert.deepStrictEqual(yield* peer.requestError("fail"), {
+          code: -32602,
+          message: "Rejected parameters",
+          data: { safe: true },
+        });
+        yield* peer.eof;
+        assert.strictEqual((yield* peer.exit).code, 0);
+      }),
+    ),
+  );
+
+  it.live("null client ownership skips monitoring and one live PID registers idempotently", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        assert.strictEqual(yield* peer.request("watch-client", null), null);
+
+        const processId = yield* peer.pid;
+
+        assert.strictEqual(yield* peer.request("watch-client", processId), null);
+        assert.strictEqual(yield* peer.request("watch-client", processId), null);
+        yield* peer.request("inspect");
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        assert.strictEqual((yield* peer.stderr).split("root-released").length - 1, 1);
+      }),
+    ),
+  );
+
+  it.live("invalid client PID closes without probing a process group", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        yield* peer.request("watch-client", 0).pipe(Effect.exit);
+        assert.strictEqual((yield* peer.exit).code, 0);
+        assert.include(yield* peer.stderr, "terminal:IO");
+      }),
+    ),
+  );
+
+  it.live("actual owned-parent death closes transport even while inherited stdin stays open", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer(true, {
+          cwd: new URL("../../../", import.meta.url).pathname,
+          main: new URL("./lsp-transport-peer.ts", import.meta.url).pathname,
+          args: ["parent-client"],
+        });
+
+        yield* peer.waitNotification("ready");
+        yield* peer.request("inspect");
+        // Do not end stdin: server retains the inherited read end after its parent dies.
+        yield* peer.interrupt;
+        assert.deepStrictEqual(yield* peer.exit, { code: null, signal: "SIGINT" });
+
+        const log = yield* peer.stderr;
+
+        assert.strictEqual(log.split("root-released").length - 1, 1);
+        assert.notInclude(log, "terminal:");
+        assert.notInclude(log, "root-failed");
+      }),
+    ),
+  );
 });
 
 class HandlerDependency extends Context.Service<
