@@ -1,9 +1,9 @@
 # Spec 0016 — Diagnostic registry, `effx explain`, generated catalogue
 
-Status: **draft — awaiting operator approval; not frozen** 2026-10-05.
+Status: **frozen — operator-approved** 2026-10-05. Changes require an explicit dated amendment.
 Baseline: local main `a879a38c109d4fa968745ab152e8c093a457f2dd`.
 Builds on specs 0001, 0003, 0015 and 0020; includes the shipped 0017, 0021 and 0022 diagnostics.
-This document proposes a contract, not an implementation or approval to start one.
+This document is the approved implementation contract. The operator approved all nine defaults in §8.
 
 ## 1. Goal
 
@@ -106,7 +106,7 @@ both modes. Locations remain per occurrence; they are not registry data.
   contract data: report a registered core registry-contract error and stop generation.
   A malformed/duplicate registry similarly reports that core error, naming both owners;
   it does not crash as a CompilerFault or invent an unregistered diagnostic about itself.
-- Reserve new core EFFX0010 for this registry-contract error, subject to operator approval.
+- Reserve new core EFFX0010 for this registry-contract error.
   Its own entry is available in the immutable bootstrap core registry.
 
 Thus the **minimum promised global guarantee is the test rung**, plus checked plugin
@@ -283,7 +283,7 @@ construction, optional first-party packages, config examples and tests in one cu
 7. Update compiler/CLI/extension authoring documentation and release changesets; remove
    string helpers and the diagnostic placeholder. No duplicate hand-maintained catalogue.
 
-## 8. Operator questions and recommended defaults
+## 8. Accepted operator decisions
 
 | Question                                    | Recommended default                                                                                                 | Tradeoff                                                                                                            |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -297,11 +297,31 @@ construction, optional first-party packages, config examples and tests in one cu
 | Shared entry API placement?                 | Effect-only @effx/diagnostics leaf; compiler re-exposes API                                                         | Adds a small package, but lets runtime definition diagnostics reference entries without a compiler dependency cycle |
 | Explain machine-readable output?            | Plain Markdown only in this slice                                                                                   | Smaller stable CLI contract; JSON can be separately approved if a concrete consumer appears                         |
 
-### Dated amendment policy
+### Approval amendment — 2026-10-05
 
-This draft is not frozen. Operator decisions update the relevant contract sections and
-are recorded as dated amendments here, matching the neighboring specs. No implementation
-amendment, frozen status or claimed acceptance evidence exists yet.
+The operator wrote, verbatim: **"Approve the defaults"**. This approves all nine §8 decisions:
+
+1. Use package-qualified third-party codes. Reserve numeric codes for the distribution and the six existing example codes (§3).
+2. Load extension config only through explicit `--config`; never discover it for explain (§4).
+3. Preserve default severity and each named existing promotion policy (§2).
+4. Place typed message variants beside Schema entry data; emission sites pass facts (§2).
+5. Guarantee typed references plus the test rung and checked plugin boundaries (§2).
+6. Include the whole bundled distribution in the catalogue, not discovered user plugins (§5).
+7. Reserve EFFX0010 as the registry-contract error (§2).
+8. Place the shared API in the Effect-only `@effx/diagnostics` leaf; re-expose it through compiler (§2).
+9. Emit plain Markdown only from explain (§4).
+
+These decisions are binding in the cited contract sections. This amendment records approval, not implementation acceptance.
+
+### Implementation sequencing amendment — 2026-10-05
+
+The operator authorized two phases to avoid the concurrent `compiler/inventory-bootstrap` work.
+Phase 1 adds the leaf, all existing entries/message variants, EFFX0010, explain, shared catalogue rendering and registry tests.
+Phase 1 does not migrate emission sites or enable the syntax-aware emission restriction.
+Phase 2 starts only after the operator reports that inventory-bootstrap landed on local main.
+Then rebase, migrate every emission site/example, remove string helpers and enable the syntax-aware restriction.
+Identity snapshots compare each phase against its base. Preserve diagnostics and generated artifacts; list every intended difference.
+No phase authorizes pushing or fast-forwarding main.
 
 ## 9. Read-only investigation (baseline a879a38, 2026-10-05)
 
