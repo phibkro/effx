@@ -19,6 +19,7 @@ import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "
 import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
 import type { WatchInput } from "./watch-files.ts";
+import { acquireOutputOwner, assertOutputOwner, type OutputOwner } from "./output-owner.ts";
 
 type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 
@@ -408,16 +409,23 @@ export const check = Effect.fn("check")(function* (
 
 const decodePreviousManifest = Schema.decodeEffect(PreviousManifestJson);
 
-export const build = Effect.fn("build")(function* (project: Project, versions: Versions) {
+/** Consume the accepted pipeline result without collecting or compiling again. */
+export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
+  project: Project,
+  versions: Versions,
+  accepted: CompileResult,
+  owner: OutputOwner,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const result = yield* failOnErrors(yield* compileAndReport(project));
+  const result = yield* failOnErrors(accepted);
   // After failOnErrors every stage succeeded; getOrThrow would be a pipeline invariant breach.
   const ir = Option.getOrThrow(result.ir.value);
   const files = Option.getOrThrow(result.files.value);
   const collected = Option.getOrThrow(result.collected.value);
   const generatedDir = collected.project?.outputDir ?? path.join(project.effxDir, "generated");
   const manifestPath = path.join(project.effxDir, "manifest.json");
+  yield* assertOutputOwner(owner, { generatedDir, effxDir: project.effxDir });
 
   const generated = files.map((file) =>
     path.relative(project.effxDir, path.join(generatedDir, file.path)).split(path.sep).join("/"),
@@ -509,6 +517,32 @@ export const build = Effect.fn("build")(function* (project: Project, versions: V
       path.relative(".", project.effxDir) +
       "/{ir.json, manifest.json, surface.json}; generated: " +
       generated.join(", "),
+  );
+});
+/** Watch callers retain custody in their session scope after first success. */
+
+export const acquireBuildOutput = Effect.fnUntraced(function* (
+  project: Project,
+  accepted: CompileResult,
+) {
+  const result = yield* failOnErrors(accepted);
+  const path = yield* Path.Path;
+  const collected = Option.getOrThrow(result.collected.value);
+
+  return yield* acquireOutputOwner({
+    generatedDir: collected.project?.outputDir ?? path.join(project.effxDir, "generated"),
+    effxDir: project.effxDir,
+  });
+});
+
+/** Acquire custody only after a successful compile; scope closes on every exit. */
+export const build = Effect.fn("build")(function* (project: Project, versions: Versions) {
+  const result = yield* failOnErrors(yield* compileAndReport(project));
+  yield* Effect.scoped(
+    Effect.gen(function* () {
+      const owner = yield* acquireBuildOutput(project, result);
+      yield* writeCompileResult(project, versions, result, owner);
+    }),
   );
 });
 
