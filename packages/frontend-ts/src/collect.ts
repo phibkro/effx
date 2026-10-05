@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 import { Builtins, type ArgsPlan, type Plan } from "@effx/runtime";
-import { AnnotationArg as AnnotationArgSchema, SymbolArg, error } from "@effx/compiler";
+import {
+  AnnotationArg as AnnotationArgSchema,
+  SymbolArg,
+  CoreDiagnostics,
+  HttpDiagnostics,
+} from "@effx/compiler";
 import type {
   Annotation,
   AnnotationArg,
@@ -43,8 +48,12 @@ interface Sink {
 
 type CollectedDraft = { -readonly [K in keyof Collected]: Collected[K] };
 
-const unsupported = (sink: Sink, node: ts.Node, message: string): void => {
-  sink.diagnostics.push(error("EFFX1104", message, positionOf(node)));
+const unsupported = (
+  sink: Sink,
+  node: ts.Node,
+  params: Parameters<typeof CoreDiagnostics.EFFX1104.emit>[0],
+): void => {
+  sink.diagnostics.push(CoreDiagnostics.EFFX1104.emit(params, { location: positionOf(node) }));
 };
 
 /** `Query` / `Http.Get` / `Operation` …: the runtime export a callee refers to, or `undefined` when it is not from the runtime. */
@@ -167,11 +176,11 @@ const decoratorAnnotations = (
       if (!includeGroup && bare?.name === "Http" && bare.tail.join(".") === "Group") continue;
 
       if (bare !== undefined)
-        unsupported(
-          sink,
-          decorator,
-          `${declarationId}: @${bare.name} must be called, e.g. @${bare.name}(...)`,
-        );
+        unsupported(sink, decorator, {
+          _tag: "BareDecorator",
+          subject: declarationId,
+          annotation: bare.name,
+        });
       continue;
     }
 
@@ -240,7 +249,10 @@ const collectClass = (
 
   if (classAnnotations.filter((annotation) => annotation.name === "Http.Group").length > 1) {
     sink.diagnostics.push(
-      error("EFFX2404", `${className}: multiple @Http.Group declarations`, positionOf(node)),
+      HttpDiagnostics.EFFX2404.emit(
+        { _tag: "MultipleDeclarations", subject: className },
+        { location: positionOf(node) },
+      ),
     );
 
     return;
@@ -256,7 +268,7 @@ const collectClass = (
 
     if (annotation.name === "Http.Group") {
       if (!isExported(node)) {
-        unsupported(sink, node, `${className}: a @Http.Group class must be exported`);
+        unsupported(sink, node, { _tag: "GroupExport", subject: className });
         continue;
       }
 
@@ -274,21 +286,24 @@ const collectClass = (
     if (annotation.name !== "PersistentModel") {
       if (userDefinition(resolver, annotation.name)?.target === "operation") {
         sink.diagnostics.push(
-          error(
-            "EFFX1303",
-            `${className}: @${annotation.name} targets "operation" and cannot decorate a class`,
-            positionOf(node),
+          CoreDiagnostics.EFFX1303.emit(
+            { _tag: "Class", subject: className, annotation: annotation.name },
+            { location: positionOf(node) },
           ),
         );
       } else {
-        unsupported(sink, node, `${className}: @${annotation.name} is not a class decorator`);
+        unsupported(sink, node, {
+          _tag: "ClassDecorator",
+          subject: className,
+          annotation: annotation.name,
+        });
       }
 
       continue;
     }
 
     if (!isExported(node)) {
-      unsupported(sink, node, `${className}: a @PersistentModel class must be exported`);
+      unsupported(sink, node, { _tag: "ModelExport", subject: className });
       continue;
     }
 
@@ -300,7 +315,7 @@ const collectClass = (
     const args = withSchema(annotation.args, schema);
 
     if (args === undefined) {
-      unsupported(sink, node, `${className}: @PersistentModel takes exactly one options object`);
+      unsupported(sink, node, { _tag: "ModelOptions", subject: className });
       continue;
     }
 
@@ -325,27 +340,19 @@ const collectClass = (
       if (annotations.length === 0) continue;
 
       if (annotations.some((annotation) => annotation.name === "Http.Group")) {
-        unsupported(
-          sink,
-          member,
-          `${id}: @Http.Group is a class decorator, not a method decorator`,
-        );
+        unsupported(sink, member, { _tag: "GroupMethod", subject: id });
         continue;
       }
 
       const isStatic = ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Static;
 
       if (!isStatic) {
-        unsupported(
-          sink,
-          member,
-          `${id}: effx decorators are supported on static methods only (spec 0002)`,
-        );
+        unsupported(sink, member, { _tag: "StaticMethod", subject: id });
         continue;
       }
 
       if (!isExported(node)) {
-        unsupported(sink, member, `${id}: the class holding effx operations must be exported`);
+        unsupported(sink, member, { _tag: "OperationClassExport", subject: id });
         continue;
       }
 
@@ -387,11 +394,7 @@ const collectClass = (
       );
 
       if (stray.length > 0) {
-        unsupported(
-          sink,
-          member,
-          `${className}: effx decorators are supported on static methods only (spec 0002)`,
-        );
+        unsupported(sink, member, { _tag: "StaticMethod", subject: className });
       }
     }
   }
@@ -473,7 +476,7 @@ const collectBuilder = (
   const module = resolver.moduleOf(declarator.getSourceFile().fileName);
 
   if (!isExported(declarator)) {
-    unsupported(sink, declarator, `${id}: effx builder values must be exported`);
+    unsupported(sink, declarator, { _tag: "BuilderExport", subject: id });
 
     return;
   }
@@ -482,7 +485,7 @@ const collectBuilder = (
     const [step, ...rest] = chain.steps;
 
     if (step === undefined || step.names.join(".") !== "persistent" || rest.length > 0) {
-      unsupported(sink, declarator, `${id}: expected Model.persistent(Schema, options)`);
+      unsupported(sink, declarator, { _tag: "ModelBuilder", subject: id });
 
       return;
     }
@@ -496,7 +499,7 @@ const collectBuilder = (
       schema === undefined || options === undefined ? undefined : withSchema([options], schema);
 
     if (merged === undefined) {
-      unsupported(sink, declarator, `${id}: expected Model.persistent(Schema, options)`);
+      unsupported(sink, declarator, { _tag: "ModelBuilder", subject: id });
 
       return;
     }
@@ -522,7 +525,7 @@ const collectBuilder = (
       rest.length > 0 ||
       step.args.length !== 1
     ) {
-      unsupported(sink, declarator, `${id}: expected Http.group(options)`);
+      unsupported(sink, declarator, { _tag: "GroupBuilder", subject: id });
 
       return;
     }
@@ -553,11 +556,7 @@ const collectBuilder = (
       (last.names.join(".") === "declare" && last.args.length === 0)
     )
   ) {
-    unsupported(
-      sink,
-      declarator,
-      `${id}: an Operation chain must end with .handler(fn) or .declare()`,
-    );
+    unsupported(sink, declarator, { _tag: "ChainEnd", subject: id });
 
     return;
   }
@@ -578,11 +577,7 @@ const collectBuilder = (
         !ts.isCallExpression(applied) ||
         appliedAnnotation === undefined
       ) {
-        unsupported(
-          sink,
-          step.call,
-          `${id}: .with(...) takes one applied annotation call, e.g. .with(RateLimit({ ... }))`,
-        );
+        unsupported(sink, step.call, { _tag: "AppliedCall", subject: id });
 
         return;
       }
@@ -591,10 +586,14 @@ const collectBuilder = (
 
       if (definition !== undefined && definition.target !== "operation") {
         sink.diagnostics.push(
-          error(
-            "EFFX1303",
-            `${id}: .with(${appliedAnnotation}(...)) applies an annotation whose target is "${definition.target}", not "operation"`,
-            positionOf(step.call),
+          CoreDiagnostics.EFFX1303.emit(
+            {
+              _tag: "Builder",
+              subject: id,
+              annotation: appliedAnnotation,
+              target: definition.target,
+            },
+            { location: positionOf(step.call) },
           ),
         );
 
@@ -610,7 +609,11 @@ const collectBuilder = (
     const name = CHAIN_ANNOTATIONS.get(step.names.join("."));
 
     if (name === undefined) {
-      unsupported(sink, step.call, `${id}: unknown builder step .${step.names.join(".")}(...)`);
+      unsupported(sink, step.call, {
+        _tag: "UnknownStep",
+        subject: id,
+        step: step.names.join("."),
+      });
 
       return;
     }
@@ -620,10 +623,9 @@ const collectBuilder = (
       (step.args.length !== 1 || annotations.some((annotation) => annotation.name === "Http.In"))
     ) {
       sink.diagnostics.push(
-        error(
-          "EFFX2404",
-          `${id}: exactly one group may be associated with .in(Group)`,
-          positionOf(step.call),
+        HttpDiagnostics.EFFX2404.emit(
+          { _tag: "MultipleIn", subject: id },
+          { location: positionOf(step.call) },
         ),
       );
 
@@ -667,7 +669,7 @@ const collectBuilder = (
   let handlerSignature: HandlerSignature | undefined;
 
   if (callSignature === undefined) {
-    unsupported(sink, handler, `${id}: .handler(...) expects a function`);
+    unsupported(sink, handler, { _tag: "HandlerFunction", subject: id });
   } else {
     const inferred = inferSignature(
       resolver,

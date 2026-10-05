@@ -1,7 +1,13 @@
 import { Schema } from "effect";
 import type { SchemaRef } from "@effx/ir";
 import type { Plan } from "@effx/runtime";
-import { type AnnotationArg, type Diagnostic, SchemaArg, error } from "@effx/compiler";
+import {
+  type AnnotationArg,
+  type Diagnostic,
+  SchemaArg,
+  CoreDiagnostics,
+  HttpDiagnostics,
+} from "@effx/compiler";
 import {
   type Resolver,
   exportedSymbol,
@@ -36,13 +42,17 @@ export interface Lowered {
 
 const ok = (value: AnnotationArg): Lowered => ({ value, diagnostics: [] });
 
-const reject = (declarationId: string, node: ts.Node, reason: string): Lowered => ({
+type LoweringReason = Extract<
+  Parameters<typeof CoreDiagnostics.EFFX1102.emit>[0],
+  { readonly _tag: "Lowering" }
+>["reason"];
+
+const reject = (declarationId: string, node: ts.Node, reason: LoweringReason): Lowered => ({
   value: undefined,
   diagnostics: [
-    error(
-      "EFFX1102",
-      `${declarationId}: cannot lower \`${node.getText()}\` to an annotation argument: ${reason}`,
-      positionOf(node),
+    CoreDiagnostics.EFFX1102.emit(
+      { _tag: "Lowering", subject: declarationId, source: node.getText(), reason },
+      { location: positionOf(node) },
     ),
   ],
 });
@@ -50,10 +60,9 @@ const reject = (declarationId: string, node: ts.Node, reason: string): Lowered =
 const invalidGroup = (declarationId: string, node: ts.Node): Lowered => ({
   value: undefined,
   diagnostics: [
-    error(
-      "EFFX2404",
-      `${declarationId}: .in(...) requires an exported Http.group value or @Http.Group class`,
-      positionOf(node),
+    HttpDiagnostics.EFFX2404.emit(
+      { _tag: "InTarget", subject: declarationId },
+      { location: positionOf(node) },
     ),
   ],
 });
@@ -177,16 +186,12 @@ const runtimeCall = (
       const word = sourceString(resolver, argument);
 
       if (word === undefined || word.length === 0)
-        return reject(declarationId, call, `${name} requires static nonempty string arguments`);
+        return reject(declarationId, call, { _tag: "StaticStrings", constructor: name });
       words.push(word);
     }
 
     if (words.length === 0 || (name === "Capability.one" && words.length !== 1))
-      return reject(
-        declarationId,
-        call,
-        `${name} requires ${name === "Capability.one" ? "one" : "at least one"} string argument`,
-      );
+      return reject(declarationId, call, { _tag: "StringArity", constructor: name });
 
     if (name === "Capability.one") return ok({ _tag: "One", capability: words[0]! });
 
@@ -201,7 +206,7 @@ const runtimeCall = (
 
     return words.every((word): word is string => word !== undefined)
       ? ok(words)
-      : reject(declarationId, call, "Focus.key path segments must be string literals");
+      : reject(declarationId, call, { _tag: "FocusSegments" });
   }
 
   if (name === "Capability.make") {
@@ -213,7 +218,7 @@ const runtimeCall = (
       options === undefined ||
       !ts.isObjectLiteralExpression(options)
     ) {
-      return reject(declarationId, call, 'expected Capability.make("name", { resource, focus? })');
+      return reject(declarationId, call, { _tag: "CapabilityOptions" });
     }
 
     const lowered = lowerObject(resolver, declarationId, options, undefined, undefined);
@@ -222,12 +227,11 @@ const runtimeCall = (
     const record = lowered.value;
     const resource = resourceName(record);
 
-    if (resource === undefined)
-      return reject(declarationId, options, "resource must be an exported Schema model class");
+    if (resource === undefined) return reject(declarationId, options, { _tag: "ResourceModel" });
     const focusValue = record["focus"];
 
     if (Object.hasOwn(record, "focus") && !isStringArray(focusValue)) {
-      return reject(declarationId, options, "focus must be a Focus.key(...) path");
+      return reject(declarationId, options, { _tag: "FocusPath" });
     }
 
     const focus = isStringArray(focusValue) ? focusValue : undefined;
@@ -275,21 +279,10 @@ const identifierPlan = (plan: Plan | undefined): Plan | undefined => {
   return inner.members.find((member) => member._tag === "Symbol" || member._tag === "Schema");
 };
 
-const DEFAULT_MESSAGE = {
-  callable: "metadata.annotator must be an exported callable symbol",
-  "exported-function": "commandIdentity must be an exported callable function",
-  "exported-value": "access symbol must be an exported value",
-  registry: "registry must be an exported value symbol",
-} as const;
-
-const checkMessage = (plan: Extract<Plan, { readonly _tag: "Symbol" }>): string =>
-  plan.message ??
-  (plan.check === "callable" ||
-  plan.check === "exported-function" ||
-  plan.check === "exported-value" ||
-  plan.check === "registry"
-    ? DEFAULT_MESSAGE[plan.check]
-    : plan.check);
+const checkMessage = (plan: Extract<Plan, { readonly _tag: "Symbol" }>): LoweringReason => ({
+  _tag: "DefinitionSymbol",
+  expectation: plan.message ?? plan.check,
+});
 
 /** `isTaggedMessage` of a Foldkit Message: a Schema whose `Type` has a literal-union `_tag`. */
 const isTaggedMessage = (resolver: Resolver, schemaValue: ts.Type, node: ts.Node): boolean => {
@@ -324,11 +317,7 @@ const lowerObject = (
 
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
-      const rejected = reject(
-        declarationId,
-        property,
-        "only `key: value` and shorthand properties are supported",
-      );
+      const rejected = reject(declarationId, property, { _tag: "ObjectProperty" });
 
       return { value: undefined, diagnostics: [...diagnostics, ...rejected.diagnostics] };
     }
@@ -339,13 +328,13 @@ const lowerObject = (
         : undefined;
 
     if (key === undefined) {
-      const rejected = reject(declarationId, property, "computed keys are not supported");
+      const rejected = reject(declarationId, property, { _tag: "ComputedKey" });
 
       return { value: undefined, diagnostics: [...diagnostics, ...rejected.diagnostics] };
     }
 
     if (Object.hasOwn(out, key) && struct?.rejectDuplicate?.includes(key) === true) {
-      const rejected = reject(declarationId, property, `duplicate ${key} declaration`);
+      const rejected = reject(declarationId, property, { _tag: "DuplicateField", field: key });
 
       return { value: undefined, diagnostics: [...diagnostics, ...rejected.diagnostics] };
     }
@@ -396,10 +385,9 @@ const lowerObject = (
 
       if (!isTaggedMessage(resolver, type, object)) {
         diagnostics.push(
-          error(
-            "EFFX2601",
-            `${declarationId}: ${annotationName ?? "annotation"} ${field} must be an exported tagged Message schema`,
-            positionOf(object),
+          CoreDiagnostics.EFFX2601.emit(
+            { _tag: "TaggedMessage", subject: declarationId, annotation: annotationName, field },
+            { location: positionOf(object) },
           ),
         );
 
@@ -416,10 +404,10 @@ export const lowerAnnotationName = (declarationId: string, call: ts.CallExpressi
   const node = call.arguments[0];
 
   return node === undefined
-    ? reject(declarationId, call, "Annotate requires a literal annotation name")
+    ? reject(declarationId, call, { _tag: "AnnotateNameMissing" })
     : ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
       ? ok(node.text)
-      : reject(declarationId, node, "annotation name must be a string literal");
+      : reject(declarationId, node, { _tag: "AnnotateNameLiteral" });
 };
 
 /** A lowered Schema reference: `fields` when the position records them, `marker` when wrapped by `Http.headers`. */
@@ -465,7 +453,7 @@ const lowerSchema = (
   if (fieldsSymbol === undefined)
     return optional
       ? ok(schemaValue(ref, undefined, marked))
-      : reject(declarationId, node, "schema must expose static fields");
+      : reject(declarationId, node, { _tag: "SchemaFields" });
 
   const fieldsType = checker.getTypeOfSymbolAtLocation(fieldsSymbol, node);
 
@@ -567,7 +555,7 @@ export const lowerExpression = (
   if (ts.isCallExpression(node)) {
     return (
       runtimeCall(resolver, declarationId, node) ??
-      reject(declarationId, node, "unsupported runtime constructor call")
+      reject(declarationId, node, { _tag: "RuntimeCall" })
     );
   }
 
@@ -594,7 +582,7 @@ export const lowerExpression = (
 
     const symbol = shorthand ?? checker.getSymbolAtLocation(node);
 
-    if (symbol === undefined) return reject(declarationId, node, "unresolved symbol");
+    if (symbol === undefined) return reject(declarationId, node, { _tag: "UnresolvedSymbol" });
 
     const type =
       shorthand === undefined
@@ -621,7 +609,7 @@ export const lowerExpression = (
         (type.getProperty("~effect/http-api/HttpApi") === undefined &&
           type.getProperty("~effect/httpapi/HttpApi") === undefined)
       )
-        return reject(declarationId, node, "HTTP root must be an exported concrete HttpApi value");
+        return reject(declarationId, node, { _tag: "HttpRoot" });
 
       const identifier = type.getProperty("identifier");
 
@@ -629,7 +617,7 @@ export const lowerExpression = (
         identifier === undefined ? undefined : checker.getTypeOfSymbolAtLocation(identifier, node);
 
       if (literal === undefined || !literal.isStringLiteral())
-        return reject(declarationId, node, "HTTP root identifier must be a string literal");
+        return reject(declarationId, node, { _tag: "HttpRootIdentifier" });
 
       const key = httpApiRootKey(exported.ref);
 
@@ -669,11 +657,7 @@ export const lowerExpression = (
 
     if (isSchemaValueType(type)) {
       if (exported === undefined) {
-        return reject(
-          declarationId,
-          node,
-          "schema must be an exported top-level symbol or an exported class's static member",
-        );
+        return reject(declarationId, node, { _tag: "SchemaExport" });
       }
 
       const ref = schemaRefOf(exported);
@@ -689,8 +673,7 @@ export const lowerExpression = (
     }
 
     if (isServiceValueType(type)) {
-      if (exported === undefined)
-        return reject(declarationId, node, "service must be an exported class");
+      if (exported === undefined) return reject(declarationId, node, { _tag: "ServiceExport" });
 
       const securityProperty =
         symbolPlan?.check === "security-marker" ? type.getProperty("security") : undefined;
@@ -730,12 +713,11 @@ export const lowerExpression = (
       );
     }
 
-    return reject(
-      declarationId,
-      node,
-      `\`${checker.typeToString(type)}\` is neither a Schema, a service class, nor a runtime value`,
-    );
+    return reject(declarationId, node, {
+      _tag: "UnsupportedType",
+      display: checker.typeToString(type),
+    });
   }
 
-  return reject(declarationId, node, `unsupported expression kind ${ts.SyntaxKind[node.kind]}`);
+  return reject(declarationId, node, { _tag: "ExpressionKind", kind: ts.SyntaxKind[node.kind] });
 };

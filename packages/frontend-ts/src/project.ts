@@ -6,8 +6,7 @@ import {
   type ProjectResolution,
   EmitMode,
   TargetProfile,
-  error,
-  warning,
+  CoreDiagnostics,
 } from "@effx/compiler";
 import { ts, tryTs } from "./ts.ts";
 
@@ -111,18 +110,11 @@ const typescriptPin = Effect.fn("typescriptPin")(function* (dir: string) {
   }
 });
 
-const major = (version: string): string => version.replace(/^[^\d]*/, "").split(".")[0] ?? version;
-
 /** ADR 0009: report analysis-vs-gate TypeScript skew as data. */
 const versionSkew = (pin: string | undefined): ReadonlyArray<Diagnostic> => {
   if (pin === undefined || pin === ts.version) return [];
-  const message = `effx analyses with TypeScript ${ts.version} but the project pins typescript ${pin}; tsc/tsgo remains the authoritative type gate`;
 
-  return [
-    major(pin) === major(ts.version)
-      ? { code: "EFFX0001", severity: "info", message }
-      : warning("EFFX0001", message),
-  ];
+  return [CoreDiagnostics.EFFX0001.emit({ analysisVersion: ts.version, projectPin: pin })];
 };
 
 export const loadProject = Effect.fn("loadProject")(function* (config: ProjectConfig) {
@@ -220,7 +212,7 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
   const location = { file: tsconfigPath, line: 1, col: 1 };
 
   if (Option.isNone(effx)) {
-    diagnostics.push(error("EFFX2701", "invalid tsconfig effx settings", location));
+    diagnostics.push(CoreDiagnostics.EFFX2701.emit({ _tag: "Settings" }, { location }));
   }
 
   const packageText =
@@ -235,23 +227,25 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
     (Option.isSome(installed) ? targetProfileFromVersion(installed.value.version) : undefined);
 
   if (target === undefined || Option.isNone(installed)) {
-    const reason = Option.isSome(installed)
-      ? "unsupported effect version " + installed.value.version + " at " + effectPackagePath
+    const params: Parameters<typeof CoreDiagnostics.EFFX2701.emit>[0] = Option.isSome(installed)
+      ? {
+          _tag: "EffectVersion",
+          version: installed.value.version,
+          packagePath: String(effectPackagePath),
+        }
       : effectPackagePath === undefined
-        ? "effect/package.json is not resolvable from " + tsconfigDir
-        : "invalid effect/package.json at " + effectPackagePath;
+        ? { _tag: "EffectUnresolved", directory: tsconfigDir }
+        : { _tag: "EffectPackage", packagePath: effectPackagePath };
 
-    diagnostics.push(error("EFFX2701", reason, location));
+    diagnostics.push(CoreDiagnostics.EFFX2701.emit(params, { location }));
   }
 
   if (runtimeRoot === undefined) {
     diagnostics.push(
-      warning(
-        "EFFX1106",
-        "@effx/runtime is not resolvable from " +
-          (rootNames[0] ?? tsconfigDir) +
-          "; no effx declarations can be recognised",
-      ),
+      CoreDiagnostics.EFFX1106.emit({
+        _tag: "RuntimeResolution",
+        from: rootNames[0] ?? tsconfigDir,
+      }),
     );
   }
 

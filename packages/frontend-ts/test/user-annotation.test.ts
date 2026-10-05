@@ -1,6 +1,6 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { Annotation, Builtins } from "@effx/runtime";
 import {
   Extensions,
@@ -8,7 +8,7 @@ import {
   compile,
   extension,
   implement,
-  error,
+  defineDiagnostic,
   type Extension,
 } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -23,12 +23,33 @@ const Services = Layer.mergeAll(
 // The definition module is a leaf; the test imports it exactly as an extension author would.
 const { RateLimit } = await import("./fixtures/users/src/rate-limit.def.ts");
 
+const recorded = defineDiagnostic(
+  {
+    code: "EFFX[@fixture/frontend-rate-limit]/0001",
+    owner: "@fixture/frontend-rate-limit",
+    title: "Rate limit annotation recorded",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation: "The test extension records each interpreted app.RateLimit node during analysis.",
+    examples: [
+      {
+        before: "@RateLimit({ perMinute: 60 })",
+        after: "// Remove RateLimit when no recorded node is intended.",
+        explanation: "This diagnostic is a test probe, not a production validation rule.",
+      },
+    ],
+  },
+  Schema.Struct({ subject: Schema.String }),
+  ({ subject }) => `${subject}: recorded`,
+);
+
 const rateLimit = extension("app", [
   implement(RateLimit, {
+    diagnosticEntries: [recorded.entry],
     analyze: (ir) =>
       ir.nodes.flatMap((node) =>
         node._tag === "Extension" && node.tag === "app.RateLimit"
-          ? [error("EFFX9002", `${node.id}: recorded`)]
+          ? [recorded.emit({ subject: node.id })]
           : [],
       ),
   }),
@@ -81,7 +102,7 @@ describe("user-declared annotations", () => {
       );
       assert.deepStrictEqual(
         result.diagnostics
-          .filter((d) => d.code === "EFFX9002")
+          .filter((d) => d.code === recorded.entry.code)
           .map((d) => d.message)
           .toSorted(),
         ["ext:app.RateLimit/Limited.Builder: recorded", "ext:app.RateLimit/Limited.Get: recorded"],

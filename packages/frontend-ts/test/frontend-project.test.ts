@@ -3,7 +3,7 @@ import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { type ProjectConfig, Extensions, SourceFrontend, compile } from "@effx/compiler";
 import { canonical, semanticHash } from "@effx/ir";
-import { Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { loadProject, readTsconfigEffx, targetProfileFromVersion } from "../src/project.ts";
 
@@ -13,6 +13,14 @@ const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
 const Services = Layer.mergeAll(Frontend, BunServices.layer);
 
+const encodePackagePin = Schema.encodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      devDependencies: Schema.Struct({ typescript: Schema.String }),
+    }),
+  ),
+);
+
 describe("frontend target project", () => {
   it("recognizes only supported installed Effect profiles", () => {
     assert.strictEqual(targetProfileFromVersion("4.0.0"), "effect-4.0");
@@ -21,6 +29,36 @@ describe("frontend target project", () => {
     assert.isUndefined(targetProfileFromVersion("4.0.1"));
     assert.isUndefined(targetProfileFromVersion("4.0.0-beta.1"));
   });
+  it.effect.each([
+    ["6.9.0", "info"],
+    ["7.0.2", "warning"],
+  ] as const)("preserves TypeScript skew message and severity for pin %s", ([pin, severity]) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fixtureRoot = yield* copyUsersFixture();
+      yield* fs.writeFileString(
+        path.join(fixtureRoot, "package.json"),
+        yield* encodePackagePin({ devDependencies: { typescript: pin } }),
+      );
+
+      const project = yield* loadProject({
+        tsconfigPath: path.join(fixtureRoot, "tsconfig.json"),
+        entry: ["src/operations.ts"],
+      });
+
+      assert.deepStrictEqual(
+        project.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX0001"),
+        [
+          {
+            code: "EFFX0001",
+            severity,
+            message: `effx analyses with TypeScript ${TsSourceFrontend.typescriptVersion} but the project pins typescript ${pin}; tsc/tsgo remains the authoritative type gate`,
+          },
+        ],
+      );
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+  );
 
   it.effect(
     "resolves its installed Effect, inherited extension policy, and explicit override",
@@ -198,6 +236,16 @@ describe("frontend target project", () => {
             diagnostic.message.includes(absent) &&
             !diagnostic.message.includes(source),
         ),
+      );
+      assert.deepStrictEqual(
+        missing.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1106"),
+        [
+          {
+            code: "EFFX1106",
+            severity: "warning",
+            message: `@effx/runtime is not resolvable from ${path.join(source, "src", "entry.ts")}; no effx declarations can be recognised`,
+          },
+        ],
       );
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   );

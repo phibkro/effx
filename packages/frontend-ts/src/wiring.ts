@@ -224,7 +224,7 @@ export const analyzeWiring = Effect.fn("analyzeWiring")(function* (input: Wiring
     const checker = program.getTypeChecker();
     const workers: Array<Location> = [];
     const references: Array<WiringReference> = [];
-    const undecidable: Array<{ location: Location; reason: string }> = [];
+    const undecidable: Array<WiringFacts["undecidable"][number]> = [];
 
     const referenceTo = (file: string, name: string, node: ts.Node): void => {
       references.push({ file, name, location: positionOf(node) });
@@ -266,7 +266,7 @@ export const analyzeWiring = Effect.fn("analyzeWiring")(function* (input: Wiring
           ) {
             undecidable.push({
               location: positionOf(node),
-              reason: "import() with a non-literal specifier",
+              reason: { _tag: "DynamicImport" },
             });
           }
         }
@@ -287,7 +287,7 @@ export const analyzeWiring = Effect.fn("analyzeWiring")(function* (input: Wiring
             if (literal === undefined) {
               undecidable.push({
                 location: positionOf(node),
-                reason: `computed access on the namespace import ${node.expression.text} of a generated module`,
+                reason: { _tag: "NamespaceAccess", namespace: node.expression.text },
               });
             } else {
               referenceTo(origin, literal, node);

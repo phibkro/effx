@@ -1,4 +1,9 @@
-import { type Collected, type HttpApiGroupInventory, StageResult, error } from "@effx/compiler";
+import {
+  type Collected,
+  type HttpApiGroupInventory,
+  StageResult,
+  HttpDiagnostics,
+} from "@effx/compiler";
 import type { SymbolRef } from "@effx/ir";
 import type { Project } from "./project.ts";
 import { positionOf, ts, tryTs } from "./ts.ts";
@@ -117,7 +122,7 @@ export const makeHttpApiInventoryResolver =
 
       if (candidate === undefined)
         return StageResult.skip([
-          error("EFFX2415", `HTTP root ${root.export}: no registered inventory candidate`),
+          HttpDiagnostics.EFFX2415.emit({ _tag: "NoCandidate", root: root.export }),
         ]);
       const proof = httpApiInventory(project.checker, candidate.type, root, candidate.declaration);
 
@@ -125,10 +130,13 @@ export const makeHttpApiInventoryResolver =
       const unresolved = unresolvedImports(project, candidate.declaration);
 
       return StageResult.skip([
-        error(
-          "EFFX2415",
-          `HTTP root ${root.export}: endpoint inventory cannot be proven: ${unresolved.length > 0 ? unresolved.join("; ") : proof.failure}`,
-          positionOf(candidate.declaration),
+        HttpDiagnostics.EFFX2415.emit(
+          {
+            _tag: "UnprovenRoot",
+            root: root.export,
+            inventoryIssue: unresolved.length > 0 ? unresolved.join("; ") : proof.failure,
+          },
+          { location: positionOf(candidate.declaration) },
         ),
       ]);
     });

@@ -1,4 +1,4 @@
-import type { SpreadSource } from "@effx/compiler";
+import type { CoreDiagnostics, SpreadSource } from "@effx/compiler";
 import { type Resolver, origin } from "./resolve.ts";
 import { positionOf, ts } from "./ts.ts";
 
@@ -7,9 +7,14 @@ interface ResolvedTuple {
   readonly spreads: ReadonlyArray<SpreadSource>;
 }
 
+type TupleReason = Extract<
+  Parameters<typeof CoreDiagnostics.EFFX1102.emit>[0],
+  { readonly _tag: "Lowering" }
+>["reason"];
+
 interface UnresolvedTuple {
   readonly spread: ts.SpreadElement;
-  readonly reason: string;
+  readonly reason: TupleReason;
 }
 
 type TupleResult = ResolvedTuple | UnresolvedTuple;
@@ -23,7 +28,7 @@ export const resolveStringSpread = (
 ): TupleResult => {
   const checker = resolver.project.checker;
   const operand = spread.expression;
-  const unresolved = (reason: string): UnresolvedTuple => ({ spread, reason });
+  const unresolved = (reason: TupleReason): UnresolvedTuple => ({ spread, reason });
 
   const walk = (input: ts.Expression): TupleResult => {
     let node = input;
@@ -40,9 +45,9 @@ export const resolveStringSpread = (
       const symbol = checker.getSymbolAtLocation(node);
       const found = symbol === undefined ? undefined : origin(resolver, symbol);
 
-      if (found === undefined) return unresolved("unresolved tuple operand");
+      if (found === undefined) return unresolved({ _tag: "TupleUnresolved" });
 
-      if (active.has(found.symbol)) return unresolved("cyclic tuple initializer");
+      if (active.has(found.symbol)) return unresolved({ _tag: "TupleCycle" });
       const declaration = found.declaration;
 
       if (
@@ -50,7 +55,7 @@ export const resolveStringSpread = (
         (declaration.parent.flags & ts.NodeFlags.Const) === 0 ||
         declaration.initializer === undefined
       )
-        return unresolved("operand must resolve to a const tuple initializer");
+        return unresolved({ _tag: "TupleConst" });
 
       active.add(found.symbol);
       const result = walk(declaration.initializer);
@@ -62,8 +67,7 @@ export const resolveStringSpread = (
       return crossCheck(node, result);
     }
 
-    if (!ts.isArrayLiteralExpression(node))
-      return unresolved("operand must resolve to a readonly const tuple of string literals");
+    if (!ts.isArrayLiteralExpression(node)) return unresolved({ _tag: "TupleLiteral" });
 
     const codes: Array<string> = [];
     const spreads: Array<SpreadSource> = [];
@@ -78,7 +82,7 @@ export const resolveStringSpread = (
       } else if (ts.isStringLiteral(element) || ts.isNoSubstitutionTemplateLiteral(element)) {
         codes.push(element.text);
       } else {
-        return unresolved(`tuple element \`${element.getText()}\` must be a string literal`);
+        return unresolved({ _tag: "TupleElement", source: element.getText() });
       }
     }
 
@@ -88,11 +92,11 @@ export const resolveStringSpread = (
   const crossCheck = (expression: ts.Expression, result: ResolvedTuple): TupleResult => {
     const type = checker.getTypeAtLocation(expression);
 
-    if (!checker.isTupleType(type)) return unresolved("operand is not a readonly const tuple");
+    if (!checker.isTupleType(type)) return unresolved({ _tag: "TupleReadonly" });
     // SAFETY: isTupleType above establishes the TypeReference tuple target and its readonly flag.
     const tuple = type as ts.TupleTypeReference;
 
-    if (!tuple.target.readonly) return unresolved("operand is not a readonly const tuple");
+    if (!tuple.target.readonly) return unresolved({ _tag: "TupleReadonly" });
     const elements = checker.getTypeArguments(tuple);
 
     if (
@@ -101,7 +105,7 @@ export const resolveStringSpread = (
         (element, index) => !element.isStringLiteral() || element.value !== result.codes[index],
       )
     )
-      return unresolved("tuple type disagrees with its runtime initializer elements or order");
+      return unresolved({ _tag: "TupleMismatch" });
 
     return result;
   };

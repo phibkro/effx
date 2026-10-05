@@ -75,13 +75,60 @@ describe("generic runtime-sourced annotations", () => {
 
       const rejected = collected.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1102");
       assert.strictEqual(rejected.length, 5);
-      assert.isTrue(rejected.every((diagnostic) => diagnostic.location !== undefined));
-      assert.isTrue(
-        rejected.some((diagnostic) => diagnostic.message.includes("name must be a string literal")),
+      assert.deepStrictEqual(
+        rejected.map(({ code, severity, message, location }) => ({
+          code,
+          severity,
+          message,
+          line: location?.line,
+          col: location?.col,
+        })),
+        [
+          {
+            code: "EFFX1102",
+            severity: "error",
+            message:
+              "Invalid.nonliteral: cannot lower `name` to an annotation argument: annotation name must be a string literal",
+            line: 29,
+            col: 20,
+          },
+          {
+            code: "EFFX1102",
+            severity: "error",
+            message:
+              "Invalid.argument: cannot lower `reason()` to an annotation argument: unsupported runtime constructor call",
+            line: 35,
+            col: 52,
+          },
+          {
+            code: "EFFX1102",
+            severity: "error",
+            message:
+              "Invalid.missingName: cannot lower `RuntimeAnnotate()` to an annotation argument: Annotate requires a literal annotation name",
+            line: 41,
+            col: 4,
+          },
+          {
+            code: "EFFX1102",
+            severity: "error",
+            message:
+              "InvalidBuilder: cannot lower `name` to an annotation argument: annotation name must be a string literal",
+            line: 48,
+            col: 13,
+          },
+          {
+            code: "EFFX1102",
+            severity: "error",
+            message:
+              "InvalidBuilder: cannot lower `reason()` to an annotation argument: unsupported runtime constructor call",
+            line: 49,
+            col: 45,
+          },
+        ],
       );
       assert.isTrue(
-        rejected.some((diagnostic) =>
-          diagnostic.message.includes("unsupported runtime constructor call"),
+        rejected.every((diagnostic) =>
+          diagnostic.location?.file.endsWith("/custom-annotations.ts"),
         ),
       );
     }).pipe(Effect.provide(Services)),

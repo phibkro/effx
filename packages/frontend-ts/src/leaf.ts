@@ -1,4 +1,4 @@
-import { error, type Diagnostic } from "@effx/compiler";
+import { CoreDiagnostics, type Diagnostic } from "@effx/compiler";
 import { type Resolver, origin } from "./resolve.ts";
 import { positionOf, ts } from "./ts.ts";
 
@@ -65,10 +65,13 @@ export const leafViolations = (
 
       if (declarationFiles.has(current.fileName)) {
         diagnostics.push(
-          error(
-            "EFFX1306",
-            `definition module ${file.fileName} of @${use.name} reaches application module ${current.fileName}; a definition module may import only effect, @effx/* and other definition modules`,
-            positionOf(use.call),
+          CoreDiagnostics.EFFX1306.emit(
+            {
+              definitionModule: file.fileName,
+              annotation: use.name,
+              applicationModule: current.fileName,
+            },
+            { location: positionOf(use.call) },
           ),
         );
         break;

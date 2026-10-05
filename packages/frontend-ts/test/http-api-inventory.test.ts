@@ -137,6 +137,40 @@ describe("concrete HttpApi endpoint inventory", () => {
         assert.isTrue(Option.isNone(rejected.files.value));
       }).pipe(Effect.scoped, Effect.provide(Services)),
   );
+  it.effect(
+    "preserves root inventory factory bytes and candidate locations without lowering rejection",
+    () =>
+      Effect.gen(function* () {
+        const collected = yield* collectSource(
+          "export declare const Root: Omit<typeof Native, 'groups'> & { groups: any };",
+        );
+
+        assert.isFalse(collected.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2415"));
+        const resolve = collected.resolveHttpApiInventory!;
+        const missing = yield* resolve({ module: "../../root", export: "Absent" });
+        assert.isTrue(Option.isNone(missing.value));
+        assert.deepStrictEqual(missing.diagnostics, [
+          {
+            code: "EFFX2415",
+            severity: "error",
+            message: "HTTP root Absent: no registered inventory candidate",
+          },
+        ]);
+        const invalid = yield* resolve({ module: "../../root", export: "Root" });
+        assert.isTrue(Option.isNone(invalid.value));
+        assert.strictEqual(invalid.diagnostics.length, 1);
+        const diagnostic = invalid.diagnostics[0]!;
+        assert.strictEqual(diagnostic.code, "EFFX2415");
+        assert.strictEqual(diagnostic.severity, "error");
+        assert.strictEqual(
+          diagnostic.message,
+          "HTTP root Root: endpoint inventory cannot be proven: root.groups must be a finite required map",
+        );
+        assert.isTrue(diagnostic.location?.file.endsWith("/root.ts"));
+        assert.strictEqual(diagnostic.location?.line, native.split("\n").length);
+        assert.strictEqual(diagnostic.location?.col, "export declare const ".length + 1);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
 
   it.effect("rejects a declared group absent from the concrete root", () =>
     Effect.gen(function* () {

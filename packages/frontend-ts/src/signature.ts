@@ -1,5 +1,5 @@
 import type { Diagnostic, HandlerSignature, TypeRef } from "@effx/compiler";
-import { error } from "@effx/compiler";
+import { CoreDiagnostics } from "@effx/compiler";
 import {
   type Resolver,
   exportedSymbol,
@@ -198,10 +198,9 @@ export const inferSignature = (
     return {
       signature: undefined,
       diagnostics: [
-        error(
-          "EFFX1105",
-          `${declarationId}: handler returns \`${checker.typeToString(returnType)}\`, not an Effect.Effect<A, E, R>`,
-          positionOf(at),
+        CoreDiagnostics.EFFX1105.emit(
+          { subject: declarationId, returnType: checker.typeToString(returnType) },
+          { location: positionOf(at) },
         ),
       ],
     };
