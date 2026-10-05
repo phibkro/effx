@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { StableId } from "@effx/ir";
+import { StageResult } from "@effx/compiler";
 import { Extensions, compileCollected } from "@effx/compiler";
 import type { Collected, Declaration } from "../src/Collected.ts";
 
@@ -84,14 +85,16 @@ const collected = (
 ): Collected => ({
   declarations: [groupDeclaration, ...declarations],
   diagnostics: [],
-  // Every supplied operation belongs to this complete in-memory native group.
-  httpApiGroups: [
-    {
-      root,
-      group: "articles",
-      endpoints: declarations.map((declaration) => declaration.id.slice("Article.".length)),
-    },
-  ],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(
+      StageResult.succeed([
+        {
+          root,
+          group: "articles",
+          endpoints: declarations.map((declaration) => declaration.id.slice("Article.".length)),
+        },
+      ]),
+    ),
   project: {
     target: "effect-4.0",
     emit,

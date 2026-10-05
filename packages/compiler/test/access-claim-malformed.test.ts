@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { IRGraph, StableId, make, type Edge, type Node, type OperationNode } from "@effx/ir";
+import { StageResult } from "@effx/compiler";
 import { Extensions, compileCollected } from "@effx/compiler";
 import type { AnnotationArg, Collected, Declaration } from "../src/Collected.ts";
 
@@ -124,8 +125,8 @@ const group: Declaration = {
 const collected = (arg: AnnotationArg): Collected => ({
   declarations: [group, declaration(arg)],
   diagnostics: [],
-  // The native Contact group is complete even when the access claim is malformed.
-  httpApiGroups: [{ root, group: "contact", endpoints: ["submit"] }],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(StageResult.succeed([{ root, group: "contact", endpoints: ["submit"] }])),
 });
 
 const errorCodes = (diagnostics: ReadonlyArray<{ code: string; severity: string }>) =>

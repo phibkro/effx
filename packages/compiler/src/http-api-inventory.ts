@@ -1,9 +1,33 @@
-import type { ApplicationIR, OperationNode, SymbolRef } from "@effx/ir";
+import type { ApplicationIR, SymbolRef } from "@effx/ir";
 import { type Diagnostic, error } from "./Diagnostic.ts";
 import type { GenerationContext } from "./Extension.ts";
 import type { Exposed } from "./generate/emit.ts";
 import { endpointKey, httpGroups, toHttpItems } from "./generate/http-contracts.ts";
 import type { HttpApiGroupInventory } from "./Collected.ts";
+
+export const httpApiRootKey = (root: SymbolRef): string =>
+  `${root.module.length}:${root.module}${root.export.length}:${root.export}${root.member ?? ""}`;
+
+/** Matches the handler-factory admission rule; contracts and locally owned groups need no proof. */
+export const externalHttpApiGroups = (ir: ApplicationIR) => {
+  const operations = new Map(
+    ir.nodes.flatMap((node) => (node._tag === "Operation" ? [[node.id, node] as const] : [])),
+  );
+
+  const exposures: Array<Exposed> = [];
+
+  for (const node of ir.nodes) {
+    if (node._tag !== "Exposure") continue;
+    const operation = operations.get(node.operation);
+
+    if (operation !== undefined)
+      exposures.push({ exposure: node, transport: node.transport, operation });
+  }
+
+  return httpGroups(toHttpItems(ir, exposures), ir).filter((group) =>
+    group.items.every((item) => item.operation.handler === undefined),
+  );
+};
 
 /** Exactly one canonical root/group inventory is required; absence is never completeness. */
 export const findHttpApiGroupInventory = (
@@ -27,27 +51,16 @@ export const findHttpApiGroupInventory = (
 export const httpApiInventoryDiagnostics = (
   ir: ApplicationIR,
   context: GenerationContext,
+  failedRoots: ReadonlySet<string> = new Set(),
 ): ReadonlyArray<Diagnostic> => {
-  const operations = new Map<string, OperationNode>(
-    ir.nodes.flatMap((node) => (node._tag === "Operation" ? [[node.id, node] as const] : [])),
-  );
-
-  const exposures: Array<Exposed> = [];
-
-  for (const node of ir.nodes) {
-    if (node._tag !== "Exposure") continue;
-    const operation = operations.get(node.operation);
-
-    if (operation !== undefined)
-      exposures.push({ exposure: node, transport: node.transport, operation });
-  }
+  if (context.emit === "contract") return [];
 
   const diagnostics: Array<Diagnostic> = [];
 
-  for (const group of httpGroups(toHttpItems(ir, exposures), ir)) {
+  for (const group of externalHttpApiGroups(ir)) {
     const root = group.metadata?.rootSymbol;
 
-    if (root === undefined) continue;
+    if (root === undefined || failedRoots.has(httpApiRootKey(root))) continue;
     const inventory = findHttpApiGroupInventory(root, group.group, context.httpApiGroups);
 
     if (inventory === undefined) {

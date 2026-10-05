@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { type ApplicationIR, type GraphIndex, IRGraph, make, normalize } from "@effx/ir";
-import type { Collected, ProjectConfig } from "./Collected.ts";
+import type { Collected, HttpApiGroupInventory, ProjectConfig } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import { type Diagnostic, type Location, StageResult, error, hasErrors } from "./Diagnostic.ts";
 import {
@@ -16,7 +16,11 @@ import { SourceFrontend } from "./SourceFrontend.ts";
 import { operationIdOf } from "./extensions/core.ts";
 import { definitionDiagnostics, definitionsOf } from "./annotation.ts";
 import { unsupportedModules } from "./generate/target.ts";
-import { httpApiInventoryDiagnostics } from "./http-api-inventory.ts";
+import {
+  externalHttpApiGroups,
+  httpApiRootKey,
+  httpApiInventoryDiagnostics,
+} from "./http-api-inventory.ts";
 
 /** @internal */
 export interface CompileResult {
@@ -185,9 +189,6 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
   if (collected.resolveEffectModule !== undefined)
     generationContext.resolveEffectModule = collected.resolveEffectModule;
 
-  if (collected.httpApiGroups !== undefined)
-    generationContext.httpApiGroups = collected.httpApiGroups;
-
   const sourceLocation = collected.declarations.find(
     (declaration) => declaration.location !== undefined,
   )?.location;
@@ -208,8 +209,39 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
   ];
 
   // Inventory is a generation precondition; avoid cascades when emission is already blocked.
-  if (!hasErrors(diagnostics))
-    diagnostics.push(...httpApiInventoryDiagnostics(ir, generationContext));
+  if (!hasErrors(diagnostics) && generationContext.emit !== "contract") {
+    const inventories: Array<HttpApiGroupInventory> = [];
+    const resolved = new Set<string>();
+    const failed = new Set<string>();
+
+    for (const group of externalHttpApiGroups(ir)) {
+      const root = group.metadata?.rootSymbol;
+
+      if (root === undefined) continue;
+      const key = httpApiRootKey(root);
+
+      if (resolved.has(key)) continue;
+      resolved.add(key);
+
+      if (collected.resolveHttpApiInventory === undefined) continue;
+      const proof = yield* collected.resolveHttpApiInventory(root);
+
+      diagnostics.push(...proof.diagnostics);
+
+      if (Option.isSome(proof.value)) inventories.push(...proof.value.value);
+      else {
+        failed.add(key);
+
+        if (!hasErrors(proof.diagnostics))
+          diagnostics.push(
+            error("EFFX2415", `HTTP root ${root.export}: endpoint inventory cannot be proven`),
+          );
+      }
+    }
+
+    generationContext.httpApiGroups = inventories;
+    diagnostics.push(...httpApiInventoryDiagnostics(ir, generationContext, failed));
+  }
 
   const files = hasErrors(diagnostics)
     ? StageResult.skip<ReadonlyArray<GeneratedFile>>()

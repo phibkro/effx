@@ -4,6 +4,7 @@ import { Effect, Option } from "effect";
 import { expectTypeOf } from "vitest";
 import { StableId, canonical, semanticHash } from "@effx/ir";
 import {
+  StageResult,
   Extensions,
   compileCollected,
   interpret,
@@ -218,13 +219,16 @@ const source = (
     operation(dense, "direct", "Get", "Query", true, association),
   ],
   diagnostics: [],
-  httpApiGroups: [
-    {
-      root: root.ref,
-      group: "directory",
-      endpoints: ["lookup", "list", "create", "edit", "direct"],
-    },
-  ],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(
+      StageResult.succeed([
+        {
+          root: root.ref,
+          group: "directory",
+          endpoints: ["lookup", "list", "create", "edit", "direct"],
+        },
+      ]),
+    ),
 });
 
 const errors = (result: {

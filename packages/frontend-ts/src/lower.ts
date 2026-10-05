@@ -15,7 +15,7 @@ import {
 } from "./resolve.ts";
 import { isExported, positionOf, ts } from "./ts.ts";
 import { resolveStringSpread } from "./string-tuple.ts";
-import { httpApiInventory } from "./http-api-inventory.ts";
+import { httpApiRootKey } from "./http-api-inventory.ts";
 
 /** Top-level exported functions are valid application symbols, not Schema or service values. */
 const exportedAccessFunction = (resolver: Resolver, symbol: ts.Symbol) => {
@@ -631,32 +631,10 @@ export const lowerExpression = (
       if (literal === undefined || !literal.isStringLiteral())
         return reject(declarationId, node, "HTTP root identifier must be a string literal");
 
-      const inventory = httpApiInventory(checker, type, exported.ref, node);
+      const key = httpApiRootKey(exported.ref);
 
-      if (inventory === undefined) {
-        return {
-          value: undefined,
-          diagnostics: [
-            error(
-              "EFFX2415",
-              "HTTP root endpoint inventory must have finite required group and endpoint keys with matching literal identifiers",
-              positionOf(node),
-            ),
-          ],
-        };
-      }
-
-      for (const entry of inventory) {
-        if (
-          !resolver.httpApiGroups?.some(
-            (previous) =>
-              previous.root.module === entry.root.module &&
-              previous.root.export === entry.root.export &&
-              previous.group === entry.group,
-          )
-        )
-          resolver.httpApiGroups?.push(entry);
-      }
+      if (!resolver.httpApiRoots?.has(key))
+        resolver.httpApiRoots?.set(key, { type, declaration: exported.declaration });
 
       return ok({ _tag: "Symbol", ref: exported.ref, identifier: literal.value });
     }

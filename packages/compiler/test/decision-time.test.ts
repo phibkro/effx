@@ -3,6 +3,7 @@ import { BunCrypto } from "@effect/platform-bun";
 import { Effect, Option, Schema } from "effect";
 import { Builtins, type HttpAccessOptions, type HttpGroupOptions } from "@effx/runtime";
 import { StableId, canonical, semanticHash } from "@effx/ir";
+import { StageResult } from "@effx/compiler";
 import { Extensions, compileCollected, type CompileResult, type ReadArgs } from "@effx/compiler";
 import type { AnnotationArg, Collected, Declaration } from "../src/Collected.ts";
 import { AccessContractData } from "../src/extensions/access-contract.ts";
@@ -115,8 +116,8 @@ const operation = (
 const collected = (...declarations: ReadonlyArray<Declaration>): Collected => ({
   declarations: [group, ...declarations],
   diagnostics: [],
-  // These in-memory fixtures describe the complete native orders group.
-  httpApiGroups: [{ root, group: "orders", endpoints: ["op"] }],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(StageResult.succeed([{ root, group: "orders", endpoints: ["op"] }])),
   project,
 });
 
@@ -352,7 +353,7 @@ describe("decisionTime default (spec 0024 §4)", () => {
         ),
       ],
       diagnostics: [],
-      httpApiGroups,
+      resolveHttpApiInventory: () => Effect.succeed(StageResult.succeed(httpApiGroups)),
     });
 
     const twin = (kind: "Query" | "Command", expected: DecisionTime): Collected => ({
@@ -366,7 +367,7 @@ describe("decisionTime default (spec 0024 §4)", () => {
         }),
       ],
       diagnostics: [],
-      httpApiGroups,
+      resolveHttpApiInventory: () => Effect.succeed(StageResult.succeed(httpApiGroups)),
     });
 
     it.effect("builder and decorator spellings default alike, and equal the verbose twin", () =>

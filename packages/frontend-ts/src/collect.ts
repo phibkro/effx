@@ -21,6 +21,7 @@ import {
 } from "./resolve.ts";
 import { inferSignature } from "./signature.ts";
 import { isExported, positionOf, ts } from "./ts.ts";
+import { type HttpApiRootCandidate, makeHttpApiInventoryResolver } from "./http-api-inventory.ts";
 
 const annotationArgRecord = Schema.Record(Schema.String, AnnotationArgSchema);
 
@@ -708,12 +709,12 @@ export const collect = (
 ): Collected => {
   const appliedUses: Array<AppliedUse> = [];
   const spreads: NonNullable<Collected["spreads"]>[number][] = [];
-  const httpApiGroups: NonNullable<Collected["httpApiGroups"]>[number][] = [];
+  const httpApiRoots = new Map<string, HttpApiRootCandidate>();
 
   const resolver: Resolver =
     definitions === undefined
-      ? { ...baseResolver, appliedUses, spreads, httpApiGroups }
-      : { ...baseResolver, definitions, appliedUses, spreads, httpApiGroups };
+      ? { ...baseResolver, appliedUses, spreads, httpApiRoots }
+      : { ...baseResolver, definitions, appliedUses, spreads, httpApiRoots };
 
   const sink: Sink = { declarations: [], diagnostics: [] };
   const rootDir = resolver.project.rootDir;
@@ -790,7 +791,8 @@ export const collect = (
 
   if (spreads.length > 0) result.spreads = spreads;
 
-  if (httpApiGroups.length > 0) result.httpApiGroups = httpApiGroups;
+  if (httpApiRoots.size > 0)
+    result.resolveHttpApiInventory = makeHttpApiInventoryResolver(resolver.project, httpApiRoots);
 
   return result;
 };

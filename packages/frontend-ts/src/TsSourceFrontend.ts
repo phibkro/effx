@@ -80,7 +80,8 @@ export const analyze = Effect.fn("TsSourceFrontend.analyze")(function* (
 
   if (collected.spreads !== undefined) result.spreads = collected.spreads;
 
-  if (collected.httpApiGroups !== undefined) result.httpApiGroups = collected.httpApiGroups;
+  if (collected.resolveHttpApiInventory !== undefined)
+    result.resolveHttpApiInventory = collected.resolveHttpApiInventory;
 
   if (project.resolution !== undefined) result.project = project.resolution;
 

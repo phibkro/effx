@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { StableId } from "@effx/ir";
+import { StageResult } from "@effx/compiler";
 import { Extensions, compileCollected } from "@effx/compiler";
 import type { Collected, Declaration } from "../src/Collected.ts";
 import { identifier } from "../src/generate/emit.ts";
@@ -63,15 +64,20 @@ const source = (
 ): Collected => ({
   declarations,
   diagnostics: [],
-  httpApiGroups: [
-    ...new Set(
-      declarations.flatMap((declaration) =>
-        declaration.id.startsWith("group:")
-          ? [declaration.id.slice(declaration.id.lastIndexOf("/") + 1)]
-          : [],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(
+      StageResult.succeed(
+        [
+          ...new Set(
+            declarations.flatMap((declaration) =>
+              declaration.id.startsWith("group:")
+                ? [declaration.id.slice(declaration.id.lastIndexOf("/") + 1)]
+                : [],
+            ),
+          ),
+        ].map((group) => ({ root: root.ref, group, endpoints: ["list"] })),
       ),
     ),
-  ].map((group) => ({ root: root.ref, group, endpoints: ["list"] })),
   project: {
     target: "effect-4.0",
     emit,

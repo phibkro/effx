@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { BunCrypto } from "@effect/platform-bun";
 import { Effect, Option, Schema } from "effect";
 import { StableId, canonical, semanticHash } from "@effx/ir";
+import { StageResult } from "@effx/compiler";
 import { Extensions, compileCollected, type CompileResult } from "@effx/compiler";
 import type { AnnotationArg, Collected, Declaration } from "../src/Collected.ts";
 import { HttpContractData } from "../src/extensions/http-contract.ts";
@@ -118,9 +119,12 @@ const project = {
 const bare = (value: Scenario): Collected => ({
   declarations: [group, external(value)],
   diagnostics: [],
-  httpApiGroups: [
-    { root: { module: "./root", export: "OrdersApi" }, group: "orders", endpoints: ["op"] },
-  ],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(
+      StageResult.succeed([
+        { root: { module: "./root", export: "OrdersApi" }, group: "orders", endpoints: ["op"] },
+      ]),
+    ),
   project,
 });
 
@@ -204,9 +208,12 @@ const grouped = (
     local(value, association, dense),
   ],
   diagnostics: [],
-  httpApiGroups: [
-    { root: { module: "orders/api", export: "Api" }, group: "orders", endpoints: ["op"] },
-  ],
+  resolveHttpApiInventory: () =>
+    Effect.succeed(
+      StageResult.succeed([
+        { root: { module: "orders/api", export: "Api" }, group: "orders", endpoints: ["op"] },
+      ]),
+    ),
 });
 
 /** The author's spelling inside a group: the group supplies root, group and operation id, the channel is omitted. */

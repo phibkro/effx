@@ -1,6 +1,7 @@
-import { Schema } from "effect";
+import { type Effect, Schema } from "effect";
 import { SchemaRef, StableId, SymbolRef } from "@effx/ir";
-import { Diagnostic, Location } from "./Diagnostic.ts";
+import { Diagnostic, Location, type StageResult } from "./Diagnostic.ts";
+import type { CompilerFault } from "./CompilerFault.ts";
 
 /**
  * Frontend-neutral annotation argument. Decorators and builder chains both lower to this,
@@ -172,8 +173,10 @@ export const Collected = Schema.Struct({
  */
 export type Collected = typeof Collected.Type & {
   readonly resolveEffectModule?: (specifier: string) => boolean;
-  /** Checker-proven concrete root endpoint maps; never semantic IR. */
-  readonly httpApiGroups?: ReadonlyArray<HttpApiGroupInventory>;
+  /** Suspended whole-root proof owned by the frontend Program; never serialized or semantic IR. */
+  readonly resolveHttpApiInventory?: (
+    root: SymbolRef,
+  ) => Effect.Effect<StageResult<ReadonlyArray<HttpApiGroupInventory>>, CompilerFault>;
 };
 
 /** Inventory keyed by the same canonical symbol as HttpGroup.rootSymbol. */
