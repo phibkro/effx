@@ -107,7 +107,7 @@ const notDirectory = Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }
  * Construction is lazy. The caller scope owns one polling fiber; start is idempotent.
  * One pass is active, zero passes wait, and one dirty state coalesces notifications.
  * Executable intent is OR-retained until takeChanges, including coverage replacement.
- * Defaults admit 8192 paths (including routes/parents), 64 MiB/pass and 8 MiB/file.
+ * Defaults admit 8192 paths (including routes/parents), 64 MiB/pass and 16 MiB/file.
  * Directory listing IO returns a whole native array; these are retained/admitted
  * coverage bounds, not a constant-memory claim about arbitrarily large listings.
  * Polling starts immediately then sleeps 250 ms after completion. Typed faults are
@@ -131,7 +131,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
   const stopped = yield* Deferred.make<void>();
   const maxPaths = options.maxPaths ?? 8192;
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024;
-  const maxFileBytes = options.maxFileBytes ?? 8 * 1024 * 1024;
+  const maxFileBytes = options.maxFileBytes ?? 16 * 1024 * 1024;
 
   for (const limit of [maxPaths, maxBytes, maxFileBytes]) {
     if (!Number.isSafeInteger(limit) || limit <= 0)
@@ -226,6 +226,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     for (const input of coverage) {
       const entries = new Map<string, WatchEntry>();
       const visited = new Set<string>();
+      let declaredDependencyRoot = input.path.split(path.sep).includes("node_modules");
 
       const visit = Effect.fnUntraced(function* (
         name: string,
@@ -266,6 +267,8 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         }
 
         const real = yield* fs.realPath(name);
+
+        if (explicit) declaredDependencyRoot ||= real.split(path.sep).includes("node_modules");
 
         if (excluded(real))
           return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
@@ -344,8 +347,13 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           const childPath = path.join(name, child);
 
           if (excluded(childPath)) continue;
-          // Dependencies below node_modules are separate explicit inputs, never implicit traversal.
-          yield* visit(childPath, recurse && child !== "node_modules", recurse, false);
+          // Skip implicit dependency trees, not descendants of an explicitly declared dependency root.
+          yield* visit(
+            childPath,
+            recurse && (declaredDependencyRoot || child !== "node_modules"),
+            recurse,
+            false,
+          );
         }
       });
       // Capture every link on the explicit logical route, including an outside-project parent.
