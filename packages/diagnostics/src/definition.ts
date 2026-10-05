@@ -1,10 +1,10 @@
 import type { Schema } from "effect";
 import type { Diagnostic, DiagnosticEntry, Location, Severity } from "./model.ts";
 
-/** Only occurrence context is caller-controlled; no code, message or severity override. */
+/** Caller-owned occurrence context; absent or undefined values are omitted from wire data. */
 export interface EmitOptions {
-  readonly location?: Location;
-  readonly related?: ReadonlyArray<Diagnostic>;
+  readonly location?: Location | undefined;
+  readonly related?: ReadonlyArray<Diagnostic> | undefined;
 }
 
 /** An inert typed reference to entry data and its structured message parameters. */

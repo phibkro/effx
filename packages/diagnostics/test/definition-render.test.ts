@@ -90,6 +90,13 @@ describe("typed diagnostic factories", () => {
         Object.keys(definition.emit({ operation: "Users.List", strictAccess: false })),
         ["code", "severity", "message"],
       );
+      assert.deepStrictEqual(
+        definition.emit(
+          { operation: "Users.List", strictAccess: false },
+          { location: undefined, related: undefined },
+        ),
+        definition.emit({ operation: "Users.List", strictAccess: false }),
+      );
     }),
   );
 
