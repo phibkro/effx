@@ -317,7 +317,16 @@ export default defineConfig({ outDir: ".effx/custom", generators: { http: true }
         "default dev imports config once despite error and repair",
       );
       yield* dev.interrupt;
-      yield* dev.finish;
+
+      const stopped = yield* dev.finish;
+
+      yield* requireThat(stopped.code === 130, "default dev SIGINT joins cleanly");
+      yield* write("app.ts", broken);
+      yield* write("app.ts", clean);
+      yield* requireThat(
+        (yield* dev.output) === stopped.text,
+        "post-stop native edits cannot publish output",
+      );
     }),
   ).pipe(Effect.timeout("45 seconds"));
   yield* requireThat(
