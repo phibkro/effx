@@ -323,6 +323,14 @@ Do not install this hook, clear other plugins, substitute a resolver or claim a
 sandbox. Process ownership could bound a global callback's lifetime, but cannot
 repair the missing observation capability.
 
+The documented Node loader-hook alternative is unavailable in the pinned runtime.
+[`NodeModuleModule.cpp:878-881,904-928`](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/modules/NodeModuleModule.cpp#L878-L928)
+makes `module.register` a literal no-op and exports no `registerHooks` entry.
+Installed Bun compatibility guidance corroborates this at
+`node_modules/.bun/bun-types@1.4.2/node_modules/bun-types/docs/runtime/nodejs-compat.mdx:122-124`.
+Newer Node declarations cannot establish those hooks in Bun 1.3.13. No alternative
+loader framework, cache eviction or runtime replacement is proposed.
+
 ### Proposed conservative restart policy — explicitly for review
 
 For known executable dependencies, **any** content, membership, package-resolution
