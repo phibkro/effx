@@ -3,7 +3,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { DEFAULT_CEDAR_NAMESPACE, EmitMode, TargetProfile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import { Console, Effect, Layer, Option, Stdio } from "effect";
+import { Console, Effect, Layer, Logger, Option, Runtime, Schema, Stdio, Stream } from "effect";
 import { Argument, CliConfig, Command, Flag, GlobalFlag } from "effect/cli";
 import effectPackage from "effect/package.json";
 import cliPackage from "../package.json";
@@ -19,6 +19,15 @@ import { cedarCommand } from "./cedar.ts";
 import { CedarWasm } from "./cedar-validate.ts";
 import { surfaceCheck } from "./surface.ts";
 import { explain, explainUsage, ExplainFailed } from "./explain.ts";
+import { lsp, type LspOptions } from "./lsp.ts";
+import { dev } from "./watch.ts";
+
+class CommandExit extends Schema.TaggedError<CommandExit>()("CommandExit", { code: Schema.Int }) {
+  override readonly [Runtime.errorReported] = false;
+  override get [Runtime.errorExitCode]() {
+    return this.code;
+  }
+}
 
 const versions: Versions = {
   effx: cliPackage.version,
@@ -81,6 +90,65 @@ const explainCli = Command.make(
 ).pipe(
   Command.withDescription("Explain a diagnostic offline; --config opts into extension imports"),
 );
+
+const launchSelection = Effect.fnUntraced(function* () {
+  const flags = yield* root;
+
+  const selected: {
+    -readonly [
+      K in keyof Pick<
+        LspOptions,
+        "project" | "config" | "outDir" | "strictAccess" | "target" | "emit"
+      >
+    ]: LspOptions[K];
+  } = {};
+
+  if (Option.isSome(flags.project)) selected.project = flags.project.value;
+
+  if (Option.isSome(flags.config)) selected.config = flags.config.value;
+
+  if (Option.isSome(flags.outDir)) selected.outDir = flags.outDir.value;
+
+  if (Option.isSome(flags.strictAccess)) selected.strictAccess = flags.strictAccess.value;
+
+  if (Option.isSome(flags.target)) selected.target = flags.target.value;
+
+  if (Option.isSome(flags.emit)) selected.emit = flags.emit.value;
+
+  return selected;
+});
+
+const devCli = Command.make(
+  "dev",
+  {
+    build: Flag.Boolean("build"),
+    executableFiles: Flag.String("exec-file").pipe(Flag.atLeast(0)),
+    executableDirectories: Flag.String("exec-dir").pipe(Flag.atLeast(0)),
+  },
+  Effect.fnUntraced(function* (options) {
+    const selected = yield* launchSelection();
+    const stdio = yield* Stdio.Stdio;
+    yield* Effect.raceFirst(
+      dev({ ...selected, ...options, projectSelected: selected.project !== undefined }, versions),
+      stdio.stdin.pipe(Stream.runDrain),
+    );
+  }),
+).pipe(Command.withDescription("Watch diagnostics; --build explicitly opts into generated writes"));
+
+const lspCli = Command.make(
+  "lsp",
+  {
+    trustConfig: Flag.Boolean("trust-config"),
+    executableFiles: Flag.String("exec-file").pipe(Flag.atLeast(0)),
+    executableDirectories: Flag.String("exec-dir").pipe(Flag.atLeast(0)),
+  },
+  Effect.fnUntraced(function* (options) {
+    const selected = yield* launchSelection();
+    const code = yield* lsp({ ...selected, ...options });
+
+    if (code !== 0) return yield* new CommandExit({ code });
+  }),
+).pipe(Command.withDescription("Serve read-only editor diagnostics over LSP stdio"));
 
 const checkCli = Command.make("check", {}, () => Effect.flatMap(selectedProject(), check)).pipe(
   Command.withDescription("Diagnose without writing"),
@@ -148,6 +216,8 @@ const command = root.pipe(
   Command.withSubcommands([
     checkCli,
     buildCli,
+    devCli,
+    lspCli,
     inspectCli,
     graphCli,
     surfaceCli,
@@ -164,6 +234,7 @@ BunRuntime.runMain(
 
     // Select the output policy only; Command remains authoritative for parsing and validation.
     let explaining = false;
+    let speakingLsp = false;
 
     for (let index = 0; index < args.length; index++) {
       const argument = args[index]!;
@@ -175,6 +246,8 @@ BunRuntime.runMain(
           "--out-dir",
           "--target",
           "--emit",
+          "--exec-file",
+          "--exec-dir",
           "--log-level",
           "--completions",
         ].includes(argument)
@@ -186,10 +259,11 @@ BunRuntime.runMain(
       if (argument.startsWith("-")) continue;
 
       explaining = argument === "explain";
+      speakingLsp = argument === "lsp";
       break;
     }
 
-    if (!explaining) return yield* command;
+    if (!explaining && !speakingLsp) return yield* command;
 
     const explanationCommand = command.pipe(
       Effect.provideService(CliConfig.CliConfig, {
@@ -197,11 +271,38 @@ BunRuntime.runMain(
       }),
     );
 
+    const console = yield* Console.Console;
+
+    if (speakingLsp) {
+      return yield* explanationCommand.pipe(
+        Effect.provideService(Console.Console, {
+          assert: console.assert.bind(console),
+          clear: console.clear.bind(console),
+          count: console.count.bind(console),
+          countReset: console.countReset.bind(console),
+          debug: console.error.bind(console),
+          dir: console.dir.bind(console),
+          dirxml: console.dirxml.bind(console),
+          error: console.error.bind(console),
+          group: console.group.bind(console),
+          groupCollapsed: console.groupCollapsed.bind(console),
+          groupEnd: console.groupEnd.bind(console),
+          info: console.error.bind(console),
+          log: console.error.bind(console),
+          table: console.table.bind(console),
+          time: console.time.bind(console),
+          timeEnd: console.timeEnd.bind(console),
+          timeLog: console.timeLog.bind(console),
+          trace: console.trace.bind(console),
+          warn: console.warn.bind(console),
+        }),
+        Effect.provideService(Logger.LogToStderr, true),
+      );
+    }
+
     if (args.some((argument) => ["--help", "-h", "--version", "-v"].includes(argument))) {
       return yield* explanationCommand;
     }
-
-    const console = yield* Console.Console;
 
     // Native CLI parse failures always print help via log. Explain requires usage on stderr.
     return yield* explanationCommand.pipe(
@@ -228,5 +329,5 @@ BunRuntime.runMain(
         warn: console.warn.bind(console),
       }),
     );
-  }).pipe(Effect.provide(Services)),
+  }).pipe(Effect.provideService(Logger.LogToStderr, true), Effect.provide(Services)),
 );
