@@ -1,8 +1,8 @@
 # Spec 0018 — Watch checks and editor diagnostics
 
-Status: **draft, not frozen or approved** — 2026-10-05.
+Status: **frozen — operator-approved** — 2026-10-05. Changes require an explicit dated amendment.
 Baseline: live local main `3d66eda158422282b6e2f44ec12910a362dcb9ae`.
-Depends on approved 0016, frozen 0015 and 0002. This draft authorizes no implementation, publication or main-branch change. The recommendations in §9 need operator approval before freezing.
+Depends on approved 0016, frozen 0015 and 0002. The operator approved all four §9 defaults on 2026-10-05. Implementation remains subject to design review; this contract grants no publication or main-branch landing authority.
 
 ## 1. Goal, constraints and values
 
@@ -86,13 +86,12 @@ clear the terminal by default. Each completed cycle has a distinct monotonically
 increasing cycle marker and a full replacement batch, including an explicit zero
 count on repair. Diagnostics themselves retain the existing reporter formatting.
 
-Recommend including `--build` as the sole opt-in to writing normal build artifacts.
+`--build` MUST be included as the sole opt-in to writing normal build artifacts.
 It runs the same pipeline and normal writer on successful, current cycles only;
 errors/faults preserve the last successful artifacts. Output, emit/target choices,
 generator toggles, manifest ownership and obsolete-file restrictions remain normal
-build behavior. No application/server subprocess is started. If the option is not
-approved, remove this build sub-contract explicitly before freezing; do not silently
-implement a command that ignores an accepted flag.
+build behavior. No application/server subprocess is started. Neither config output
+settings nor generator selection grants write intent; only `dev --build` does.
 
 Startup invalid selection fails before any watch/write. A later malformed saved
 JSON config or missing dependency reports a failed cycle, invalidates old success
@@ -110,7 +109,7 @@ without an explicit project fail initialization with an actionable selection err
 no recursive nearest-tsconfig scan and no per-document project guessing. Advertise
 no workspace-folder change support. Non-file URIs are outside this slice.
 
-A config file is executable code, not passive editor settings. Recommend requiring
+A config file is executable code, not passive editor settings. The server MUST require
 launch-time `--trust-config` before evaluating a discovered config; explicit
 `--config <path>` is also affirmative authority for that module and its imports.
 If discovery finds a config without either authority, initialization fails naming
@@ -192,7 +191,7 @@ semantics. No temporary save, tsbuildinfo or disk-backed overlay cache is permit
 
 On `didClose`, discard the overlay, invalidate dependent analyses, immediately send
 an empty diagnostic array for that document and reanalyze disk for other open
-consumers. Recommend publishing only for open documents; closed-file findings remain
+consumers. The server MUST publish only for open documents; closed-file findings remain
 in compiler results but are not pushed. On reopening, a disk-based result is replaced
 by the newly supplied overlay. If a deleted file remains open, its supplied text
 remains authoritative until close; deletion clears the old URI once no overlay owns
@@ -416,7 +415,7 @@ and UTF-8 body bytes are deliberately different contracts.
 
 ## 8. Falsifiers and definition of done
 
-These are eventual implementation acceptance gates, not checks claimed by this draft.
+These are implementation acceptance gates, not checks claimed by contract approval.
 Tests must use real compiled/packed CLI subprocesses and a maintained LSP client
 connection for the boundary journeys. Deterministic unit tests supplement them;
 mock-only green tests do not satisfy a filesystem or protocol requirement.
@@ -488,11 +487,11 @@ tsconfig.json`. Await initial completion, edit a real declaration into an existi
    deterministic tests using Effect clock/controlled admission for coalescing, not
    arbitrary sleeps or snapshots of an invented incremental architecture.
 
-Failure of any numbered observable behavior falsifies completion. No implementation
-or acceptance execution belongs to this design-only commit; normal commit hooks are
-the only mandatory draft checks.
+Failure of any numbered observable behavior falsifies completion. Contract approval
+does not assert implementation acceptance; all numbered gates must be exercised on
+the eventual final implementation commit.
 
-## 9. Operator preference questions — recommended defaults
+## 9. Accepted operator defaults
 
 | Named preference        | Recommendation                                                                                                                        | Actual tradeoff                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -502,7 +501,23 @@ the only mandatory draft checks.
 | Project reach           | One explicitly selected project per server; one workspace root may supply defaults; no automatic multi-root discovery.                | Some monorepos run more than one server process, but project/config/overlay ownership is unambiguous.                                                   |
 
 Transport library, finite admission limits and host caching are engineering choices,
-not arbitrary operator knobs. The operator chooses these four user-visible policies;
-correctness, framing, authority enforcement, parity and resource ownership are not
-optional preferences. Approval must be recorded explicitly before changing status to
-frozen. This draft does not presume approval from 0016's earlier “Approve the defaults.”
+not arbitrary operator knobs. Correctness, framing, authority enforcement, parity
+and resource ownership are not optional preferences.
+
+### Approval amendment — 2026-10-05
+
+The operator wrote, verbatim: **"approve defaults"**. This approval applies to all
+four defaults in this spec, not to the earlier approval of 0016 or any credential,
+publication, deployment or landing authority:
+
+1. `effx dev` MUST remain check-only by default and MUST include explicit `--build`
+   as the only opt-in to normal generated writes; LSP MUST never write artifacts (§3).
+2. LSP MUST require launch-time `--trust-config` for discovered executable config
+   or explicit `--config` authority; saved executable config/plugin changes MUST
+   require restart, not hot import (§3).
+3. LSP MUST publish diagnostics only for open documents; unlocated project findings
+   MUST be logged with code/severity and explain guidance (§4 and §6).
+4. LSP MUST own one selected project per server and MUST NOT automatically infer
+   multiple projects from workspace roots or document paths (§3).
+
+This amendment freezes the contract; it does not claim implementation acceptance.
