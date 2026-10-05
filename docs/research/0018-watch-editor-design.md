@@ -1,14 +1,16 @@
 # 0018 — Watch/editor implementation design for review
 
-Status: **source investigation / implementation held**, 2026-10-05.
+Status: **portable components approved in principle; config amendment pending**, 2026-10-05.
 Frozen contract: [`../specs/0018-watch-editor.md`](../specs/0018-watch-editor.md),
 commit `9ac1bff`; preserved draft parent `d37f77e`; baseline main `3d66eda`.
-The operator's exact approval, **"approve defaults"**, approved the four product
-policies, not this implementation design, a runtime limitation amendment or landing.
+The operator approved the four product policies with **"approve defaults"**.
+The operator then approved the session, overlay, native polling and transport plan
+in principle, subject to real boundary tests and exception records. Config coverage
+still requires a separate approved amendment. No landing authority is granted.
 
-No implementation, installs, runtime probes, heavy jobs, main changes or cleanup
-were performed for this design. Published-package source and installed source are
-evidence of API behavior, not evidence that the eventual adapter passes acceptance.
+The approved component dependencies were installed with ordinary `bun install`.
+`vscode-jsonrpc` resolves to 9.0.3. Published and installed source establish API
+behavior, not implementation acceptance. No heavy checks or main changes occurred.
 
 ## Review summary
 
@@ -360,14 +362,51 @@ poll or scanning the entire filesystem is not proposed.
 
 ## 6. Exception records and retirement
 
-Record final approved choices in existing repo authority/evidence and lint boundary
-configuration before implementation acceptance; the names below are proposals.
+The component records below are registered with root `AGENTS.md`. They remain open
+until their named tests and the final gate pass. Config coverage remains unresolved.
 
 | Record | Scope, evidence and retirement |
 | --- | --- |
 | `EX-0018-stdio` | CLI maintainers; only `lsp-transport.ts`; Effect/platform-bun4.0.0, Bun1.3.13, published vscode-jsonrpc9.0.3/MIT. Native Stdio/Stream provide IO and RpcSerialization unframed/newline JSON-RPC (`node_modules/effect/src/rpc/RpcSerialization.ts:213-265`), not maintained LSP framing. Record finite limits, noncancellable Promise behavior, exact artifact integrity and real framing/cleanup tests. Retire when installed native Effect supplies compatible framed LSP with these ownership/admission semantics; reopen on dependency upgrades. |
 | `EX-0018-watch-policy` | CLI observation loop; native FS+Clock composition deliberately replaces installed push-watch policy for this contract. Exact producer gaps are §2, not a global ban on Bun/Chokidar. Retire when native watch offers bounded/coalesced producer admission and owned quiescent close; compare parity/cleanup before changing. |
 | Executable observation | **Not approved/resolved.** The inspected Bun cache/plugin paths do not provide full logical provenance. An exception cannot turn a missing guarantee into a fulfilled contract; resolve with maintained capability or an explicit contract amendment first. |
+
+### Registered component records — 2026-10-05
+
+**EX-0030 — maintained LSP stdio boundary (open).**
+
+- Owner: repository root, `AGENTS.md`; implementation directory `packages/cli`.
+- Rules: FX002 native-first, FX003 runtime boundary, FX004 decoding, FX006 ownership,
+  FX009 capacity, FX012 exception lifecycle. No blanket lint suppression.
+- Scope: `packages/cli/src/lsp-transport.ts`; its owned real-client test and
+  `packages/cli/test/lsp-transport-peer.ts` process root.
+- Reason / missing capability: installed Effect has no maintained LSP Content-Length
+  parser and connection lifecycle with this contract. Raw Stdio is not that protocol.
+- Native alternatives: Stdio/Stream provide bytes; RpcSerialization JSON-RPC has no
+  framing, and ndJsonRpc has newline framing. Neither replaces LSP framing.
+- Examined versions: effect/platform-bun/vitest 4.0.0; effect-tsgo 0.48.0; Bun 1.3.13;
+  TypeScript analysis 6.0.3; published and installed vscode-jsonrpc 9.0.3 (MIT).
+- Verification: `packages/cli/test/lsp-transport.test.ts` will exercise real maintained
+  client framing, admission, invalid messages, cancellation, EOF and shutdown.
+  Frozen §8 requires packed CLI tests and the final full gate. None passed yet.
+- Retirement: installed Effect supplies compatible maintained framed LSP with
+  source-level admission and scoped cleanup. Dependency upgrades reopen the record.
+
+**EX-0031 — native sequential observation policy (open).**
+
+- Owner: repository root, `AGENTS.md`; implementation directory `packages/cli`.
+- Rules: FX002 native-first, FX006 ownership, FX009 capacity, FX012 lifecycle.
+- Scope: `packages/cli/src/watch-files.ts` and `packages/cli/test/watch-files.test.ts`.
+- Reason: installed push-watch producers do not establish this contract's bounds
+  and quiescent close. A downstream bounded queue cannot repair that upstream work.
+- Native alternative: FileSystem.watch/platform-bun 4.0.0, with §2 source evidence.
+  Native FileSystem, Crypto and Effect Clock composition remain the implementation.
+- Examined alternatives: Bun 1.3.13 watch; Chokidar 5.0.0; versions and gaps in §2.
+- Verification: behavior tests will cover declared files/roots, missing creation,
+  rename/deletion, symlink routes, bounded pending work and owned stop. Final packed
+  watch tests and the full gate remain required. No acceptance result is claimed.
+- Retirement: native watch provides bounded/coalesced producer admission and owned
+  quiescent close. Run parity/cleanup tests before removing the observation policy.
 
 No implementation claim, alternate protocol framework or generic poll/credit engine
 is hidden in these records. Real packed CLI and maintained-client acceptance,
