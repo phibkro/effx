@@ -1,6 +1,7 @@
 import { Array as Arr, Predicate, Result, Schema } from "effect";
 import { SymbolRef } from "@effx/ir";
 import type { FragmentImports } from "./Extension.ts";
+import type { CoreDiagnostics } from "./diagnostics/core.ts";
 
 /**
  * Printing decoded annotation arguments as TypeScript source (spec 0020 §6): the value half of the default
@@ -13,7 +14,10 @@ import type { FragmentImports } from "./Extension.ts";
 /** A value the writer cannot spell as source; `path` locates it from the printed root (`$`, `$[0].tags`). */
 export interface Unprintable {
   readonly path: string;
-  readonly kind: string;
+  readonly kind: Extract<
+    Parameters<(typeof CoreDiagnostics)["EFFX1102"]["emit"]>[0],
+    { readonly _tag: "EffectArgument" }
+  >["kind"];
 }
 
 /** Prints a validated value, registering the imports it needs. */
@@ -28,7 +32,7 @@ const bareKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 const isJsonArray = (value: Schema.Json): value is Schema.JsonArray => Arr.isArray(value);
 
-const unprintable = (path: string, kind: string): Result.Result<Render, Unprintable> =>
+const unprintable = (path: string, kind: Unprintable["kind"]): Result.Result<Render, Unprintable> =>
   Result.fail({ path, kind });
 
 const literal = (value: string | number | boolean | null): Result.Result<Render, Unprintable> => {
