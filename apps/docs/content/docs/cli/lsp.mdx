@@ -65,14 +65,19 @@ The server uses the same compiler meaning as `effx check`, not a separate editor
 Only open URIs receive complete diagnostic replacements. Repairs, close, faults, and restart clear old diagnostics.
 Version tags accompany publications when the client supports them. Superseded snapshots cannot publish.
 Compiler points become zero-length ranges; the server does not invent source spans.
-Codes, severity, messages, and supported related information remain compiler data.
-Unlocated findings use `window/logMessage` with code, severity, and `effx explain` guidance rather than a fabricated document location.
+Codes, severity, and primary occurrence messages remain compiler data.
+Located related occurrences use `relatedInformation` when supported. Other related context remains readable in the message, without fabricated locations.
+Unlocated findings use `window/logMessage` with code, severity, and explanation guidance rather than a fabricated document location.
+Bundled codes use `effx explain <code>`; third-party guidance includes `--config <selected path>`.
+Only bundled codes receive bundled catalogue links when the client supports them.
 
 Unsaved executable config/plugin text never executes. Its log explains that changes require save and restart.
 Until a saved covered executable changes, source checks use the selected saved config.
 A covered executable change reports `RestartRequired` once, clears diagnostics, and suspends analysis until a fresh authorized process.
 There are no automatic hot imports or restarts before every source analysis.
 Malformed saved JSON inputs clear stale success and can recover after repair.
+Saved tsconfig output-policy changes refresh exclusions without executable config reevaluation.
+Selected source/config roots inside output are invalid selections, not silently ignored inputs.
 
 `workspace/didChangeConfiguration` accepts no mutable effx selection or trust policy.
 Unrelated settings are ignored; effx selection changes require restart.
@@ -92,6 +97,12 @@ Capabilities advertise UTF-16 positions and incremental text synchronization wit
 The server publishes push diagnostics. It does not advertise completion, hover, formatting, refactoring, code actions, semantic tokens, or pull diagnostics.
 It does not replace the TypeScript language server or generated-code typecheck.
 
+Safely framed malformed JSON receives ParseError (`-32700`); invalid request envelopes receive InvalidRequest (`-32600`).
+The session continues after these responses when bounded output remains available.
+Unknown requests receive MethodNotFound (`-32601`); malformed known parameters receive InvalidParams (`-32602`).
+Unknown notifications are ignored. Malformed known notifications are logged, not answered with invented IDs.
+Bad framing, unsupported charset, oversize frames, and truncated EOF terminate the transport.
+
 ## Capacity and shutdown
 
 | Resource | Limit |
@@ -106,7 +117,10 @@ It does not replace the TypeScript language server or generated-code typecheck.
 | Filesystem observer | 8,192 paths; 16 MiB per file; 64 MiB per pass |
 
 One analysis and one pending dirty token bound project work. One serialized writer respects transport drain.
-Unsafe transport saturation closes the session visibly rather than dropping edits. Document admission limits reject the invalid notification without changing current text.
+Excess requests receive a bounded, correlated rejection without another domain handler when response capacity remains available.
+Unsafe notification/byte or output saturation closes the session visibly rather than dropping edits.
+An aggregate open-document or text-capacity breach also closes the owning session; it cannot continue after dropping an incremental edit.
+Stale versions and invalid ranges remain rejected without text mutation; they are distinct from capacity failure.
 Filesystem observer failures are terminal. These bounds do not promise constant memory for TypeScript or native directory listings.
 
 Send `shutdown` and await its null response, then send `exit`.

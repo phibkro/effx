@@ -35,6 +35,8 @@ The owner releases only its own token when its scope closes.
 A crash can leave a fail-closed lock; recover it only after you establish that no writer owns it.
 These locks cover exact directories, not every possible nested-output overlap. They are not distributed leases.
 Check-only dev and LSP acquire no output locks.
+Saved tsconfig output-policy changes refresh watch exclusions and migrate watch-build custody between completed write batches.
+The same exact-directory refusal policy applies to the new output; an active batch retains its custody until completion.
 
 Source: `packages/cli/src/output-owner.ts`, `acquireBuildOutput` and `writeCompileResult` in `packages/cli/src/commands.ts`.
 

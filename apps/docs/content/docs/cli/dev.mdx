@@ -38,7 +38,7 @@ effx dev --exec-file ./package.json --exec-file ./node_modules/@acme/effx-plugin
   --exec-dir ../compiler-plugins --exec-dir ./config-helpers
 ```
 
-Launch paths resolve from startup cwd. Each `--exec-dir` covers ordinary descendants recursively.
+Launch paths resolve from startup cwd. Each `--exec-dir` covers ordinary descendants recursively, including ordinary nested `node_modules` directories.
 Config can supply additional coverage through the public `@effx/cli/config` entry:
 
 ```ts
@@ -59,6 +59,7 @@ Config paths resolve beside the selected config, not beside the tsconfig or star
 The CLI merges launch and config coverage by union. It retains distinct logical aliases to the same physical target.
 `recursive: false` observes the directory and its immediate entries without recursive descendant traversal.
 Recursive coverage does not follow arbitrary symlink trees. Declare external targets and logical link routes explicitly.
+Implicit source observation does not recursively scan all installed packages; explicit executable directories authorize the requested ordinary subtree within the finite bounds.
 
 **The caller must completely declare ALL otherwise-unobservable logical executable routes and resolution-sensitive inputs.**
 This includes static bare-package imports, not only computed imports:
@@ -89,7 +90,7 @@ A detected import-window change requires restart rather than an initial trusted 
 | Saved change | Result |
 | --- | --- |
 | Application source or declaration dependency | Analyze again after edits settle |
-| tsconfig, membership, resolution metadata, or lockfile outside the executable closure | Refresh saved inputs and analyze again |
+| tsconfig, membership, resolution metadata, or lockfile outside the executable closure | Refresh saved inputs and analyze again; saved output-policy changes also refresh output exclusions and build custody |
 | Covered config, executable helper, plugin, or executable selection route | Report `RestartRequired` once, clear diagnostic status, and suspend analysis and generation |
 
 Stop and start a fresh authorized process after `RestartRequired`.
@@ -110,7 +111,10 @@ Synchronous TypeScript work is not preemptible; interruption does not make it ca
 The observer admits at most 8,192 paths, 16 MiB per file, and 64 MiB per pass.
 Path counts include logical routes and relevant parents. Native directory listings are not a constant-memory guarantee.
 The sequential observer waits 250 milliseconds after each pass; this is not a latency promise.
-Output trees are excluded. Explicit inputs that overlap owned output fail selection rather than disappear from coverage.
+Output trees are excluded. Explicit inputs or selected source/config roots that overlap owned output fail selection rather than disappear from coverage.
+Saved tsconfig output-policy changes re-resolve normally, subject to launch/config precedence.
+The session refreshes exclusions; watch-build migrates exact-directory custody between completed write batches.
+It does not release an active batch's custody or reclaim a competing owner's lock.
 
 Stop with Ctrl-C. SIGINT and SIGTERM close the root scope and release its owned resources and output tokens.
 There is no detached watcher, application subprocess, persistent cache, or automatic stale-lock reclamation.
