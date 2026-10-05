@@ -8,6 +8,7 @@ import {
 import { Console, Effect, Exit, Fiber, FileSystem, Path, Scope, Semaphore } from "effect";
 import {
   acquireBuildOutput,
+  migrateBuildOutput,
   rereadProject,
   resolveProject,
   writeCompileResult,
@@ -16,6 +17,7 @@ import {
 } from "./commands.ts";
 import { loadedExecutableFiles } from "./config-runtime.ts";
 import type { OutputOwner } from "./output-owner.ts";
+import { canonicalDocument } from "./documents.ts";
 import { makeProjectSession, type ProjectSession, type SessionEvent } from "./project-session.ts";
 import { count, report, summary } from "./report.ts";
 import {
@@ -88,10 +90,30 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
   yield* launchWatch.poll;
   const importChanges = yield* launchWatch.takeChanges;
 
-  const exclusions = [
-    initial.effxDir,
-    initial.config.outDir ?? path.join(initial.effxDir, "generated"),
-  ];
+  const canonicalIdentity = Effect.fnUntraced(function* (file: string) {
+    const uri = yield* path
+      .toFileUrl(file)
+      .pipe(Effect.mapError((cause) => fault("Cannot resolve dev input URI", cause)));
+
+    return (yield* canonicalDocument(uri.href).pipe(
+      Effect.mapError((cause) => fault("Cannot resolve dev input identity", cause)),
+    )).identity;
+  });
+
+  const outputExclusions = Effect.fnUntraced(function* (selected: Project) {
+    const logical = [
+      selected.effxDir,
+      selected.config.outDir ?? path.join(selected.effxDir, "generated"),
+    ];
+
+    const identities: Array<string> = [];
+
+    for (const root of logical) identities.push(yield* canonicalIdentity(root));
+
+    return [...logical, ...identities];
+  });
+
+  let exclusions = yield* outputExclusions(initial);
 
   const excluded = (name: string) =>
     exclusions.some((root) => name === root || name.startsWith(root + path.sep));
@@ -138,6 +160,7 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
   let observed = new Map<string, WatchInput>();
   let reads = new Map<string, string>();
   let overflow = false;
+  let selectedRoots: ReadonlyArray<string> = [];
 
   const reconcile = Effect.fnUntraced(
     function* () {
@@ -161,13 +184,24 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
       observed = new Map();
       reads = new Map();
       overflow = false;
+      selectedRoots = [];
       project = yield* rereadProject(initial).pipe(
         Effect.mapError((cause) =>
           cause._tag === "CompilerFault" ? cause : fault("Cannot reread saved dev project", cause),
         ),
       );
+      exclusions = yield* outputExclusions(project);
 
       return yield* compile(project.config, project.extensions, {
+        onRootSources: (roots) => {
+          if (roots.length > 8192) {
+            overflow = true;
+
+            return;
+          }
+
+          selectedRoots = roots;
+        },
         onObserve: (input) => {
           if (excluded(input.path)) return;
 
@@ -205,6 +239,20 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
         if (restarting) return;
 
         if (overflow) return yield* fault("Filesystem observation exceeds 8192 paths", undefined);
+
+        for (const file of [
+          ...selectedRoots,
+          initial.tsconfigPath,
+          ...(initial.configPath === undefined ? [] : [initial.configPath]),
+        ]) {
+          const identity = yield* canonicalIdentity(file);
+
+          if (excluded(file) || excluded(identity))
+            return yield* fault(
+              "Invalid selection: selected source/config root overlaps owned output: " + file,
+              undefined,
+            );
+        }
         // Keep this analysis's sources, not a history of obsolete roots.
 
         if (observed.size > 0) {
@@ -219,7 +267,7 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
         for (const file of yield* loadedExecutableFiles()) add({ path: file, kind: "executable" });
         const previous = yield* watch.current;
         yield* watch
-          .replaceInputs([...coverage.values()])
+          .replaceInputs([...coverage.values()], exclusions)
           .pipe(Effect.mapError((cause) => fault("Cannot admit analysis input coverage", cause)));
         yield* watch.poll.pipe(
           Effect.mapError((cause) => fault("Cannot establish analysis input baseline", cause)),
@@ -302,13 +350,48 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
       yield* Console.log(summary(count(event.result.diagnostics)));
 
       if (options.build && !hasErrors(event.result.diagnostics)) {
-        if (owner === undefined)
-          owner = yield* acquireBuildOutput(project, event.result).pipe(
-            Effect.provideService(Scope.Scope, scope),
-            Effect.mapError((cause) => fault("Cannot acquire dev build output custody", cause)),
-          );
-        yield* writeCompileResult(project, versions, event.result, owner).pipe(
-          Effect.mapError((cause) => fault("Cannot write accepted dev build result", cause)),
+        yield* Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            yield* restore(Effect.void);
+
+            if (!(yield* session.isCurrent(event.snapshot))) return yield* Effect.interrupt;
+
+            if (owner === undefined)
+              owner = yield* acquireBuildOutput(project, event.result).pipe(
+                Effect.provideService(Scope.Scope, scope),
+                Effect.mapError((cause) => fault("Cannot acquire dev build output custody", cause)),
+              );
+
+            const migration = yield* migrateBuildOutput(
+              project,
+              event.result,
+              owner,
+              Effect.fnUntraced(function* (admittedOwner: OutputOwner) {
+                // Acquisition is not write admission: consume readable edits again.
+                yield* restore(gate.withPermits(1)(reconcile()));
+
+                if (!(yield* session.isCurrent(event.snapshot))) return yield* Effect.interrupt;
+
+                // Guard, admitted batch, custody retirement and owner assignment
+                // share the mask. Supersession joins them, never half a batch.
+                yield* writeCompileResult(project, versions, event.result, admittedOwner).pipe(
+                  Effect.mapError((cause) =>
+                    fault("Cannot write accepted dev build result", cause),
+                  ),
+                );
+              }),
+            ).pipe(
+              Effect.provideService(Scope.Scope, scope),
+              Effect.mapError((cause) =>
+                cause._tag === "CompilerFault"
+                  ? cause
+                  : fault("Cannot migrate dev build custody", cause),
+              ),
+            );
+
+            owner = migration.owner;
+            yield* Console.log(`effx dev build cycle ${cycle} complete`);
+          }),
         );
       }
     }),
