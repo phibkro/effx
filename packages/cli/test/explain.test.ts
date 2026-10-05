@@ -26,9 +26,17 @@ const customEntry = invalidDeclaration.entry;
 
 const customCode = customEntry.code;
 
-const run = Effect.fnUntraced(function* (cwd: string, ...args: ReadonlyArray<string>) {
+const runExecutable = Effect.fnUntraced(function* (
+  executable: string,
+  cwd: string,
+  ...args: ReadonlyArray<string>
+) {
   return yield* Effect.sync(() => {
-    const result = Bun.spawnSync(["bun", main, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(["bun", executable, ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
     return {
       code: result.exitCode,
@@ -37,6 +45,8 @@ const run = Effect.fnUntraced(function* (cwd: string, ...args: ReadonlyArray<str
     };
   });
 });
+
+const run = (cwd: string, ...args: ReadonlyArray<string>) => runExecutable(main, cwd, ...args);
 
 const fixture = <A, E, R>(use: (directory: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -304,5 +314,78 @@ describe("spec 0016 explain subprocess journeys", () => {
         }
       }),
     ),
+  );
+  it.effect(
+    "the built executable explains core and explicit-config entries without compiling or writing",
+    () =>
+      fixture((directory) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const buildDirectory = yield* testDirectory("explain-built-");
+          const executable = path.join(buildDirectory, "effx.js");
+
+          const build = yield* Effect.sync(() =>
+            Bun.spawnSync(
+              [
+                "bun",
+                "build",
+                main,
+                "--target=bun",
+                "--outfile",
+                executable,
+                "--external",
+                "@typescript/typescript6",
+                "--external",
+                "@cedar-policy/cedar-wasm",
+              ],
+              { stdout: "pipe", stderr: "pipe" },
+            ),
+          );
+
+          assert.strictEqual(build.exitCode, 0, new TextDecoder().decode(build.stderr));
+
+          for (const code of ["EFFX1102", "EFFX2415", "EFFX3401"]) {
+            const result = yield* runExecutable(executable, directory, "explain", code);
+
+            assert.strictEqual(result.code, 0, result.stderr);
+            assert.strictEqual(result.stderr, "");
+            assert.include(result.stdout, `# ${code} — `);
+            assert.include(result.stdout, "Before:");
+            assert.include(result.stdout, "After:");
+          }
+
+          const unknown = yield* runExecutable(executable, directory, "explain", "EFFX9999");
+
+          assert.strictEqual(unknown.code, 1);
+          assert.strictEqual(unknown.stdout, "");
+          assert.strictEqual(unknown.stderr, "Unknown diagnostic code: EFFX9999\n");
+
+          const malformed = yield* runExecutable(executable, directory, "explain", "EFFX12");
+
+          assert.strictEqual(malformed.code, 2);
+          assert.strictEqual(malformed.stdout, "");
+          assert.deepStrictEqual(yield* fs.readDirectory(directory), []);
+
+          yield* fs.writeFileString(
+            path.join(directory, "selected.ts"),
+            configSource(`[${entrySource}]`),
+          );
+
+          const selected = yield* runExecutable(
+            executable,
+            directory,
+            "explain",
+            customCode,
+            "--config",
+            "selected.ts",
+          );
+
+          assert.strictEqual(selected.code, 0, selected.stderr);
+          assert.strictEqual(selected.stderr, "");
+          assert.strictEqual(selected.stdout, renderEntry(customEntry));
+          assert.deepStrictEqual(yield* fs.readDirectory(directory), ["selected.ts"]);
+        }),
+      ),
   );
 });
