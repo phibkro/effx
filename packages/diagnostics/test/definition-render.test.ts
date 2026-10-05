@@ -190,7 +190,8 @@ describe("diagnostic Markdown projection", () => {
       assert.include(rendered, "A &#124; &#60;Tag&#62; &#123;expression&#125;");
       assert.notInclude(rendered, "<Tag>");
       assert.include(rendered, "```````tsdanger\n```\n{danger()}\n</Tag>\n``````\n```````");
-      assert.include(rendered, '<a id="diagnostic-effx2504" />');
+      assert.include(rendered, " [#EFFX2504]\n");
+      assert.notInclude(rendered, "<a id=");
     }),
   );
 
@@ -204,8 +205,10 @@ describe("diagnostic Markdown projection", () => {
       assert.isTrue(
         rendered.startsWith("# Diagnostic catalogue\n\n| Code | Title | Default severity |"),
       );
-      assert.include(rendered, "diagnostic-effx-5b--40-acme-2f-one-5d--2f-0001");
-      assert.include(rendered, "diagnostic-effx-5b--40-acme-2d-one-5d--2f-0001");
+      assert.include(rendered, " [#EFFX&#91;@acme/one&#93;/0001]");
+      assert.include(rendered, " [#EFFX&#91;@acme-one&#93;/0001]");
+      assert.include(rendered, "(#EFFX%5B%40acme%2Fone%5D%2F0001)");
+      assert.include(rendered, "(#EFFX%5B%40acme-one%5D%2F0001)");
       assert.strictEqual(rendered.slice(-2), ".\n");
       assert.strictEqual(inputs[0], second);
     }),

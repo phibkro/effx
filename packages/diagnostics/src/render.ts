@@ -3,12 +3,6 @@ import type { DiagnosticEntry } from "./model.ts";
 const label = (text: string): string =>
   text.replace(/[\\`*_{}[\]()<>&|#!~\r\n]/gu, (character) => `&#${character.charCodeAt(0)};`);
 
-/** Injective full-code anchor, independent of titles, locale and load order. */
-const anchor = (code: string): string =>
-  `diagnostic-${code
-    .toLowerCase()
-    .replace(/[^a-z0-9]/gu, (character) => `-${character.charCodeAt(0).toString(16)}-`)}`;
-
 const fenced = (text: string, language: string | undefined): string => {
   let width = 3;
 
@@ -26,7 +20,7 @@ const body = (entry: DiagnosticEntry, heading: string): string => {
       : `${label(entry.severityPolicy.name)} — ${entry.severityPolicy.description}\n\nAllowed severities: ${entry.severityPolicy.allowedSeverities.toSorted().map(label).join(", ")}`;
 
   const sections = [
-    `${heading} ${heading === "#" ? entry.code : label(entry.code)} — ${label(entry.title)}`,
+    `${heading} ${heading === "#" ? entry.code : label(entry.code)} — ${label(entry.title)}${heading === "##" ? ` [#${label(entry.code)}]` : ""}`,
     `Owner: ${label(entry.owner)}\n\nDefault severity: ${label(entry.severity)}\n\nSeverity policy: ${policy}`,
     entry.explanation.trim(),
   ];
@@ -51,7 +45,8 @@ export const renderEntry = (entry: DiagnosticEntry): string => body(entry, "#");
 /**
  * Pure projection of validated entry data. Sorts by full code using code units;
  * labels are MDX/Markdown-safe and example fences cannot be closed by source text.
- * The catalogue owns its heading, index and stable full-code anchors.
+ * Full codes are explicit IDs using the site's Fumadocs [#id] heading convention;
+ * no title slugging or raw HTML anchor competes with the site compiler.
  */
 export const renderCatalogue = (entries: ReadonlyArray<DiagnosticEntry>): string => {
   const sorted = entries.toSorted((left, right) =>
@@ -66,12 +61,12 @@ export const renderCatalogue = (entries: ReadonlyArray<DiagnosticEntry>): string
   sections[1] += sorted
     .map(
       (entry) =>
-        `\n| [${label(entry.code)}](#${anchor(entry.code)}) | ${label(entry.title)} | ${label(entry.severity)} |`,
+        `\n| [${label(entry.code)}](#${encodeURIComponent(entry.code)}) | ${label(entry.title)} | ${label(entry.severity)} |`,
     )
     .join("");
 
   for (const entry of sorted) {
-    sections.push(`<a id="${anchor(entry.code)}" />\n\n${body(entry, "##").trimEnd()}`);
+    sections.push(body(entry, "##").trimEnd());
   }
 
   return `${sections.join("\n\n").trimEnd()}\n`;
