@@ -591,3 +591,10 @@ Repeat packed executable smoke and visit the actual exported catalogue through i
 Retain before/after rendered-page evidence, including a namespaced link, and stop the owned preview.
 Retain compatibility against `7290ea5`; repeat the candidate identity comparison because these corrections change implementation beyond prose.
 No main movement is authorized until those checks pass. No push is authorized.
+
+The corrections landed on the spec branch at `46b9019`, without moving local main.
+The existing docs guard passed all 69 compiled link targets, rendered explanations/examples, namespaced punctuation fixtures and the dead-link negative control.
+The focused registry renderer and boundary-contract suites passed 40 tests in two files.
+The shared `mdxOptions` export feeds both the site and compiled regression; no independent preset or slug algorithm remains.
+`bindingSeverity` and `missingAccessSeverity` each own their severity outcome mapping for both factory emission and boundary enforcement/reporting.
+The final full-ref gate, packed/browser smoke and renewed identity comparison remain mandatory local landing conditions.
