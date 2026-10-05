@@ -80,17 +80,17 @@ Each project owns its output and manifest. `cmp` checks the fresh contract again
 
 ## Package map
 
-| Package                                      | Role                                                                                                                                     | Depends on                         |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                     | effect                             |
-| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                            | effect                             |
-| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations and pipeline               | ir, runtime, diagnostics           |
-| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                 | compiler, runtime                  |
-| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                 | effect, diagnostics                |
-| `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation     | compiler, frontend-ts, diagnostics |
-| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI | compiler, runtime, ir              |
-| `examples/users`                             | the User slice from the research report                                                                                                  | runtime                            |
-| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                     | generated pages                    |
+| Package                                      | Role                                                                                                                                         | Depends on                         |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                         | effect                             |
+| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                                | effect                             |
+| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations and pipeline                   | ir, runtime, diagnostics           |
+| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                     | compiler, runtime                  |
+| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                     | effect, diagnostics                |
+| `packages/cli` (`@effx/cli`)                 | `effx check/build/dev/lsp/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation | compiler, frontend-ts, diagnostics |
+| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI     | compiler, runtime, ir              |
+| `examples/users`                             | the User slice from the research report                                                                                                      | runtime                            |
+| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                         | generated pages                    |
 
 Tests live in `packages/*/test/**/*.test.ts` and use `@effect/vitest` (`it.effect`). Files using
 TC39 decorators are lowered by TypeScript 6 in `vitest.config.ts` (oxc cannot lower them yet).
