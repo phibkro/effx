@@ -16,6 +16,7 @@ import { acquireBuildOutput, resolveProject } from "../src/commands.ts";
 import { dev } from "../src/watch.ts";
 import type { WatchClosed, WatchLimit } from "../src/watch-files.ts";
 import { acquireOutputOwner } from "../src/output-owner.ts";
+import type { SessionClosed } from "../src/project-session.ts";
 
 const platform = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
 
@@ -64,9 +65,15 @@ describe("actual scoped effx dev journey", () => {
   it("constructs without resolving or executing the project and preserves requirements", () => {
     const value = dev({ project: "/never-read/tsconfig.json" }, versions);
     assert.isTrue(Effect.isEffect(value));
-    expectTypeOf<Effect.Success<typeof value>>().toEqualTypeOf<void>();
+    expectTypeOf<Effect.Success<typeof value>>().toEqualTypeOf<never>();
+    expectTypeOf<Effect.Success<typeof value>>().not.toEqualTypeOf<void>();
     expectTypeOf<Effect.Error<typeof value>>().toEqualTypeOf<
-      CompilerFault | WatchLimit | WatchClosed | PlatformError.PlatformError
+      | CompilerFault
+      | WatchLimit
+      | WatchClosed
+      | SessionClosed
+      | PlatformError.PlatformError
+      | PlatformError.BadArgument
     >();
     expectTypeOf<Effect.Services<typeof value>>().toEqualTypeOf<
       FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend
