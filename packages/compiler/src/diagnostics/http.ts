@@ -19,8 +19,11 @@ const ContractParams = Schema.TaggedUnion({
   CommandIdentityKind: { subject: Schema.String },
   CommandIdentityHeaders: { subject: Schema.String },
   GroupTarget: { subject: Schema.String },
+  GroupIdentifiers: { subject: Schema.String },
   GroupIdentity: { subject: Schema.String },
   GroupConflict: { subject: Schema.String },
+  DuplicateContracts: { subject: Schema.String },
+  RootCollision: { subject: Schema.String, previous: Schema.String },
   AnnotationTarget: { subject: Schema.String, annotation: Schema.String },
   DuplicateAnnotation: { subject: Schema.String, annotation: Schema.String },
   ExternalGroup: {
@@ -56,8 +59,11 @@ const renderContract = ContractParams.match({
   CommandIdentityHeaders: ({ subject }) =>
     `${subject}: commandIdentity requires headers with idempotency-key and if-match`,
   GroupTarget: ({ subject }) => `${subject}: @Http.Group requires an exported class or builder`,
+  GroupIdentifiers: ({ subject }) => `${subject}: HTTP root and group must be safe identifiers`,
   GroupIdentity: ({ subject }) => `${subject}: invalid HTTP group identity`,
   GroupConflict: ({ subject }) => `${subject}: conflicting @Http.Group definitions`,
+  DuplicateContracts: ({ subject }) => `${subject}: more than one HttpContract on one operation`,
+  RootCollision: ({ subject, previous }) => `${subject}: root export collides with ${previous}`,
   AnnotationTarget: ({ subject, annotation }) =>
     `${subject}: @${annotation} requires an operation declaration`,
   DuplicateAnnotation: ({ subject, annotation }) =>
@@ -157,7 +163,9 @@ const renderChannels = ChannelParams.match({
 });
 
 const InventoryParams = Schema.TaggedUnion({
-  NonFiniteKeys: {},
+  NoCandidate: { root: Schema.String },
+  UnprovenRoot: { root: Schema.String, inventoryIssue: Schema.String },
+  InventoryUnavailable: { root: Schema.String },
   MissingInventory: { root: Schema.String, group: Schema.String },
   MissingEndpoint: {
     subject: Schema.String,
@@ -168,8 +176,10 @@ const InventoryParams = Schema.TaggedUnion({
 });
 
 const renderInventory = InventoryParams.match({
-  NonFiniteKeys: () =>
-    "HTTP root endpoint inventory must have finite required group and endpoint keys with matching literal identifiers",
+  NoCandidate: ({ root }) => `HTTP root ${root}: no registered inventory candidate`,
+  UnprovenRoot: ({ root, inventoryIssue }) =>
+    `HTTP root ${root}: endpoint inventory cannot be proven: ${inventoryIssue}`,
+  InventoryUnavailable: ({ root }) => `HTTP root ${root}: endpoint inventory cannot be proven`,
   MissingInventory: ({ root, group }) =>
     `HTTP group ${root}/${group}: concrete root endpoint inventory is missing or ambiguous`,
   MissingEndpoint: ({ subject, root, group, key }) =>
@@ -237,7 +247,7 @@ const d2402 = defineDiagnostic(
       kind: "fixed",
     },
     explanation:
-      "This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers." +
+      "This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, repeated contracts on one operation, colliding root exports, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers." +
       " Http.Problems variants cover duplicate contracts, missing HTTP exposure, malformed ProblemContract data with validator detail, unsafe or empty identifier overrides, and repeated problem codes.",
     examples: [
       {
@@ -442,14 +452,14 @@ const d2415 = defineDiagnostic(
       kind: "fixed",
     },
     explanation:
-      "The concrete HttpApi root must have finite required group and endpoint keys with matching literal identifiers. The group inventory must resolve unambiguously, and every bound endpoint key must exist in the declared group.",
+      "Endpoint inventory is a handler-factory generation precondition, never a declaration-lowering check: contract-only emission never reports EFFX2415. A concrete HttpApi root must prove finite required group and endpoint keys with matching literal identifiers; only groups whose handler factories are being emitted need their declared endpoints checked. An unresolved root leaf rejects the whole root because its unknown identifier may replace a healthy group. Report one root-level diagnostic naming the unresolved leaf, not cascading group diagnostics, and emit no factory using that root. Earlier fatal diagnostics defer inventory proof. Generate every contract imported by the authored root before handler generation, including groups outside the current invocation. Cold --emit=all is atomic and writes nothing, including no contract or manifest: contract-first is required. A failed build preserves previously owned handler outputs and publishes no partial ownership record.",
     examples: [
       {
-        before: 'HttpApi.make("api").add(HttpApiGroup.make("other"))',
+        before: "effx build --emit=all  // cold: authored root imports missing generated contracts",
         after:
-          'HttpApi.make("api").add(HttpApiGroup.make("users").add(HttpApiEndpoint.get("getUser", "/users/:id")))',
+          "effx build --emit=contract  // every group imported by the root\neffx build --emit=handlers",
         explanation:
-          "Declare the users group and getUser endpoint in the exported root, matching metadata.operationId users.getUser. Keep finite required literal inventory keys rather than dynamic or optional keys.",
+          "Bootstrap every imported group contract before proving handlers. Full-root contracts support full-root or healthy-only handlers; healthy-only contracts cannot bootstrap a missing unrelated group. Fix the unresolved leaf named by the root diagnostic before emitting any factory for that root.",
       },
     ],
   } as const,
@@ -564,6 +574,7 @@ const d2504 = defineDiagnostic(
       kind: "named",
       name: "strictAccess",
       description: "Warning by default; error when strictAccess is true.",
+      allowedSeverities: ["warning", "error"],
     },
     explanation:
       "HTTP exposure requires an explicit @Http.Access contract. This is a warning by default and an error under strictAccess (including --strict-access). Declare public access explicitly too; absence is not a public-access contract.",

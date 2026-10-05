@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { expectTypeOf } from "vitest";
-import type { Diagnostic } from "@effx/diagnostics";
+import { renderEntry, type Diagnostic } from "@effx/diagnostics";
 import { HttpDiagnostics, httpEntries } from "../src/diagnostics/http.ts";
 
 describe("HTTP diagnostic registry", () => {
@@ -445,11 +445,11 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.code, "EFFX2414");
     assert.strictEqual(diagnostic.severity, "error");
   });
-  it("preserves EFFX2415 variant 47", () => {
-    const diagnostic = HttpDiagnostics.EFFX2415.emit({ _tag: "NonFiniteKeys" });
+  it("preserves the landed root-level missing-candidate message", () => {
+    const diagnostic = HttpDiagnostics.EFFX2415.emit({ _tag: "NoCandidate", root: "AuthoredApi" });
     assert.strictEqual(
       diagnostic.message,
-      "HTTP root endpoint inventory must have finite required group and endpoint keys with matching literal identifiers",
+      "HTTP root AuthoredApi: no registered inventory candidate",
     );
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
@@ -745,5 +745,91 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.message, "op: @Http.Problems codes must be unique");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("preserves the landed root-level unresolved-leaf diagnostic and location", () => {
+    const location = { file: "http-root.ts", line: 9, col: 3 };
+
+    const diagnostic = HttpDiagnostics.EFFX2415.emit(
+      {
+        _tag: "UnprovenRoot",
+        root: "AuthoredApi",
+        inventoryIssue: "cannot resolve HTTP group import ./generated/onboarding",
+      },
+      { location },
+    );
+
+    assert.strictEqual(
+      diagnostic.message,
+      "HTTP root AuthoredApi: endpoint inventory cannot be proven: cannot resolve HTTP group import ./generated/onboarding",
+    );
+    assert.strictEqual(diagnostic.code, "EFFX2415");
+    assert.strictEqual(diagnostic.severity, "error");
+    assert.strictEqual(diagnostic.location, location);
+  });
+  it("preserves the pipeline unavailable-root message without invented detail", () => {
+    const diagnostic = HttpDiagnostics.EFFX2415.emit({
+      _tag: "InventoryUnavailable",
+      root: "AuthoredApi",
+    });
+
+    assert.strictEqual(
+      diagnostic.message,
+      "HTTP root AuthoredApi: endpoint inventory cannot be proven",
+    );
+    assert.strictEqual(diagnostic.code, "EFFX2415");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("explains generation-only whole-root rejection and contract-first atomic ownership", () => {
+    const explanation = renderEntry(HttpDiagnostics.EFFX2415.entry);
+
+    for (const condition of [
+      "contract-only emission never reports EFFX2415",
+      "only groups whose handler factories are being emitted",
+      "An unresolved root leaf rejects the whole root",
+      "one root-level diagnostic naming the unresolved leaf",
+      "Earlier fatal diagnostics defer inventory proof",
+      "Cold --emit=all is atomic and writes nothing",
+      "contract-first is required",
+      "preserves previously owned handler outputs",
+      "healthy-only contracts cannot bootstrap a missing unrelated group",
+    ])
+      assert.include(explanation, condition);
+  });
+  it("declares both strictAccess outcomes without an unrestricted severity escape", () => {
+    assert.deepStrictEqual(HttpDiagnostics.EFFX2504.entry.severityPolicy.allowedSeverities, [
+      "warning",
+      "error",
+    ]);
+    assert.include(
+      renderEntry(HttpDiagnostics.EFFX2504.entry),
+      "Allowed severities: error, warning",
+    );
+    expectTypeOf<
+      (typeof HttpDiagnostics.EFFX2504.entry.severityPolicy.allowedSeverities)[number]
+    >().toEqualTypeOf<"warning" | "error">();
+  });
+  it("preserves rebased repeated-contract and root-export collision messages", () => {
+    assert.strictEqual(
+      HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateContracts", subject: "ext:http" }).message,
+      "ext:http: more than one HttpContract on one operation",
+    );
+    assert.strictEqual(
+      HttpDiagnostics.EFFX2402.emit({
+        _tag: "RootCollision",
+        subject: "ext:http",
+        previous: "user-api",
+      }).message,
+      "ext:http: root export collides with user-api",
+    );
+  });
+  it("preserves the group interpreter identifier prefix distinct from contract validation", () => {
+    assert.strictEqual(
+      HttpDiagnostics.EFFX2402.emit({ _tag: "GroupIdentifiers", subject: "Users" }).message,
+      "Users: HTTP root and group must be safe identifiers",
+    );
+    assert.strictEqual(
+      HttpDiagnostics.EFFX2402.emit({ _tag: "Identifiers", subject: "ext:http" }).message,
+      "ext:http: root and group must be safe identifiers",
+    );
   });
 });

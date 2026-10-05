@@ -1,7 +1,8 @@
 import { Option, Schema } from "effect";
 import { IRGraph } from "@effx/ir";
 import { type Analysis, type Extension } from "../Extension.ts";
-import { error, type Diagnostic } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
 import { clientGenerator } from "../generate/client.ts";
 import { AccessContractData } from "./access-contract.ts";
 import { HttpContractData } from "./http-contract.ts";
@@ -52,9 +53,7 @@ const analyzeRootVisibility: Analysis = (ir, index) => {
     const previous = roots.get(root);
 
     if (previous !== undefined && previous !== exposure && !mixed.has(root)) {
-      diagnostics.push(
-        error("EFFX2505", `${root}: an HTTP root cannot mix Internal and External operations`),
-      );
+      diagnostics.push(HttpDiagnostics.EFFX2505.emit({ root }));
       mixed.add(root);
     }
 

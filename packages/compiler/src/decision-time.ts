@@ -1,5 +1,6 @@
 import type { Annotation, Declaration } from "./Collected.ts";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { HttpDiagnostics } from "./diagnostics/http.ts";
 import { type Rewrite, optionsOf } from "./request-channels.ts";
 
 /**
@@ -31,10 +32,9 @@ export const defaultDecisionTime = (declaration: Declaration): Rewrite => {
 
     if (fallback === undefined) {
       diagnostics.push(
-        error(
-          "EFFX2414",
-          `${declaration.id}: Http.Access omits decisionTime but the declaration has no single Query or Command to default it from; write decisionTime`,
-          declaration.location,
+        HttpDiagnostics.EFFX2414.emit(
+          { subject: declaration.id },
+          { location: declaration.location },
         ),
       );
 

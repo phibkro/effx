@@ -1,8 +1,9 @@
 import { Option, Schema } from "effect";
 import { Builtins } from "@effx/runtime";
-import { type ExtensionNode, IRGraph, StableId } from "@effx/ir";
+import { IRGraph, StableId } from "@effx/ir";
 import { type Analysis, Contribution, type Extension } from "../Extension.ts";
-import { type Diagnostic, error } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
 import { SchemaArg, SymbolArg } from "../args.ts";
 import { extension, implement } from "../annotation.ts";
 import { routeParamNames } from "../route-params.ts";
@@ -117,9 +118,6 @@ const groupIdentifier = /^[A-Za-z_$][A-Za-z0-9_$._-]*$/u;
 
 const endpointIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
-const diagnostic = (node: ExtensionNode, message: string): Diagnostic =>
-  error("EFFX2402", `${node.id}: ${message}`);
-
 const validate: Analysis = (ir, index) => {
   const diagnostics: Array<Diagnostic> = [];
   const rootNames = new Map<string, string>();
@@ -136,7 +134,7 @@ const validate: Analysis = (ir, index) => {
     const decoded = Schema.decodeUnknownOption(HttpContractData)(node.data);
 
     if (Option.isNone(decoded)) {
-      diagnostics.push(diagnostic(node, "invalid HttpContract extension data"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "InvalidData", subject: node.id }));
       continue;
     }
 
@@ -144,16 +142,14 @@ const validate: Analysis = (ir, index) => {
     const edges = IRGraph.outgoing(index, node.id, "ExtensionOf");
 
     if (edges.length !== 1 || edges[0]?.qualifier !== "HttpContract") {
-      diagnostics.push(
-        diagnostic(node, "expected one ExtensionOf edge with HttpContract qualifier"),
-      );
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "InvalidEdge", subject: node.id }));
       continue;
     }
 
     const owner = Option.getOrUndefined(IRGraph.nodeOf(index, edges[0].to));
 
     if (owner?._tag !== "Operation") {
-      diagnostics.push(diagnostic(node, "HTTP contract must attach to an operation"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "NotOperation", subject: node.id }));
       continue;
     }
 
@@ -166,7 +162,7 @@ const validate: Analysis = (ir, index) => {
     });
 
     if (exposures.length !== 1) {
-      diagnostics.push(diagnostic(node, "requires exactly one HTTP exposure"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "ExposureCount", subject: node.id }));
       continue;
     }
 
@@ -176,32 +172,27 @@ const validate: Analysis = (ir, index) => {
       data.payloadIsQuery &&
       (owner.kind !== "Query" || transport.method !== "POST" || data.payload === undefined)
     ) {
-      diagnostics.push(
-        diagnostic(
-          node,
-          "payloadIsQuery requires a Query over POST with an explicit payload schema",
-        ),
-      );
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "PayloadIsQuery", subject: node.id }));
     }
 
     if (transport.method === "GET" && data.payload !== undefined) {
-      diagnostics.push(diagnostic(node, "GET cannot declare an explicit payload"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "GetPayload", subject: node.id }));
     }
 
     if (data.conditional && (transport.method !== "GET" || data.responseHeaders === undefined)) {
-      diagnostics.push(diagnostic(node, "conditional requires GET and responseHeaders"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "Conditional", subject: node.id }));
     }
 
     if (data.mediaType !== undefined && data.payload === undefined) {
-      diagnostics.push(diagnostic(node, "mediaType requires an explicit payload schema"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "MediaType", subject: node.id }));
     }
 
     if (data.status !== undefined && (data.status < 100 || data.status > 599)) {
-      diagnostics.push(diagnostic(node, "status must be an HTTP status from 100 to 599"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "Status", subject: node.id }));
     }
 
     if (!identifier.test(data.root) || !groupIdentifier.test(data.group)) {
-      diagnostics.push(diagnostic(node, "root and group must be safe identifiers"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "Identifiers", subject: node.id }));
     }
 
     const rawPathNames = routeParamNames(transport.path);
@@ -213,21 +204,23 @@ const validate: Analysis = (ir, index) => {
     ).toSorted();
 
     if (rawPathNames.length > 0 !== (data.params !== undefined)) {
-      diagnostics.push(diagnostic(node, "path params require a params schema and vice versa"));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "ParamsRequired", subject: node.id }));
     } else if (data.params !== undefined) {
       if (
         data.paramsKeys === undefined ||
         pathNames.join("\0") !== [...data.paramsKeys].toSorted().join("\0")
       ) {
         diagnostics.push(
-          diagnostic(node, "params schema fields must match path parameters exactly"),
+          HttpDiagnostics.EFFX2402.emit({ _tag: "ParamsMismatch", subject: node.id }),
         );
       }
     }
 
     if (data.metadata?.commandIdentity !== undefined) {
       if (owner.kind !== "Command")
-        diagnostics.push(diagnostic(node, "commandIdentity requires a Command operation"));
+        diagnostics.push(
+          HttpDiagnostics.EFFX2402.emit({ _tag: "CommandIdentityKind", subject: node.id }),
+        );
 
       const headers = data.headersKeys ?? [];
 
@@ -237,7 +230,7 @@ const validate: Analysis = (ir, index) => {
         !headers.some((header) => header.toLowerCase() === "if-match")
       )
         diagnostics.push(
-          diagnostic(node, "commandIdentity requires headers with idempotency-key and if-match"),
+          HttpDiagnostics.EFFX2402.emit({ _tag: "CommandIdentityHeaders", subject: node.id }),
         );
     }
 
@@ -245,19 +238,18 @@ const validate: Analysis = (ir, index) => {
 
     if (operationId === undefined) {
       if (owner.handler === undefined)
-        diagnostics.push(
-          error("EFFX2403", `${owner.name}: externally bound HTTP requires metadata.operationId`),
-        );
+        diagnostics.push(HttpDiagnostics.EFFX2403.emit({ _tag: "MissingId", subject: owner.name }));
     } else {
       const prefix = `${data.group}.`;
       const key = operationId.startsWith(prefix) ? operationId.slice(prefix.length) : "";
 
       if (!endpointIdentifier.test(key)) {
         diagnostics.push(
-          error(
-            "EFFX2403",
-            `${owner.name}: operationId must be ${prefix}<identifier-safe endpoint key>`,
-          ),
+          HttpDiagnostics.EFFX2403.emit({
+            _tag: "InvalidId",
+            subject: owner.name,
+            group: data.group,
+          }),
         );
       } else {
         const qualified = `${data.root}:${data.group}:${key}`;
@@ -265,10 +257,12 @@ const validate: Analysis = (ir, index) => {
 
         if (previous !== undefined && previous !== owner.name)
           diagnostics.push(
-            error(
-              "EFFX2403",
-              `${owner.name}: duplicate HTTP endpoint key ${operationId} (also ${previous})`,
-            ),
+            HttpDiagnostics.EFFX2403.emit({
+              _tag: "DuplicateKey",
+              subject: owner.name,
+              operationId,
+              previous,
+            }),
           );
         else endpointKeys.set(qualified, owner.name);
       }
@@ -280,10 +274,13 @@ const validate: Analysis = (ir, index) => {
 
     if (previousBinding !== undefined && previousBinding.external !== external)
       diagnostics.push(
-        error(
-          "EFFX2403",
-          `${owner.name}: mixed local/external bindings in ${data.root}/${data.group} (also ${previousBinding.name})`,
-        ),
+        HttpDiagnostics.EFFX2403.emit({
+          _tag: "MixedBindings",
+          subject: owner.name,
+          root: data.root,
+          group: data.group,
+          previous: previousBinding.name,
+        }),
       );
     else groupBindings.set(groupKey, { name: owner.name, external });
 
@@ -297,17 +294,23 @@ const validate: Analysis = (ir, index) => {
 
       if (group === undefined)
         diagnostics.push(
-          error(
-            "EFFX2402",
-            `${owner.name}: external HTTP group ${data.root}/${data.group} needs @Http.Group`,
-          ),
+          HttpDiagnostics.EFFX2402.emit({
+            _tag: "ExternalGroup",
+            subject: owner.name,
+            root: data.root,
+            group: data.group,
+            missing: "group",
+          }),
         );
       else if (group._tag === "HttpGroup" && group.rootSymbol === undefined)
         diagnostics.push(
-          error(
-            "EFFX2402",
-            `${owner.name}: external HTTP group ${data.root}/${data.group} needs a concrete HttpApi root`,
-          ),
+          HttpDiagnostics.EFFX2402.emit({
+            _tag: "ExternalGroup",
+            subject: owner.name,
+            root: data.root,
+            group: data.group,
+            missing: "root",
+          }),
         );
     }
 
@@ -316,12 +319,20 @@ const validate: Analysis = (ir, index) => {
     );
 
     if (siblings.length > 1)
-      diagnostics.push(diagnostic(node, "more than one HttpContract on one operation"));
+      diagnostics.push(
+        HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateContracts", subject: node.id }),
+      );
     const rootName = data.root.replace(/[^A-Za-z0-9_$]/gu, "");
     const priorRoot = rootNames.get(rootName);
 
     if (priorRoot !== undefined && priorRoot !== data.root) {
-      diagnostics.push(diagnostic(node, `root export collides with ${priorRoot}`));
+      diagnostics.push(
+        HttpDiagnostics.EFFX2402.emit({
+          _tag: "RootCollision",
+          subject: node.id,
+          previous: priorRoot,
+        }),
+      );
     }
 
     rootNames.set(rootName, data.root);
@@ -343,10 +354,7 @@ const validate: Analysis = (ir, index) => {
       )
     )
       diagnostics.push(
-        error(
-          "EFFX2403",
-          `${operation.name}: externally bound HTTP requires a contract and metadata.operationId`,
-        ),
+        HttpDiagnostics.EFFX2403.emit({ _tag: "MissingContract", subject: operation.name }),
       );
   }
 

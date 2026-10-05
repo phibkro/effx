@@ -3,7 +3,8 @@ import { Builtins } from "@effx/runtime";
 import { IRGraph, StableId, SymbolRef, type OperationKind } from "@effx/ir";
 import { Contribution, type Analysis, type Extension } from "../Extension.ts";
 import { extension, implement } from "../annotation.ts";
-import { warning, type Diagnostic, error } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
 import { HttpContractData } from "./http-contract.ts";
 import { notAnOperation } from "./not-an-operation.ts";
 
@@ -54,7 +55,8 @@ type AccessContractDraft = { -readonly [K in keyof AccessContractData]: AccessCo
 
 const access = implement(Builtins.HttpAccess, {
   notOperation: notAnOperation,
-  duplicate: { code: "EFFX2500" },
+  duplicate: (subject, annotation) =>
+    HttpDiagnostics.EFFX2500.emit({ _tag: "DuplicateAnnotation", subject, annotation }),
   read: ([options], { ctx }) => {
     const operation = Option.getOrThrow(ctx.operationId);
     const id = StableId.make("ext", `access-contract/${StableId.nameOf(operation)}`);
@@ -89,8 +91,10 @@ const access = implement(Builtins.HttpAccess, {
 const snapshotClaimViolations = (
   kind: OperationKind,
   data: AccessContractData,
-): ReadonlyArray<string> => {
-  const violations: Array<string> = [];
+): Parameters<typeof HttpDiagnostics.EFFX2506.emit>[0]["violations"] => {
+  const violations: Array<
+    Parameters<typeof HttpDiagnostics.EFFX2506.emit>[0]["violations"][number]
+  > = [];
 
   if (kind !== "Command") violations.push("only a Command may claim a snapshot decision");
 
@@ -134,10 +138,10 @@ const analyzeAccess: Analysis = (ir, index, context) => {
     if (contracts.length === 0) {
       if (hasHttpExposure)
         diagnostics.push(
-          (context?.strictAccess ? error : warning)(
-            "EFFX2504",
-            `${operation.name}: HTTP exposure requires @Http.Access`,
-          ),
+          HttpDiagnostics.EFFX2504.emit({
+            subject: operation.name,
+            strictAccess: context?.strictAccess ?? false,
+          }),
         );
       continue;
     }
@@ -152,17 +156,20 @@ const analyzeAccess: Analysis = (ir, index, context) => {
           node.tag === "AccessContract",
       ).length > 1
     )
-      diagnostics.push(error("EFFX2500", `${operation.name}: duplicate @Http.Access contracts`));
+      diagnostics.push(
+        HttpDiagnostics.EFFX2500.emit({ _tag: "DuplicateContract", subject: operation.name }),
+      );
 
     for (const contract of contracts) {
       const decoded = Schema.decodeUnknownResult(AccessContractData)(contract.data);
 
       if (Result.isFailure(decoded)) {
         diagnostics.push(
-          error(
-            "EFFX2500",
-            `${operation.name}: malformed AccessContract data — ${decoded.failure.message}`,
-          ),
+          HttpDiagnostics.EFFX2500.emit({
+            _tag: "Malformed",
+            subject: operation.name,
+            validationMessage: decoded.failure.message,
+          }),
         );
         continue;
       }
@@ -174,22 +181,13 @@ const analyzeAccess: Analysis = (ir, index, context) => {
       const accepted = claimed && violations.length === 0;
 
       if (operation.kind === "Command" && data.decisionTime === "SnapshotRead" && !accepted)
-        diagnostics.push(
-          error("EFFX2501", `${operation.name}: Command access cannot decide in a read snapshot`),
-        );
+        diagnostics.push(HttpDiagnostics.EFFX2501.emit({ subject: operation.name }));
 
       if (operation.kind === "Query" && data.decisionTime === "Transaction")
-        diagnostics.push(
-          warning("EFFX2502", `${operation.name}: Query access declares a transaction decision`),
-        );
+        diagnostics.push(HttpDiagnostics.EFFX2502.emit({ subject: operation.name }));
 
       if (violations.length > 0)
-        diagnostics.push(
-          error(
-            "EFFX2506",
-            `${operation.name}: snapshotDecisionForCommand is invalid — ${violations.join("; ")}`,
-          ),
-        );
+        diagnostics.push(HttpDiagnostics.EFFX2506.emit({ subject: operation.name, violations }));
 
       if (data.acceptedCredentials.some((credential) => credential !== "None")) {
         const hasSecurityMarker = IRGraph.incoming(index, operation.id, "ExtensionOf").some(
@@ -220,12 +218,7 @@ const analyzeAccess: Analysis = (ir, index, context) => {
         );
 
         if (!hasSecurityMarker)
-          diagnostics.push(
-            error(
-              "EFFX2503",
-              `${operation.name}: protected access requires an Http.Contract security middleware marker`,
-            ),
-          );
+          diagnostics.push(HttpDiagnostics.EFFX2503.emit({ subject: operation.name }));
       }
     }
   }

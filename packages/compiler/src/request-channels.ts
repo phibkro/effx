@@ -1,6 +1,7 @@
 import { Option, Predicate, Schema } from "effect";
 import type { Annotation, AnnotationArg, Declaration } from "./Collected.ts";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { HttpDiagnostics } from "./diagnostics/http.ts";
 import { SchemaArg } from "./args.ts";
 import { OperationArgs } from "./extensions/core.ts";
 import { routeParamNames } from "./route-params.ts";
@@ -116,11 +117,21 @@ const requestOf = (declaration: Declaration): Site | undefined => {
 type Decision =
   | { readonly _tag: "Nothing" }
   | { readonly _tag: "Channel"; readonly channel: Channel }
-  | { readonly _tag: "Conflict"; readonly message: string }
+  | { readonly _tag: "Conflict" }
   | {
-      readonly _tag: "Ambiguous";
-      readonly code: "EFFX2410" | "EFFX2411";
-      readonly message: string;
+      readonly _tag: "UnknownFields";
+      readonly verb: Parameters<typeof HttpDiagnostics.EFFX2411.emit>[0]["verb"];
+      readonly resolvedBy: ReadonlyArray<Channel>;
+    }
+  | {
+      readonly _tag: "MixedFields";
+      readonly params: Omit<
+        Extract<
+          Parameters<typeof HttpDiagnostics.EFFX2410.emit>[0],
+          { readonly _tag: "MixedFields" }
+        >,
+        "subject"
+      >;
       readonly resolvedBy: ReadonlyArray<Channel>;
     };
 
@@ -132,13 +143,7 @@ const channel = (target: Channel): Decision => ({ _tag: "Channel", channel: targ
 const decide = ({ options, kind, input, verb, path }: Site): Decision => {
   // 1. A header-marked input is a headers schema, never a body.
   if (input.marker === "headers")
-    return options.headers === undefined
-      ? channel("headers")
-      : {
-          _tag: "Conflict",
-          message:
-            "the input is a header schema (Http.headers) but Http.Contract.headers names another schema; an input that is a header schema cannot also be a body",
-        };
+    return options.headers === undefined ? channel("headers") : { _tag: "Conflict" };
 
   // ADR 0010: a Query over POST declares its payload explicitly; no other Query verb is allowed.
   if (kind === "Query" && verb !== "Get") return nothing;
@@ -155,9 +160,8 @@ const decide = ({ options, kind, input, verb, path }: Site): Decision => {
     return routeParamNames(path).length === 0 || body === "payload"
       ? channel(body)
       : {
-          _tag: "Ambiguous",
-          code: "EFFX2411",
-          message: `${verb.toUpperCase()} with path parameters needs an input with static field keys to tell params from query; declare params and query explicitly`,
+          _tag: "UnknownFields",
+          verb: verb === "Get" ? verb : "Delete",
           resolvedBy: ["params", "query"],
         };
 
@@ -172,9 +176,8 @@ const decide = ({ options, kind, input, verb, path }: Site): Decision => {
 
   // 5. Both: no derived split schema is ever invented (it would change OpenAPI identity).
   return {
-    _tag: "Ambiguous",
-    code: "EFFX2410",
-    message: `the input mixes path parameters (${[...params].toSorted().join(", ")}) with other fields (${fields.filter((field) => !params.has(field)).join(", ")}); declare params and ${body} explicitly`,
+    _tag: "MixedFields",
+    params: { _tag: "MixedFields", params: [...params], fields, body },
     resolvedBy: [body],
   };
 };
@@ -205,20 +208,43 @@ export const deriveRequestChannels = (declaration: Declaration): Rewrite => {
 
   const decision = decide(request);
 
-  const invalid = (code: string, message: string): Rewrite => ({
-    declaration,
-    diagnostics: [error(code, `${declaration.id}: ${message}`, declaration.location)],
-  });
-
   switch (decision._tag) {
     case "Nothing":
       return unchanged;
     case "Conflict":
-      return invalid("EFFX2410", decision.message);
-    case "Ambiguous":
+      return {
+        declaration,
+        diagnostics: [
+          HttpDiagnostics.EFFX2410.emit(
+            { _tag: "HeaderConflict", subject: declaration.id },
+            { location: declaration.location },
+          ),
+        ],
+      };
+    case "UnknownFields":
       return decision.resolvedBy.some((name) => options[name] !== undefined)
         ? unchanged
-        : invalid(decision.code, decision.message);
+        : {
+            declaration,
+            diagnostics: [
+              HttpDiagnostics.EFFX2411.emit(
+                { subject: declaration.id, verb: decision.verb },
+                { location: declaration.location },
+              ),
+            ],
+          };
+    case "MixedFields":
+      return decision.resolvedBy.some((name) => options[name] !== undefined)
+        ? unchanged
+        : {
+            declaration,
+            diagnostics: [
+              HttpDiagnostics.EFFX2410.emit(
+                { ...decision.params, subject: declaration.id },
+                { location: declaration.location },
+              ),
+            ],
+          };
     case "Channel": {
       if (options[decision.channel] !== undefined) return unchanged;
 

@@ -2,7 +2,8 @@ import { Option, Predicate, Schema } from "effect";
 import { Builtins } from "@effx/runtime";
 import { StableId, type HttpGroupNode } from "@effx/ir";
 import { Contribution, type Analysis, type Extension } from "../Extension.ts";
-import { error, type Diagnostic } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
 import { extension, implement } from "../annotation.ts";
 import { expandGroupDefaults } from "../group-defaults.ts";
 import { groupApiName, groupClassName, handlerName } from "../generate/http-contracts.ts";
@@ -18,14 +19,14 @@ type HttpGroupDraft = { -readonly [K in keyof HttpGroupNode]: HttpGroupNode[K] }
 const group = implement(Builtins.HttpGroup, {
   before: (_annotation, declaration) =>
     declaration.kind !== "class" && declaration.kind !== "builder"
-      ? error("EFFX2402", `${declaration.id}: @Http.Group requires an exported class or builder`)
+      ? HttpDiagnostics.EFFX2402.emit({ _tag: "GroupTarget", subject: declaration.id })
       : undefined,
   read: ([options], { declaration }) => {
     const root = Predicate.isString(options.root) ? options.root : options.root.identifier;
 
     if (!safeName.test(root) || !safeGroupName.test(options.group))
       return Contribution.diagnostics(
-        error("EFFX2402", `${declaration.id}: HTTP root and group must be safe identifiers`),
+        HttpDiagnostics.EFFX2402.emit({ _tag: "GroupIdentifiers", subject: declaration.id }),
       );
 
     const data: HttpGroupDraft = {
@@ -59,7 +60,7 @@ const validate: Analysis = (ir) => {
       !safeGroupName.test(node.group) ||
       node.id !== StableId.make("group", `${node.root}/${node.group}`)
     ) {
-      diagnostics.push(error("EFFX2402", `${node.id}: invalid HTTP group identity`));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "GroupIdentity", subject: node.id }));
       continue;
     }
 
@@ -75,7 +76,7 @@ const validate: Analysis = (ir) => {
     const previous = definitions.get(key);
 
     if (previous !== undefined && previous !== metadata)
-      diagnostics.push(error("EFFX2402", `${node.id}: conflicting @Http.Group definitions`));
+      diagnostics.push(HttpDiagnostics.EFFX2402.emit({ _tag: "GroupConflict", subject: node.id }));
     else definitions.set(key, metadata);
   }
 
@@ -130,7 +131,7 @@ const validateExportNames: Analysis = (ir) => {
 
         if (!diagnosed.has(collisionKey)) {
           diagnostics.push(
-            error("EFFX2406", `HTTP export ${name} collides for ${pair[0]} and ${pair[1]}`),
+            HttpDiagnostics.EFFX2406.emit({ name, first: pair[0]!, second: pair[1]! }),
           );
           diagnosed.add(collisionKey);
         }

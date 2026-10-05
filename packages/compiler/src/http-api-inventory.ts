@@ -1,5 +1,6 @@
 import type { ApplicationIR, SymbolRef } from "@effx/ir";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { HttpDiagnostics } from "./diagnostics/http.ts";
 import type { GenerationContext } from "./Extension.ts";
 import type { Exposed } from "./generate/emit.ts";
 import { endpointKey, httpGroups, toHttpItems } from "./generate/http-contracts.ts";
@@ -65,10 +66,11 @@ export const httpApiInventoryDiagnostics = (
 
     if (inventory === undefined) {
       diagnostics.push(
-        error(
-          "EFFX2415",
-          `HTTP group ${group.root}/${group.group}: concrete root endpoint inventory is missing or ambiguous`,
-        ),
+        HttpDiagnostics.EFFX2415.emit({
+          _tag: "MissingInventory",
+          root: group.root,
+          group: group.group,
+        }),
       );
       continue;
     }
@@ -80,10 +82,13 @@ export const httpApiInventoryDiagnostics = (
 
       if (!keys.has(key))
         diagnostics.push(
-          error(
-            "EFFX2415",
-            `${item.operation.name}: concrete root ${group.root}/${group.group} has no declared endpoint ${key}`,
-          ),
+          HttpDiagnostics.EFFX2415.emit({
+            _tag: "MissingEndpoint",
+            subject: item.operation.name,
+            root: group.root,
+            group: group.group,
+            key,
+          }),
         );
     }
   }

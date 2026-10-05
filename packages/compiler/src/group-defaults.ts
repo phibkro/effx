@@ -1,7 +1,8 @@
 import { Option, Schema } from "effect";
 import { Builtins } from "@effx/runtime";
 import { AnnotationArg, type Annotation, type Declaration } from "./Collected.ts";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { HttpDiagnostics } from "./diagnostics/http.ts";
 import type { Expand } from "./Extension.ts";
 import { SymbolArg } from "./args.ts";
 import { decodeSchemaOf } from "./annotation.ts";
@@ -59,10 +60,6 @@ export const expandGroupDefaults: Expand = (collected) => {
 
     const location = declaration.location;
 
-    const invalid = (code: string, message: string): void => {
-      diagnostics.push(error(code, `${declaration.id}: ${message}`, location));
-    };
-
     // Http.In is never interpreted or persisted, even for an invalid association.
     const annotations = declaration.annotations.filter(
       (annotation) => annotation.name !== "Http.In",
@@ -75,13 +72,23 @@ export const expandGroupDefaults: Expand = (collected) => {
         (annotation) => annotation.name === "Query" || annotation.name === "Command",
       )
     ) {
-      invalid("EFFX2404", "HTTP group association requires an operation");
+      diagnostics.push(
+        HttpDiagnostics.EFFX2404.emit(
+          { _tag: "NotOperation", subject: declaration.id },
+          { location },
+        ),
+      );
 
       return { ...declaration, annotations };
     }
 
     if (explicit.length + enclosing.length !== 1) {
-      invalid("EFFX2404", "multiple or repeated HTTP group associations");
+      diagnostics.push(
+        HttpDiagnostics.EFFX2404.emit(
+          { _tag: "MultipleAssociations", subject: declaration.id },
+          { location },
+        ),
+      );
 
       return { ...declaration, annotations };
     }
@@ -92,7 +99,12 @@ export const expandGroupDefaults: Expand = (collected) => {
       const decoded = Schema.decodeUnknownOption(InArgs)(explicit[0]!.args);
 
       if (Option.isNone(decoded)) {
-        invalid("EFFX2404", "malformed HTTP group association");
+        diagnostics.push(
+          HttpDiagnostics.EFFX2404.emit(
+            { _tag: "MalformedAssociation", subject: declaration.id },
+            { location },
+          ),
+        );
 
         return { ...declaration, annotations };
       }
@@ -104,7 +116,12 @@ export const expandGroupDefaults: Expand = (collected) => {
       );
 
       if (ref.member !== undefined || candidates.length !== 1) {
-        invalid("EFFX2404", "group reference must resolve to one exported group declaration");
+        diagnostics.push(
+          HttpDiagnostics.EFFX2404.emit(
+            { _tag: "UnresolvedReference", subject: declaration.id },
+            { location },
+          ),
+        );
 
         return { ...declaration, annotations };
       }
@@ -122,7 +139,12 @@ export const expandGroupDefaults: Expand = (collected) => {
       group.member !== undefined ||
       !group.export
     ) {
-      invalid("EFFX2404", "association does not identify one exported HTTP group");
+      diagnostics.push(
+        HttpDiagnostics.EFFX2404.emit(
+          { _tag: "InvalidAssociation", subject: declaration.id },
+          { location },
+        ),
+      );
 
       return { ...declaration, annotations };
     }
@@ -144,7 +166,12 @@ export const expandGroupDefaults: Expand = (collected) => {
           /^Http\.(Get|Post|Patch|Put|Delete)$/u.test(annotation.name),
         )
       )
-        invalid("EFFX2405", "associated HTTP operation requires an explicit Http.Contract");
+        diagnostics.push(
+          HttpDiagnostics.EFFX2405.emit(
+            { _tag: "MissingContract", subject: declaration.id },
+            { location },
+          ),
+        );
 
       return { ...declaration, annotations };
     }
@@ -157,10 +184,20 @@ export const expandGroupDefaults: Expand = (collected) => {
     const current: Readonly<Record<string, AnnotationArg>> = contract.args[0];
 
     if (current.root !== undefined && current.root !== root)
-      invalid("EFFX2405", "HTTP root conflicts with associated group");
+      diagnostics.push(
+        HttpDiagnostics.EFFX2405.emit(
+          { _tag: "RootConflict", subject: declaration.id },
+          { location },
+        ),
+      );
 
     if (current.group !== undefined && current.group !== options.group)
-      invalid("EFFX2405", "HTTP group conflicts with associated group");
+      diagnostics.push(
+        HttpDiagnostics.EFFX2405.emit(
+          { _tag: "GroupConflict", subject: declaration.id },
+          { location },
+        ),
+      );
 
     const operation = annotations.find(
       (annotation) => annotation.name === "Query" || annotation.name === "Command",
@@ -194,7 +231,12 @@ export const expandGroupDefaults: Expand = (collected) => {
         mapsInput(current.headers, operationArgs.input) ||
         current.payload !== undefined
       ) {
-        invalid("EFFX2405", "query: true requires a GET Query input not assigned elsewhere");
+        diagnostics.push(
+          HttpDiagnostics.EFFX2405.emit(
+            { _tag: "QueryDefault", subject: declaration.id },
+            { location },
+          ),
+        );
       } else {
         updated.query = { _tag: "Schema", ref: operationArgs.input.ref };
       }

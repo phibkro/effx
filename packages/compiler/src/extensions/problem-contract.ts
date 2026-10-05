@@ -3,7 +3,9 @@ import { Builtins } from "@effx/runtime";
 import { IRGraph, StableId, SymbolRef, type OperationNode } from "@effx/ir";
 import { Contribution, type Analysis, type Extension } from "../Extension.ts";
 import { extension, implement } from "../annotation.ts";
-import { error, type Diagnostic } from "../Diagnostic.ts";
+import type { Diagnostic } from "../Diagnostic.ts";
+import { HttpDiagnostics } from "../diagnostics/http.ts";
+import { CoreDiagnostics } from "../diagnostics/core.ts";
 import { notAnOperation } from "./not-an-operation.ts";
 
 /** JSON-only payload attached to an operation; no application module is evaluated. */
@@ -94,7 +96,9 @@ const analyzeProblems: Analysis = (ir, index) => {
           node.tag === "ProblemContract",
       ).length > 1
     ) {
-      diagnostics.push(error("EFFX2402", `${operation.name}: duplicate @Http.Problems contracts`));
+      diagnostics.push(
+        HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateProblems", subject: operation.name }),
+      );
     }
 
     const exposedOverHttp = IRGraph.outgoing(index, operation.id, "ExposedAs").some((edge) => {
@@ -109,7 +113,7 @@ const analyzeProblems: Analysis = (ir, index) => {
 
     if (!exposedOverHttp)
       diagnostics.push(
-        error("EFFX2402", `${operation.name}: @Http.Problems requires an HTTP exposure`),
+        HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsExposure", subject: operation.name }),
       );
 
     for (const contract of contracts) {
@@ -117,10 +121,11 @@ const analyzeProblems: Analysis = (ir, index) => {
 
       if (Result.isFailure(decoded)) {
         diagnostics.push(
-          error(
-            "EFFX2402",
-            `${operation.name}: malformed ProblemContract data — ${decoded.failure.message}`,
-          ),
+          HttpDiagnostics.EFFX2402.emit({
+            _tag: "MalformedProblems",
+            subject: operation.name,
+            validationMessage: decoded.failure.message,
+          }),
         );
         continue;
       }
@@ -130,16 +135,13 @@ const analyzeProblems: Analysis = (ir, index) => {
         !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(decoded.success.identifier)
       )
         diagnostics.push(
-          error(
-            "EFFX2402",
-            `${operation.name}: @Http.Problems identifier must be a nonempty safe identifier`,
-          ),
+          HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsIdentifier", subject: operation.name }),
         );
       const { codes, map, statusAnnotated, errorTags } = decoded.success;
 
       if (new Set(codes).size !== codes.length)
         diagnostics.push(
-          error("EFFX2402", `${operation.name}: @Http.Problems codes must be unique`),
+          HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsCodes", subject: operation.name }),
         );
       diagnostics.push(...mappingDiagnostics(operation, codes, map, statusAnnotated, errorTags));
     }
@@ -163,19 +165,11 @@ const mappingDiagnostics = (
 
   for (const [tag, code] of Object.entries(map ?? {})) {
     if (!codes.includes(code))
-      diagnostics.push(
-        error(
-          "EFFX2206",
-          `${operation.name}: @Http.Problems maps ${tag} to ${code}, which is absent from codes`,
-        ),
-      );
+      diagnostics.push(CoreDiagnostics.EFFX2206.emit({ subject: operation.name, tag, code }));
 
     if (!errors.has(tag))
       diagnostics.push(
-        error(
-          "EFFX2205",
-          `${operation.name}: @Http.Problems maps ${tag}, which is not an operation error`,
-        ),
+        CoreDiagnostics.EFFX2205.emit({ _tag: "NotError", subject: operation.name, tag }),
       );
   }
 
@@ -184,10 +178,7 @@ const mappingDiagnostics = (
 
     if (map?.[tag] === undefined && !statusAnnotated?.includes(tag))
       diagnostics.push(
-        error(
-          "EFFX2205",
-          `${operation.name}: ${tag} has no @Http.Problems mapping or sourced HTTP status`,
-        ),
+        CoreDiagnostics.EFFX2205.emit({ _tag: "MissingMapping", subject: operation.name, tag }),
       );
   }
 
