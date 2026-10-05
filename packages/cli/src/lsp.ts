@@ -79,18 +79,29 @@ const registryHref = "https://phibkro.github.io/effx/docs/diagnostics/registry";
 const withKnownExecutableFiles = (
   inputs: ReadonlyArray<WatchInput>,
   files: ReadonlyArray<string>,
-): ReadonlyArray<WatchInput> => [
-  ...inputs,
-  ...files
-    .values()
-    .filter((file) => !inputs.some((input) => input.directory !== true && input.path === file))
-    .map((file): WatchInput => ({ path: file, kind: "executable" })),
-];
+): ReadonlyArray<WatchInput> => {
+  const coverage = [...inputs];
+
+  for (const file of files) {
+    if (!inputs.some((input) => input.directory !== true && input.path === file))
+      coverage.push({ path: file, kind: "executable" });
+  }
+
+  return coverage;
+};
+
+const outputPaths = (project: Project): ReadonlyArray<string> => {
+  const outputs = [project.effxDir];
+
+  if (project.config.outDir !== undefined) outputs.push(project.config.outDir);
+
+  return outputs;
+};
 
 /** Portable one-project LSP owner. Building this Effect performs no work. The outer
  * scope owns transport/client liveness; shutdown closes the nested project owner
  * before replying null, leaving transport alive until exit or EOF. No disk emission. */
-export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
+export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const cwd = path.resolve(options.cwd ?? path.resolve());
@@ -136,7 +147,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
   const refreshOwnedIdentities = Effect.fnUntraced(function* () {
     const roots: string[] = [];
 
-    for (const file of [project!.config.outDir, project!.effxDir]) {
+    for (const file of outputPaths(project!)) {
       const uri = yield* path
         .toFileUrl(file)
         .pipe(Effect.mapError(() => unavailable("Output URI unavailable")));
@@ -275,13 +286,14 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
     const observed = new Map<string, WatchInput>();
     const texts = new Map<string, string>();
     observed.set(project.tsconfigPath, { path: project.tsconfigPath, kind: "source" });
+    const sources = new Map<string, string | undefined>();
+
+    for (const [file, text] of snapshot.sources) {
+      if (!ownedIdentities.some((root) => under(file, root))) sources.set(file, text);
+    }
 
     const result = yield* compile(project.config, project.extensions, {
-      sources: new Map(
-        [...snapshot.sources].filter(
-          ([file]) => !ownedIdentities.some((root) => under(file, root)),
-        ),
-      ),
+      sources,
       onObserve: (input) =>
         observed.set(
           input.path,
@@ -324,12 +336,13 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
     const previous = yield* watch!.current;
     const previousChanges = yield* watch!.takeChanges;
     executableInputs = withKnownExecutableFiles(executableInputs, yield* loadedExecutableFiles());
-    sourceInputs = [...observed.values()].filter(
-      (input) =>
-        ![project!.config.outDir, project!.effxDir].some(
-          (output) => input.path === output || input.path.startsWith(`${output}${path.sep}`),
-        ),
-    );
+    const observedSources: WatchInput[] = [];
+
+    for (const input of observed.values()) {
+      if (!ownedIdentities.some((output) => under(input.path, output))) observedSources.push(input);
+    }
+
+    sourceInputs = observedSources;
     yield* watch!
       .replaceInputs([...executableInputs, ...sourceInputs])
       .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
@@ -409,8 +422,8 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
         options.project !== undefined,
         {
           trustDiscoveredConfig: options.trustConfig === true,
-          executableFiles: options.executableFiles?.map((file) => path.resolve(cwd, file)),
-          executableDirectories: options.executableDirectories?.map((directory) =>
+          executableFiles: (options.executableFiles ?? []).map((file) => path.resolve(cwd, file)),
+          executableDirectories: (options.executableDirectories ?? []).map((directory) =>
             path.resolve(cwd, directory),
           ),
           beforeImport: Effect.fnUntraced(function* (
@@ -458,7 +471,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions = {}) {
       watch = yield* makeWatchFiles({
         inputs: [...executableInputs, ...sourceInputs],
         maxFileBytes: 16 * 1024 * 1024,
-        exclusions: [project.config.outDir, project.effxDir, path.join(project.rootDir, ".git")],
+        exclusions: [...outputPaths(project), path.join(project.rootDir, ".git")],
       }).pipe(Effect.mapError(() => unavailable("Watch coverage admission failed")));
       yield* watch.poll.pipe(
         Effect.mapError(() => unavailable("Initial reconciliation unavailable")),

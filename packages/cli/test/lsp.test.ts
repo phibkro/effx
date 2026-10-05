@@ -73,8 +73,8 @@ describe("LSP method boundary and projection", () => {
         ],
       });
 
-      assert.strictEqual(value.contentChanges[0].text, "😀\r\na");
-      assert.deepStrictEqual(value.contentChanges[1].range?.start, { line: 0, character: 2 });
+      assert.strictEqual(value.contentChanges[0]?.text, "😀\r\na");
+      assert.deepStrictEqual(value.contentChanges[1]?.range?.start, { line: 0, character: 2 });
     }),
   );
 
@@ -184,8 +184,11 @@ describe("LSP method boundary and projection", () => {
       },
     });
     assert.strictEqual(result?.logs.length, 1);
-    assert.include(result!.logs[0], "EFFX0002");
-    assert.include(result!.logs[0], "effx explain");
+
+    for (const log of result?.logs ?? []) {
+      assert.include(log, "EFFX0002");
+      assert.include(log, "effx explain");
+    }
 
     const foreign = projectDiagnostic(
       {
@@ -351,7 +354,11 @@ describe("maintained LSP client project journeys", () => {
           yield* peer.notification("textDocument/didClose", { textDocument: { uri } });
           assert.deepStrictEqual((yield* published(peer, uri, 3)).diagnostics, []);
           assert.strictEqual(yield* fs.readFileString(file), saved);
-          assert.isFalse(yield* fs.exists(project.config.outDir));
+
+          for (const output of [project.config.outDir, project.effxDir]) {
+            if (output !== undefined) assert.isFalse(yield* fs.exists(output));
+          }
+
           assert.strictEqual(yield* peer.request("shutdown"), null);
           yield* peer.notification("exit");
           assert.strictEqual((yield* peer.exit).code, 0);

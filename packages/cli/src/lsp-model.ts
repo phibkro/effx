@@ -125,8 +125,9 @@ export const selectRoot = (
 
   if (params.workspaceFolders && params.workspaceFolders.length > 1) return undefined;
 
-  if (params.workspaceFolders?.length === 1)
-    return { kind: "uri", value: params.workspaceFolders[0].uri };
+  const folder = params.workspaceFolders?.[0];
+
+  if (folder !== undefined) return { kind: "uri", value: folder.uri };
 
   if (params.rootUri !== undefined && params.rootUri !== null)
     return { kind: "uri", value: params.rootUri };
