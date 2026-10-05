@@ -136,16 +136,15 @@ export type Expand = (collected: Collected) => Expansion;
 
 export interface Extension {
   readonly name: string;
-  /** Explanations published by this extension; validated when composing a registry. */
+  /** Entry declarations, Schema-decoded and collision-checked with the bundled catalogue before frontend analysis. */
   readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   /** Definitions this extension implements; their plans drive frontend lowering (spec 0020). */
   readonly annotations?: ReadonlyArray<DefinitionData>;
   readonly interpreters: Readonly<Record<string, Interpreter>>;
   readonly analyses: ReadonlyArray<Analysis>;
   /**
-   * An optional pre-pass over `Collected` (`http-group` expands group defaults, spec 0013). The pipeline
-   * runs every extension's `expand` in list order, each seeing the previous one's declarations, and keeps
-   * their diagnostics in the same order.
+   * An optional pre-pass over Collected, run in extension order. Its diagnostics (including related
+   * occurrences) are registry-checked before reporting; violations become EFFX0010 and block output.
    */
   readonly expand?: Expand;
   /**

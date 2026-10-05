@@ -14,10 +14,12 @@ export type {
 
 export { Contribution } from "./Extension.ts";
 
-export { Diagnostic, Severity, Location, error, warning, hasErrors } from "./Diagnostic.ts";
+export { Diagnostic, Severity, Location, hasErrors } from "./Diagnostic.ts";
 
 export {
   DiagnosticEntry,
+  DiagnosticExample,
+  SeverityPolicy,
   RegistryError,
   composeRegistry,
   defineDiagnostic,
@@ -25,7 +27,7 @@ export {
   renderCatalogue,
 } from "@effx/diagnostics";
 
-export type { Registry } from "@effx/diagnostics";
+export type { Registry, Definition, EmitOptions } from "@effx/diagnostics";
 
 export {
   bundledDiagnosticEntries,

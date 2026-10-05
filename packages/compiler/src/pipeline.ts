@@ -1,8 +1,9 @@
 import { Effect, Option } from "effect";
+import type { Registry } from "@effx/diagnostics";
 import { type ApplicationIR, type GraphIndex, IRGraph, make, normalize } from "@effx/ir";
 import type { Collected, HttpApiGroupInventory, ProjectConfig } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
-import { type Diagnostic, type Location, StageResult, error, hasErrors } from "./Diagnostic.ts";
+import { type Diagnostic, type Location, StageResult, hasErrors } from "./Diagnostic.ts";
 import {
   Contribution,
   type AnalysisContext,
@@ -16,6 +17,12 @@ import { SourceFrontend } from "./SourceFrontend.ts";
 import { operationIdOf } from "./extensions/core.ts";
 import { definitionDiagnostics, definitionsOf } from "./annotation.ts";
 import { unsupportedModules } from "./generate/target.ts";
+import { CoreDiagnostics, HttpDiagnostics } from "./diagnostics/index.ts";
+import {
+  hasDiagnosticContractErrors,
+  registryOf,
+  validateDiagnostics,
+} from "./diagnostics/validation.ts";
 import {
   externalHttpApiGroups,
   httpApiRootKey,
@@ -32,31 +39,20 @@ export interface CompileResult {
   readonly diagnostics: ReadonlyArray<Diagnostic>;
 }
 
-const withLocation = (diagnostic: Diagnostic, location: Location): Diagnostic => {
-  if (diagnostic.related === undefined) {
-    return {
-      code: diagnostic.code,
-      severity: diagnostic.severity,
-      message: diagnostic.message,
-      location,
-    };
-  }
+const withLocation = (diagnostic: Diagnostic, location: Location): Diagnostic => ({
+  ...diagnostic,
+  location,
+});
 
-  return {
-    code: diagnostic.code,
-    severity: diagnostic.severity,
-    message: diagnostic.message,
-    location,
-    related: diagnostic.related,
-  };
-};
-
-/**
- * Runs every extension's `expand` pre-pass in list order, each over the previous one's declarations;
- * diagnostics keep the same order. With no `expand` the declarations are the collected ones.
- */
-const expandAll = (collected: Collected, extensions: ReadonlyArray<Extension>): Expansion => {
+/** Run pre-passes in list order, checking each callback before the next stage receives it. */
+const expandAll = (
+  collected: Collected,
+  extensions: ReadonlyArray<Extension>,
+  registry: Registry,
+  context: AnalysisContext,
+): Expansion => {
   let declarations = collected.declarations;
+
   const diagnostics: Array<Diagnostic> = [];
 
   for (const extension of extensions) {
@@ -65,24 +61,39 @@ const expandAll = (collected: Collected, extensions: ReadonlyArray<Extension>): 
     const expansion = extension.expand({ ...collected, declarations });
 
     declarations = expansion.declarations;
-    diagnostics.push(...expansion.diagnostics);
+
+    diagnostics.push(
+      ...validateDiagnostics(expansion.diagnostics, registry, extension.name, {
+        ...context,
+        phase: "expand",
+      }),
+    );
   }
 
   return { declarations, diagnostics };
 };
 
-/**
- * interpret → merge → normalize. Pure. Unknown annotations are `EFFX1101`.
- *
- * @internal
- */
-export const interpret = (
+const interpretRegistered = (
   collected: Collected,
   extensions: ReadonlyArray<Extension>,
+  registry: Registry,
+  context: AnalysisContext,
 ): StageResult<ApplicationIR> => {
   const contributions: Array<Contribution> = [];
-  const expanded = expandAll(collected, extensions);
-  contributions.push(Contribution.diagnostics(...definitionDiagnostics(extensions)));
+
+  const expanded = expandAll(collected, extensions, registry, context);
+
+  contributions.push(
+    Contribution.diagnostics(
+      ...validateDiagnostics(
+        definitionDiagnostics(extensions),
+        registry,
+        "annotation definitions",
+        { ...context, phase: "interpret" },
+      ),
+    ),
+  );
+
   contributions.push(Contribution.diagnostics(...expanded.diagnostics));
 
   for (const declaration of expanded.declarations) {
@@ -94,10 +105,9 @@ export const interpret = (
       if (owners.length === 0) {
         contributions.push(
           Contribution.diagnostics(
-            error(
-              "EFFX1101",
-              `@${annotation.name} on ${declaration.id}: no extension interprets this annotation`,
-              declaration.location,
+            CoreDiagnostics["EFFX1101"].emit(
+              { annotation: annotation.name, subject: declaration.id },
+              declaration.location === undefined ? undefined : { location: declaration.location },
             ),
           ),
         );
@@ -105,15 +115,14 @@ export const interpret = (
 
       for (const owner of owners) {
         const contribution = owner.interpreters[annotation.name]!(annotation, declaration, ctx);
-        const location = declaration.location;
 
-        if (location === undefined || contribution.diagnostics.length === 0) {
-          contributions.push(contribution);
-          continue;
-        }
-
-        const diagnostics = contribution.diagnostics.map((diagnostic) =>
-          diagnostic.location === undefined ? withLocation(diagnostic, location) : diagnostic,
+        const diagnostics = validateDiagnostics(contribution.diagnostics, registry, owner.name, {
+          ...context,
+          phase: "interpret",
+        }).map((diagnostic) =>
+          diagnostic.location === undefined && declaration.location !== undefined
+            ? withLocation(diagnostic, declaration.location)
+            : diagnostic,
         );
 
         contributions.push(Contribution.make(contribution.nodes, contribution.edges, diagnostics));
@@ -126,25 +135,53 @@ export const interpret = (
   return StageResult.succeed(normalize(make(merged.nodes, merged.edges)), merged.diagnostics);
 };
 
-/**
- * Runs every extension's analyses over the normalized IR and its graph index. Pure.
- *
- * @internal
- */
+/** interpret → merge → normalize. Pure; registry violations are diagnostics, not faults. @internal */
+export const interpret = (
+  collected: Collected,
+  extensions: ReadonlyArray<Extension>,
+): StageResult<ApplicationIR> => {
+  const registration = registryOf(extensions);
+
+  if (Option.isNone(registration.value)) return StageResult.skip(registration.diagnostics);
+
+  return interpretRegistered(collected, extensions, registration.value.value, {
+    strictAccess: collected.project?.strictAccess ?? false,
+  });
+};
+
+const analyzeRegistered = (
+  ir: ApplicationIR,
+  index: GraphIndex,
+  extensions: ReadonlyArray<Extension>,
+  registry: Registry,
+  context: AnalysisContext,
+): ReadonlyArray<Diagnostic> =>
+  extensions.flatMap((extension) =>
+    extension.analyses.flatMap((analysis) =>
+      validateDiagnostics(analysis(ir, index, context), registry, extension.name, {
+        ...context,
+        phase: "analyze",
+      }),
+    ),
+  );
+
+/** Runs every extension's analyses over normalized IR, checking each callback's diagnostics. @internal */
 export const analyze = (
   ir: ApplicationIR,
   index: GraphIndex,
   extensions: ReadonlyArray<Extension>,
   context: AnalysisContext = { strictAccess: false },
-): ReadonlyArray<Diagnostic> =>
-  extensions.flatMap((extension) =>
-    extension.analyses.flatMap((analysis) => analysis(ir, index, context)),
-  );
+): ReadonlyArray<Diagnostic> => {
+  const registration = registryOf(extensions);
+
+  if (Option.isNone(registration.value)) return registration.diagnostics;
+
+  return analyzeRegistered(ir, index, extensions, registration.value.value, context);
+};
 
 /**
  * Runs every generator; output is sorted by path so the file set is deterministic. The extensions' endpoint
- * fragments reach the generators through `GenerationContext.fragments`, in extension-list order (spec 0020 §6).
- *
+ * fragments reach the generators through GenerationContext.fragments in extension-list order.
  * @internal
  */
 export const generate = Effect.fn("generate")(function* (
@@ -168,20 +205,50 @@ export const generate = Effect.fn("generate")(function* (
 
 type GenerationContextDraft = { -readonly [K in keyof GenerationContext]: GenerationContext[K] };
 
-/**
- * The pipeline after collection; usable without a `SourceFrontend` (tests, cached IR).
- *
- * @internal
- */
-export const compileCollected = Effect.fn("compileCollected")(function* (
-  collected: Collected,
+const rejected = (
+  diagnostics: ReadonlyArray<Diagnostic>,
+  collected?: Collected,
+): CompileResult => ({
+  collected:
+    collected === undefined ? StageResult.skip(diagnostics) : StageResult.succeed(collected),
+  ir: StageResult.skip(diagnostics),
+  index: Option.none(),
+  files: StageResult.skip(),
+  diagnostics,
+});
+
+const compileRegistered = Effect.fnUntraced(function* (
+  input: Collected,
   extensions: ReadonlyArray<Extension>,
-  context: AnalysisContext = { strictAccess: false },
+  registry: Registry,
+  context: AnalysisContext,
 ): Effect.fn.Return<CompileResult, CompilerFault> {
-  const irStage = interpret(collected, extensions);
-  const ir = Option.getOrThrow(irStage.value);
+  const collectionDiagnostics = validateDiagnostics(
+    input.diagnostics,
+    registry,
+    "source frontend",
+    {
+      ...context,
+      phase: "collect",
+    },
+  );
+
+  const collected: Collected = { ...input, diagnostics: collectionDiagnostics };
+
+  if (hasDiagnosticContractErrors(collectionDiagnostics))
+    return rejected(collectionDiagnostics, collected);
+
+  const irStage = interpretRegistered(collected, extensions, registry, context);
+
+  if (Option.isNone(irStage.value))
+    return rejected([...collectionDiagnostics, ...irStage.diagnostics], collected);
+
+  const ir = irStage.value.value;
+
   const index = IRGraph.toGraph(ir);
-  const analysis = analyze(ir, index, extensions, context);
+
+  const analysis = analyzeRegistered(ir, index, extensions, registry, context);
+
   const base = collected.project ?? defaultGenerationContext;
 
   const generationContext: GenerationContextDraft = { ...base };
@@ -194,58 +261,85 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
   )?.location;
 
   const importDiagnostics = unsupportedModules(ir, generationContext).map((module) =>
-    error(
-      "EFFX2701",
-      `unsupported ${generationContext.target} source module ${module}`,
-      sourceLocation,
+    CoreDiagnostics["EFFX2701"].emit(
+      { _tag: "SourceModule", target: generationContext.target, module },
+      sourceLocation === undefined ? undefined : { location: sourceLocation },
     ),
   );
 
   const diagnostics = [
-    ...collected.diagnostics,
+    ...collectionDiagnostics,
     ...irStage.diagnostics,
     ...analysis,
     ...importDiagnostics,
   ];
 
   // Inventory is a generation precondition; avoid cascades when emission is already blocked.
-  if (!hasErrors(diagnostics) && generationContext.emit !== "contract") {
+  if (
+    !hasErrors(diagnostics) &&
+    !hasDiagnosticContractErrors(diagnostics) &&
+    generationContext.emit !== "contract"
+  ) {
     const inventories: Array<HttpApiGroupInventory> = [];
+
     const resolved = new Set<string>();
+
     const failed = new Set<string>();
 
     for (const group of externalHttpApiGroups(ir)) {
       const root = group.metadata?.rootSymbol;
 
       if (root === undefined) continue;
+
       const key = httpApiRootKey(root);
 
       if (resolved.has(key)) continue;
+
       resolved.add(key);
 
       if (collected.resolveHttpApiInventory === undefined) continue;
+
       const proof = yield* collected.resolveHttpApiInventory(root);
 
-      diagnostics.push(...proof.diagnostics);
+      const proofDiagnostics = validateDiagnostics(
+        proof.diagnostics,
+        registry,
+        "HTTP inventory frontend",
+        {
+          ...context,
+          phase: "collect",
+        },
+      );
+
+      diagnostics.push(...proofDiagnostics);
 
       if (Option.isSome(proof.value)) inventories.push(...proof.value.value);
       else {
         failed.add(key);
 
-        if (!hasErrors(proof.diagnostics))
+        if (!hasErrors(proofDiagnostics) && !hasDiagnosticContractErrors(proofDiagnostics))
           diagnostics.push(
-            error("EFFX2415", `HTTP root ${root.export}: endpoint inventory cannot be proven`),
+            HttpDiagnostics["EFFX2415"].emit({ _tag: "InventoryUnavailable", root: root.export }),
           );
       }
     }
 
     generationContext.httpApiGroups = inventories;
-    diagnostics.push(...httpApiInventoryDiagnostics(ir, generationContext, failed));
+
+    diagnostics.push(
+      ...validateDiagnostics(
+        httpApiInventoryDiagnostics(ir, generationContext, failed),
+        registry,
+        "HTTP inventory",
+        context,
+      ),
+    );
   }
 
-  const files = hasErrors(diagnostics)
-    ? StageResult.skip<ReadonlyArray<GeneratedFile>>()
-    : StageResult.succeed(yield* generate(ir, index, extensions, generationContext));
+  const files =
+    hasErrors(diagnostics) || hasDiagnosticContractErrors(diagnostics)
+      ? StageResult.skip<ReadonlyArray<GeneratedFile>>()
+      : StageResult.succeed(yield* generate(ir, index, extensions, generationContext));
 
   return {
     collected: StageResult.succeed(collected),
@@ -256,15 +350,31 @@ export const compileCollected = Effect.fn("compileCollected")(function* (
   };
 });
 
-/** collect → interpret → merge → normalize → analyze → generate. */
+/** The pipeline after collection; applies the same registry contract without a frontend. @internal */
+export const compileCollected = Effect.fn("compileCollected")(function* (
+  collected: Collected,
+  extensions: ReadonlyArray<Extension>,
+  context: AnalysisContext = { strictAccess: collected.project?.strictAccess ?? false },
+): Effect.fn.Return<CompileResult, CompilerFault> {
+  const registration = registryOf(extensions);
+
+  if (Option.isNone(registration.value)) return rejected(registration.diagnostics);
+
+  return yield* compileRegistered(collected, extensions, registration.value.value, context);
+});
+
+/** collect → interpret → merge → normalize → analyze → generate; registration precedes frontend analysis. */
 export const compile = Effect.fn("compile")(function* (
   project: ProjectConfig,
   extensions: ReadonlyArray<Extension>,
 ): Effect.fn.Return<CompileResult, CompilerFault, SourceFrontend> {
+  const registration = registryOf(extensions);
+
+  if (Option.isNone(registration.value)) return rejected(registration.diagnostics);
   const frontend = yield* SourceFrontend;
   const collected = yield* frontend.analyze(project, { definitions: definitionsOf(extensions) });
 
-  return yield* compileCollected(collected, extensions, {
+  return yield* compileRegistered(collected, extensions, registration.value.value, {
     strictAccess: project.strictAccess ?? collected.project?.strictAccess ?? false,
   });
 });

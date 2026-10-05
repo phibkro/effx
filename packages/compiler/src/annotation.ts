@@ -11,9 +11,11 @@ import type {
   SchemaMarker,
   SymbolMarker,
 } from "@effx/runtime";
+import { RuntimeDiagnostics } from "@effx/runtime/diagnostics";
 import { type ApplicationIR, type ExtensionNode, StableId, SymbolRef } from "@effx/ir";
 import type { Annotation, Declaration } from "./Collected.ts";
-import { type Diagnostic, error } from "./Diagnostic.ts";
+import type { Diagnostic } from "./Diagnostic.ts";
+import { CoreDiagnostics, HttpDiagnostics } from "./diagnostics/index.ts";
 import { SchemaArg, SymbolArg, decodeArgs } from "./args.ts";
 import {
   Contribution,
@@ -176,7 +178,7 @@ export interface ImplementOptions<Read> {
     declaration: Declaration,
   ) => Diagnostic | undefined;
   /** Duplicate-annotation diagnostic for `cardinality: "one"`; defaults to `EFFX2402`. */
-  readonly duplicate?: { readonly code: string };
+  readonly duplicate?: (subject: string, annotation: string) => Diagnostic;
   /** Diagnostic for an operation-target annotation on a declaration that is not an operation. */
   readonly notOperation?: (
     annotation: { readonly name: string },
@@ -384,10 +386,13 @@ const effectAnalysis =
       return Result.match(printable(writtenValue(written.value.args)), {
         onSuccess: () => [],
         onFailure: ({ path, kind }) => [
-          error(
-            "EFFX1102",
-            `${node.id}: @${definition.name} has an effect clause, but its argument ${path} is a ${kind} and cannot be written as source`,
-          ),
+          CoreDiagnostics["EFFX1102"].emit({
+            _tag: "EffectArgument",
+            subject: node.id,
+            annotation: definition.name,
+            path,
+            kind,
+          }),
         ],
       });
     });
@@ -411,10 +416,11 @@ export const implement = <D extends DefinitionData>(
     if (definition.target === "operation" && Option.isNone(ctx.operationId)) {
       return Contribution.diagnostics(
         options.notOperation === undefined
-          ? error(
-              "EFFX2402",
-              `${declaration.id}: @${annotation.name} requires an operation declaration`,
-            )
+          ? HttpDiagnostics["EFFX2402"].emit({
+              _tag: "AnnotationTarget",
+              subject: declaration.id,
+              annotation: annotation.name,
+            })
           : options.notOperation(annotation, declaration),
       );
     }
@@ -424,10 +430,13 @@ export const implement = <D extends DefinitionData>(
       declaration.annotations.filter((item) => item.name === definition.name).length > 1
     ) {
       return Contribution.diagnostics(
-        error(
-          options.duplicate?.code ?? "EFFX2402",
-          `${declaration.id}: duplicate @${definition.name} annotations`,
-        ),
+        options.duplicate === undefined
+          ? HttpDiagnostics["EFFX2402"].emit({
+              _tag: "DuplicateAnnotation",
+              subject: declaration.id,
+              annotation: definition.name,
+            })
+          : options.duplicate(declaration.id, definition.name),
       );
     }
 
@@ -532,15 +541,17 @@ export const definitionDiagnostics = (
     for (const definition of extension.annotations ?? []) {
       if (!nameGrammar.test(definition.name)) {
         diagnostics.push(
-          error(
-            "EFFX1302",
-            `annotation name ${JSON.stringify(definition.name)} (extension ${extension.name}) must match [A-Za-z][A-Za-z0-9._-]*`,
-          ),
+          CoreDiagnostics["EFFX1302"].emit({
+            _tag: "Grammar",
+            name: definition.name,
+            extension: extension.name,
+          }),
         );
       }
 
       for (const problem of definition.diagnostics) {
-        diagnostics.push(error(problem.code, problem.message));
+        // Runtime definition diagnostics are the factory's preserved code/message projection.
+        diagnostics.push({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });
       }
 
       const owner = seen.get(definition.name);
@@ -549,10 +560,12 @@ export const definitionDiagnostics = (
         seen.set(definition.name, extension.name);
       } else {
         diagnostics.push(
-          error(
-            "EFFX1302",
-            `annotation name ${definition.name} is defined by extension ${owner} and by extension ${extension.name}`,
-          ),
+          CoreDiagnostics["EFFX1302"].emit({
+            _tag: "Duplicate",
+            name: definition.name,
+            firstOwner: owner,
+            secondOwner: extension.name,
+          }),
         );
       }
 
@@ -564,10 +577,12 @@ export const definitionDiagnostics = (
         keys.set(key, definition.name);
       } else {
         diagnostics.push(
-          error(
-            "EFFX1304",
-            `effect key ${JSON.stringify(key)} is used by annotation ${keyOwner} and by annotation ${definition.name} (extension ${extension.name})`,
-          ),
+          CoreDiagnostics["EFFX1304"].emit({
+            key,
+            firstAnnotation: keyOwner,
+            secondAnnotation: definition.name,
+            extension: extension.name,
+          }),
         );
       }
     }
