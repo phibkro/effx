@@ -6,6 +6,8 @@
       "@effx-examples/users/user": ["../users/src/user.ts"],
       "@effx-examples/users/services": ["../users/src/services.ts"],
       "@effx/runtime": ["../../packages/runtime/src/index.ts"],
+      "@effx/runtime/diagnostics": ["../../packages/runtime/src/diagnostics.ts"],
+      "@effx/diagnostics": ["../../packages/diagnostics/src/index.ts"],
       "@effx/persistence": ["../../packages/persistence/src/index.ts"],
       "@effx/persistence/syntax": ["../../packages/persistence/src/syntax.ts"],
       "@effx/persistence/compiler": ["../../packages/persistence/src/compiler.ts"],

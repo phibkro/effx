@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@effx/runtime": ["../../../../../../runtime/src/index.ts"]
+      "@effx/runtime": ["../../../../../../runtime/src/index.ts"],
+      "@effx/runtime/diagnostics": ["../../../../../../runtime/src/diagnostics.ts"],
+      "@effx/diagnostics": ["../../../../../../diagnostics/src/index.ts"]
     }
   },
   "effx": {

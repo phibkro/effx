@@ -103,6 +103,8 @@ const workspace = Effect.fnUntraced(function* () {
 
   const paths = {
     "@effx/runtime": [path.join(repoRoot, "packages/runtime/src/index.ts")],
+    "@effx/diagnostics": [path.join(repoRoot, "packages/diagnostics/src/index.ts")],
+    "@effx/runtime/diagnostics": [path.join(repoRoot, "packages/runtime/src/diagnostics.ts")],
     "@effx-examples/users/*": [path.join(users, "src/*.ts")],
     "@effx/persistence/syntax": [path.join(repoRoot, "packages/persistence/src/syntax.ts")],
   };

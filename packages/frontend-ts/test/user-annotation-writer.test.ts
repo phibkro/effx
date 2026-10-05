@@ -85,7 +85,13 @@ const typecheckGenerated = Effect.fnUntraced(function* (
     yield* Schema.encodeEffect(GeneratedTsconfig)({
       extends: "../tsconfig.json",
       include: [`./${name}/*.ts`],
-      compilerOptions: { paths: { "@effx/runtime": ["../../../../../runtime/src/index.ts"] } },
+      compilerOptions: {
+        paths: {
+          "@effx/runtime": ["../../../../../runtime/src/index.ts"],
+          "@effx/diagnostics": ["../../../../../diagnostics/src/index.ts"],
+          "@effx/runtime/diagnostics": ["../../../../../runtime/src/diagnostics.ts"],
+        },
+      },
     }),
   );
 

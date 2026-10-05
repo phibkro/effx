@@ -48,7 +48,15 @@ const generatedDocument = Effect.fnUntraced(function* () {
         noEmit: true,
         skipLibCheck: true,
         allowImportingTsExtensions: true,
-        paths: { "@effx/runtime": [runtime] },
+        paths: {
+          "@effx/runtime": [runtime],
+          "@effx/diagnostics": [
+            new URL("../../diagnostics/src/index.ts", import.meta.url).pathname,
+          ],
+          "@effx/runtime/diagnostics": [
+            new URL("../../runtime/src/diagnostics.ts", import.meta.url).pathname,
+          ],
+        },
       },
       include: ["*.ts"],
     }),

@@ -211,6 +211,10 @@ describe("mixed-ownership HTTP group completion", () => {
               resolveJsonModule: true,
               paths: {
                 "@effx/runtime": [path.join(repository, "packages/runtime/src/index.ts")],
+                "@effx/diagnostics": [path.join(repository, "packages/diagnostics/src/index.ts")],
+                "@effx/runtime/diagnostics": [
+                  path.join(repository, "packages/runtime/src/diagnostics.ts"),
+                ],
                 effect: [path.join(target.dependencies, "effect/dist/index.d.ts")],
                 "effect/package.json": [path.join(target.dependencies, "effect/package.json")],
                 "effect/*": [path.join(target.dependencies, "effect/dist/*.d.ts")],

@@ -13,7 +13,9 @@
     "skipLibCheck": true,
     "experimentalDecorators": false,
     "paths": {
-      "@effx/runtime": ["../../../../runtime/src/index.ts"]
+      "@effx/runtime": ["../../../../runtime/src/index.ts"],
+      "@effx/runtime/diagnostics": ["../../../../runtime/src/diagnostics.ts"],
+      "@effx/diagnostics": ["../../../../diagnostics/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

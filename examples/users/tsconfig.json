@@ -14,7 +14,9 @@
     "experimentalDecorators": false,
     "types": ["bun"],
     "paths": {
-      "@effx/runtime": ["../../packages/runtime/src/index.ts"]
+      "@effx/runtime": ["../../packages/runtime/src/index.ts"],
+      "@effx/runtime/diagnostics": ["../../packages/runtime/src/diagnostics.ts"],
+      "@effx/diagnostics": ["../../packages/diagnostics/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", ".effx/generated/**/*.ts"]

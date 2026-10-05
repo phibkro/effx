@@ -568,7 +568,11 @@ describe("TsSourceFrontend", () => {
           extends: "../tsconfig.json",
           include: ["../src/**/*.ts", "./generated/*.ts"],
           compilerOptions: {
-            paths: { "@effx/runtime": ["../../../../../runtime/src/index.ts"] },
+            paths: {
+              "@effx/runtime": ["../../../../../runtime/src/index.ts"],
+              "@effx/diagnostics": ["../../../../../diagnostics/src/index.ts"],
+              "@effx/runtime/diagnostics": ["../../../../../runtime/src/diagnostics.ts"],
+            },
           },
         });
 
