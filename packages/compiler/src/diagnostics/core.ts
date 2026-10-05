@@ -19,7 +19,7 @@ const entry = <const Code extends string>(
   severity,
   severityPolicy: { kind: "fixed" as const },
   explanation,
-  examples: [{ before, after, explanation: fix, language: "ts" }],
+  examples: [{ before, after, explanation: fix, language: "ts" }] as const,
 });
 
 const subject = { subject: Schema.String };
@@ -253,7 +253,7 @@ const d1102 = defineDiagnostic(
       subject: Schema.String,
       annotation: Schema.String,
       path: Schema.String,
-      kind: Schema.String,
+      kind: Schema.Literals(["Lambda", "non-finite number"]),
     },
   }),
   (params) => {

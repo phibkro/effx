@@ -183,6 +183,20 @@ const compatibilityCases = [
         subject: "operation/User.Get",
         annotation: "RateLimit",
         path: "$[0].burst",
+        kind: "non-finite number",
+      }),
+    message:
+      "operation/User.Get: @RateLimit has an effect clause, but its argument $[0].burst is a non-finite number and cannot be written as source",
+    severity: "error",
+  },
+  {
+    code: "EFFX1102",
+    diagnostic: () =>
+      CoreDiagnostics.EFFX1102.emit({
+        _tag: "EffectArgument",
+        subject: "operation/User.Get",
+        annotation: "RateLimit",
+        path: "$[0].burst",
         kind: "Lambda",
       }),
     message:
@@ -1382,6 +1396,12 @@ describe("core diagnostic registry", () => {
   });
 
   it("keeps literal keys and typed variant facts", () => {
+    expectTypeOf<
+      Extract<
+        Parameters<typeof CoreDiagnostics.EFFX1102.emit>[0],
+        { readonly _tag: "EffectArgument" }
+      >["kind"]
+    >().toEqualTypeOf<"Lambda" | "non-finite number">();
     expectTypeOf(CoreDiagnostics.EFFX1001.entry.code).toEqualTypeOf<"EFFX1001">();
     expectTypeOf(
       CoreDiagnostics.EFFX1001.emit({ id: "operation/User.Get" }),
