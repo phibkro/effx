@@ -62,14 +62,14 @@ export interface Project {
   readonly resolution?: ProjectResolution;
 }
 
-export interface ResolveOptions {
+export interface ResolveOptions<R = never> {
   readonly trustDiscoveredConfig?: boolean;
   readonly executableFiles?: ReadonlyArray<string>;
   readonly executableDirectories?: ReadonlyArray<string>;
   readonly beforeImport?: (
     configFile: string,
     launchCoverage: ReadonlyArray<WatchInput>,
-  ) => Effect.Effect<void, CompilerFault>;
+  ) => Effect.Effect<void, CompilerFault, R>;
 }
 
 export interface ProjectResolution {
@@ -228,7 +228,7 @@ export const configuredExtensions = Effect.fnUntraced(function* (
 });
 
 /** Resolve paths at their supplying source; retain executable values for this process epoch. */
-export const resolveProject = Effect.fn("resolveProject")(function* (
+export const resolveProject = Effect.fn("resolveProject")(function* <R = never>(
   tsconfig = "tsconfig.json",
   strictAccess?: boolean,
   target?: TargetProfile,
@@ -236,7 +236,7 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   configPath?: string,
   outDir?: string,
   projectSelected = false,
-  options: ResolveOptions = {},
+  options: ResolveOptions<R> = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

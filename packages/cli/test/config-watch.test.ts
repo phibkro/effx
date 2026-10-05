@@ -46,20 +46,31 @@ describe("spec 0018 executable config epoch", () => {
     ).toEqualTypeOf<false>();
   });
 
-  it("preserves filesystem requirements and typed failures on saved JSON refresh", () => {
-    expectTypeOf<Effect.Services<ReturnType<typeof resolveProject>>>().toEqualTypeOf<
+  it("preserves pre-import capabilities and typed failures without retaining them for JSON refresh", () => {
+    const ordinary = resolveProject();
+    const admitted = resolveProject<"pre-import-capability">();
+
+    expectTypeOf<Effect.Services<typeof ordinary>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path
+    >();
+    expectTypeOf<Effect.Services<typeof admitted>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path | "pre-import-capability"
+    >();
+    expectTypeOf<Effect.Services<typeof admitted>>().not.toEqualTypeOf<
       FileSystem.FileSystem | Path.Path
     >();
     expectTypeOf<Effect.Services<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
       FileSystem.FileSystem | Path.Path
     >();
-    expectTypeOf<Effect.Error<ReturnType<typeof resolveProject>>>().toEqualTypeOf<
+    expectTypeOf<Effect.Error<typeof ordinary>>().toEqualTypeOf<
+      CompilerFault | PlatformError.PlatformError
+    >();
+    expectTypeOf<Effect.Error<typeof admitted>>().toEqualTypeOf<
       CompilerFault | PlatformError.PlatformError
     >();
     expectTypeOf<Effect.Error<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
       CompilerFault | PlatformError.PlatformError
     >();
-    expectTypeOf<Effect.Services<ReturnType<typeof rereadProject>>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Error<ReturnType<typeof rereadProject>>>().not.toEqualTypeOf<never>();
   });
 
@@ -296,7 +307,11 @@ describe("spec 0018 executable config epoch", () => {
           });
 
           assert.isFalse(called);
-          assert.strictEqual(yield* operation.pipe(Effect.flip), fault);
+          const rejected = yield* operation.pipe(Effect.flip);
+
+          if (rejected._tag !== "CompilerFault") return yield* rejected;
+
+          assert.strictEqual(rejected, fault);
           assert.isFalse(yield* f.fs.exists(f.sentinel));
 
           const interrupted = yield* select(f.project, {
