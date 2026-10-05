@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Context, Effect, Fiber, Schema, Scope } from "effect";
+import { Context, Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { expectTypeOf } from "vitest";
 import {
   acquireLspTransport,
@@ -204,7 +204,6 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       "Framing",
     ],
     ["malformed header", "not-a-header\r\n\r\n", "Framing"],
-    ["malformed JSON", "Content-Length: 1\r\n\r\n{", "Decode"],
     ["header cap", "X: " + "x".repeat(8192), "Framing"],
   ] as const)("rejects %s before domain work", ([_name, frame, reason]) =>
     Effect.scoped(
@@ -217,6 +216,25 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
         assert.include(log, `terminal:${reason}`);
         assert.include(log, "root-released");
         assert.notInclude(log, frame);
+      }),
+    ),
+  );
+
+  it.live("a safely framed JSON parse error gets id:null and keeps the session usable", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        yield* peer.write(new TextEncoder().encode("Content-Length: 1\r\n\r\n{"));
+
+        assert.strictEqual((yield* peer.waitProtocolError(-32700)).code, -32700);
+
+        const state = yield* decodeInspect(yield* peer.request("inspect"));
+
+        assert.deepStrictEqual(state.edits, []);
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
       }),
     ),
   );
@@ -245,14 +263,20 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     { jsonrpc: "2.0", id: null, method: "edit" },
     { jsonrpc: "2.0", id: {}, method: "edit" },
     { jsonrpc: "2.0", method: 3 },
-  ])("Schema rejects invalid envelope %#", (message) =>
+  ])("invalid envelope %# gets id:null and keeps the session usable", (message) =>
     Effect.scoped(
       Effect.gen(function* () {
         const peer = yield* acquirePeer();
         yield* peer.waitNotification("ready");
         yield* peer.write(yield* frames([message]));
-        assert.strictEqual((yield* peer.exit).code, 0);
-        assert.include(yield* peer.stderr, "terminal:Decode");
+        assert.strictEqual((yield* peer.waitProtocolError(-32600)).code, -32600);
+
+        const state = yield* decodeInspect(yield* peer.request("inspect"));
+
+        assert.deepStrictEqual(state.edits, []);
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
       }),
     ),
   );
@@ -302,25 +326,128 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     ),
   );
 
-  it.live("the 33rd outstanding request closes without an unbounded error queue", () =>
+  it.live("request 33 is explicitly refused while all original request correlations survive", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const peer = yield* acquirePeer();
         yield* peer.waitNotification("ready");
-        yield* peer.write(
-          yield* frames(
-            Array.from({ length: 33 }, (_, id) => ({
-              jsonrpc: "2.0",
-              id,
-              method: "hold",
-              params: null,
-            })),
+
+        const allStarted = yield* Deferred.make<void>();
+
+        const gates = yield* Effect.forEach(Array.from({ length: 32 }), () =>
+          Deferred.make<void>(),
+        );
+
+        let started = 0;
+
+        const originals = yield* Effect.forEach(gates, (gate) =>
+          Effect.forkChild(
+            peer.cancelledRequest(
+              "hold",
+              true,
+              Effect.gen(function* () {
+                started++;
+
+                if (started === 32) yield* Deferred.succeed(allStarted, undefined);
+
+                yield* Deferred.await(gate);
+              }),
+            ),
           ),
         );
-        assert.strictEqual((yield* peer.exit).code, 0);
-        assert.include(yield* peer.stderr, "terminal:Capacity");
+
+        yield* Deferred.await(allStarted);
+
+        assert.strictEqual((yield* peer.requestError("hold")).code, -32000);
+
+        for (const [index, gate] of gates.entries()) {
+          yield* Deferred.succeed(gate, undefined);
+          assert.strictEqual((yield* Fiber.join(originals[index]!)).code, -32800);
+        }
+
+        const state = yield* decodeInspect(yield* peer.request("inspect"));
+
+        assert.strictEqual(state.active, 0);
+        assert.strictEqual(state.released, 32);
+        assert.isFalse((yield* peer.notifications).some((message) => message.method === "started"));
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
       }),
     ),
+  );
+
+  it.live("queued numeric and string IDs retain distinct original wire and domain identities", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+
+        const ids = [1, "1", "n:1"] as const;
+
+        const replies = yield* Effect.forEach(ids, (id) =>
+          Effect.forkChild(peer.waitResponse(id), { startImmediately: true }),
+        );
+
+        yield* peer.write(
+          yield* frames(
+            ids.map((id) => ({ jsonrpc: "2.0", id, method: "identify", params: null })),
+          ),
+        );
+
+        for (const [index, id] of ids.entries()) {
+          const response = yield* Fiber.join(replies[index]!);
+
+          assert.strictEqual(response.id, id);
+          assert.isTrue("result" in response);
+
+          if ("result" in response) assert.deepStrictEqual(response.result, { receivedId: id });
+        }
+
+        yield* peer.request("inspect");
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      }),
+    ),
+  );
+
+  it.live(
+    "an exact duplicate ID receives null error without stealing the original cancellation response",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const peer = yield* acquirePeer();
+          yield* peer.waitNotification("ready");
+
+          const original = yield* Effect.forkChild(peer.waitResponse("same"), {
+            startImmediately: true,
+          });
+
+          yield* peer.write(
+            yield* frames([{ jsonrpc: "2.0", id: "same", method: "hold", params: null }]),
+          );
+          yield* peer.waitNotification("started");
+          yield* peer.write(
+            yield* frames([{ jsonrpc: "2.0", id: "same", method: "identify", params: null }]),
+          );
+          assert.strictEqual((yield* peer.waitProtocolError(-32600)).code, -32600);
+          yield* peer.notification("$/cancelRequest", { id: "same" });
+
+          const response = yield* Fiber.join(original);
+
+          assert.strictEqual(response.id, "same");
+          assert.isTrue("error" in response);
+
+          if ("error" in response) assert.strictEqual(response.error.code, -32800);
+
+          const state = yield* decodeInspect(yield* peer.request("inspect"));
+
+          assert.strictEqual(state.active, 0);
+          assert.strictEqual(state.released, 1);
+          yield* peer.eof;
+          assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        }),
+      ),
   );
 
   it.live("outbound non-ASCII body cap is byte-based", () =>

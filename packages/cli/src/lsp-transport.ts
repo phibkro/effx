@@ -2,7 +2,7 @@
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
 import type { Readable, Writable } from "node:stream";
 import * as process from "node:process";
-import { Cause, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, FiberSet, Predicate, Result, Schema } from "effect";
 import {
   AbstractMessageBuffer,
   AbstractMessageReader,
@@ -11,10 +11,12 @@ import {
   RAL,
   ResponseError,
   WriteableStreamMessageWriter,
+  ErrorCodes,
   type DataCallback,
   type Disposable,
-  type Message,
+  Message,
   type MessageConnection,
+  type ResponseMessage,
 } from "vscode-jsonrpc/node";
 
 export const RequestEnvelope = Schema.Struct({
@@ -155,8 +157,11 @@ export interface LspTransport {
 }
 
 /** Lazy scoped acquisition. Transient FIFO input credits include queued/running work
- * and response writes (64 frames/8 MiB, 32 requests). Saturation is terminal: edits
- * are never dropped. One decoder and one stock writer run at a time. No retries.
+ * and response writes (64 frames/8 MiB, 32 requests). Excess requests get correlated
+ * -32000 replies without dispatch; duplicate identities get -32600/id:null. Complete
+ * JSON/envelope errors get -32700/-32600 through the bounded writer and decoding
+ * waits for its native completion. Unsafe byte/message/output saturation is terminal:
+ * edits are never dropped. One decoder and one stock writer run at a time. No retries.
  * The supplied factory owns IO; this scope owns registrations and handler fibers.
  * Non-cancellable foreign promises are observed, and closed guards fence late work.
  */
@@ -211,9 +216,9 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const notificationFiberIds = new Set<number>();
   let totalRead = 0;
   let decodingEnd = 0;
-  const requests = new Map<string, RequestEnvelope>();
+  const requests = new Map<string | number, RequestEnvelope>();
   const notifications = new Map<Message, NotificationEnvelope>();
-  const bypass = new Map<string, Message>();
+  const bypass = new Map<string | number, Message>();
   let inputBytes = 0;
   let outputBytes = 0;
   let outputCount = 0;
@@ -230,7 +235,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   }> = [];
 
   const encoded = new WeakMap<Message, Uint8Array>();
-  const key = (id: string | number) => String(id); // maintained connection uses string keys too
+  // EX-0030: stock 9.0.3 queue keys stringify IDs (connection.js:352-356).
+  // Injective internal prefixes retain distinct numeric/string identities; wire
+  // and domain IDs are restored from the existing decoded credit, not parsed.
+  const nativeRequestId = (id: string | number) => `${Predicate.isNumber(id) ? "n" : "s"}:${id}`;
 
   const release = (message: Message) => {
     const credit = credits.get(message);
@@ -240,7 +248,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     notifications.delete(message);
     inputBytes -= credit.bytes;
 
-    if (credit.request) requests.delete(key(credit.request.id));
+    if (credit.request) requests.delete(credit.request.id);
 
     for (const check of checkpoints) check();
   };
@@ -340,11 +348,11 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
         outputBytes -= item.bytes.byteLength;
 
         if (!isClosed()) {
-          if ("id" in item.message) {
-            const original = bypass.get(String(item.message.id));
+          if (Message.isResponse(item.message) && item.message.id !== null) {
+            const original = bypass.get(item.message.id);
 
             if (original) {
-              bypass.delete(String(item.message.id));
+              bypass.delete(item.message.id);
               release(original);
             }
           }
@@ -369,7 +377,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   };
 
   class Writer extends AbstractMessageWriter {
-    write(message: Message): Promise<void> {
+    write(message: Message, restoreRequestId = true): Promise<void> {
       // Maintained sendNotification invokes this writer synchronously. Capture
       // only that call's signal; mandatory response writes have no admission signal.
       const signal = notificationAdmission;
@@ -393,8 +401,21 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
         return Promise.resolve();
       }
 
+      let outgoing = message;
+
+      if (restoreRequestId && Message.isResponse(message)) {
+        for (const credit of credits.values()) {
+          if (credit.request && nativeRequestId(credit.request.id) === message.id) {
+            const restored: ResponseMessage = { ...message, id: credit.request.id };
+            outgoing = restored;
+
+            break;
+          }
+        }
+      }
+
       return RAL()
-        .applicationJson.encoder.encode(message, { charset: "utf-8" })
+        .applicationJson.encoder.encode(outgoing, { charset: "utf-8" })
         .then(
           (bytes) => {
             if (state !== "Open") throw fault("Closed");
@@ -431,7 +452,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
               };
 
               const item = {
-                message,
+                message: outgoing,
                 bytes,
                 resolve,
                 reject,
@@ -458,6 +479,19 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   }
 
   const writer = new Writer();
+
+  // Recovery and overload replies share the existing finite mandatory writer.
+  // The decoder waits for their native write completion, admitting no extra jobs.
+  const protocolError = (id: string | number | null, code: number, message: string) => {
+    const response: ResponseMessage = {
+      jsonrpc: "2.0",
+      id,
+      error: new ResponseError(code, message).toJson(),
+    };
+
+    return writer.write(response, false);
+  };
+
   const buffer = RAL().messageBuffer.create("utf-8");
 
   if (!(buffer instanceof AbstractMessageBuffer))
@@ -471,11 +505,8 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     if (state !== "Open" || !callback) return;
     const request = "method" in message && "id" in message && message.id !== undefined;
 
-    if (request && (requests.size >= 32 || requests.has(key(message.id)))) {
-      stop(fault("Capacity"));
-
-      return;
-    }
+    const duplicate = request && requests.has(message.id);
+    const excess = request && requests.size >= 32;
 
     if (credits.size >= 64 || inputBytes + bytes > BODY) {
       stop(fault("Capacity"));
@@ -483,19 +514,42 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       return;
     }
 
-    credits.set(message, { bytes, request: request ? message : undefined, end });
+    const incoming =
+      request && !duplicate && !excess ? { ...message, id: nativeRequestId(message.id) } : message;
+
+    credits.set(incoming, {
+      bytes,
+      request: request && !duplicate && !excess ? message : undefined,
+      end,
+    });
     inputBytes += bytes;
 
-    if (request) requests.set(key(message.id), message);
-    else if ("method" in message) notifications.set(message, message);
+    if (duplicate)
+      return protocolError(
+        null,
+        ErrorCodes.InvalidRequest,
+        "Duplicate outstanding request ID",
+      ).then(() => release(incoming));
+
+    if (excess)
+      return protocolError(message.id, -32000, "Outstanding request capacity exceeded").then(() =>
+        release(incoming),
+      );
+
+    if (request) requests.set(message.id, message);
+    else if ("method" in message) notifications.set(incoming, message);
 
     if ("method" in message && message.method === "$/cancelRequest") {
       run(decodeCancel(message.params)).then(
         (cancel) => {
           if (state !== "Open") return;
 
-          if (requests.has(key(cancel.id))) callback?.(message);
-          release(message); // cancellation callback bypasses ordinary MessageStrategy
+          if (requests.has(cancel.id)) {
+            const cancellation = { ...message, params: { id: nativeRequestId(cancel.id) } };
+            callback?.(cancellation);
+          }
+
+          release(incoming); // cancellation callback bypasses ordinary MessageStrategy
         },
         (cause) => stop(fault("Decode", cause)),
       );
@@ -503,9 +557,9 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       return;
     }
 
-    callback(message);
+    callback(incoming);
 
-    if (!("method" in message)) release(message); // limited-parallelism response fast path
+    if (!("method" in message)) release(incoming); // limited-parallelism response fast path
   };
 
   const pump = () => {
@@ -565,19 +619,36 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
             decodingEnd = totalRead - buffer.numberOfBytes;
             RAL()
               .applicationJson.decoder.decode(body, { charset: "utf-8" })
-              .then((value) =>
-                run(decodeEnvelope(value)).then((message) => {
-                  if (state === "Open") accept(message, bytes, decodingEnd);
-                }),
+              .then(
+                (value) =>
+                  run(Effect.result(decodeEnvelope(value))).then((decoded) => {
+                    if (state !== "Open") return;
+
+                    if (Result.isSuccess(decoded))
+                      return accept(decoded.success, bytes, decodingEnd);
+
+                    return protocolError(
+                      null,
+                      ErrorCodes.InvalidRequest,
+                      "Invalid request envelope",
+                    );
+                  }),
+                () => {
+                  if (state !== "Open") return;
+
+                  return protocolError(null, ErrorCodes.ParseError, "Parse error");
+                },
               )
               .then(
                 () => {
+                  if (state !== "Open") return;
+
                   decoding = false;
                   pump();
 
                   for (const check of checkpoints) check();
                 },
-                (cause) => stop(fault("Decode", cause)),
+                (cause) => stop(fault("IO", cause)),
               );
 
             return;
@@ -645,7 +716,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
             return undefined;
           }
 
-          bypass.set(key(request.id), message);
+          bypass.set(request.id, message);
 
           return {
             jsonrpc: "2.0",
@@ -678,7 +749,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   );
   connection.onRequest((_method, _params, token) => {
     // The strategy dispatches one request synchronously before invoking this ABI.
-    const message = dispatch && "id" in dispatch ? requests.get(String(dispatch.id)) : undefined;
+    const message = dispatch ? credits.get(dispatch)?.request : undefined;
 
     if (!message || state !== "Open")
       // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
