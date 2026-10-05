@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { compile } from "@effx/compiler";
 import type { CompilerFault, SourceFrontend } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Schema } from "effect";
 import type { Crypto, Path, PlatformError } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import { expectTypeOf } from "vitest";
@@ -15,6 +15,7 @@ import {
 import { acquireBuildOutput, resolveProject } from "../src/commands.ts";
 import { dev } from "../src/watch.ts";
 import type { WatchClosed, WatchLimit } from "../src/watch-files.ts";
+import { acquireOutputOwner } from "../src/output-owner.ts";
 
 const platform = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
 
@@ -457,6 +458,168 @@ describe("actual scoped effx dev journey", () => {
         if (Exit.isFailure(exit)) assert.isFalse(Cause.hasInterrupts(exit.cause));
 
         assert.isFalse(yield* fs.exists(dir + "/.effx"));
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
+
+  it.effect.each(["after-first-artifact", "before-output-acquisition"] as const)(
+    "supersession at %s preserves causal write admission and whole batches",
+    (hold) =>
+      Effect.gen(function* () {
+        const { fs, dir, config } = yield* fixture();
+        const reached = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const writes: Array<{ file: string; text: string }> = [];
+        let held = false;
+
+        // This is an event tap on the real platform service, not a fake filesystem.
+        // Every write reaches the native filesystem with its original arguments.
+        const observedFs: FileSystem.FileSystem = {
+          ...fs,
+          writeFileString: Effect.fnUntraced(function* (
+            ...args: Parameters<typeof fs.writeFileString>
+          ) {
+            const file = args[0];
+            const admission = file.endsWith("/.effx-output-owner.lock");
+            const artifact = file.startsWith(dir + "/.effx/generated/");
+
+            if (!held && hold === "before-output-acquisition" && admission) {
+              held = true;
+              yield* Deferred.succeed(reached, undefined);
+              yield* Deferred.await(release);
+            }
+
+            yield* fs.writeFileString(...args);
+            writes.push({ file, text: args[1] });
+
+            if (!held && hold === "after-first-artifact" && artifact) {
+              held = true;
+              yield* Deferred.succeed(reached, undefined);
+              yield* Deferred.await(release);
+            }
+          }),
+        };
+
+        yield* Effect.gen(function* () {
+          const worker = yield* Effect.forkScoped(
+            dev({ project: config, build: true }, versions).pipe(
+              Effect.provideService(FileSystem.FileSystem, observedFs),
+            ),
+          );
+
+          yield* Deferred.await(reached);
+          const app = dir + "/src/operations.ts";
+          yield* fs.writeFileString(
+            app,
+            (yield* fs.readFileString(app)).replace("User.Get", "User.AfterEdit"),
+          );
+          yield* TestClock.adjust("1 second");
+          assert.isFalse(writes.some((entry) => entry.file.endsWith("/manifest.json")));
+
+          yield* Deferred.succeed(release, undefined);
+          yield* awaitOutput(
+            0,
+            (text) =>
+              text.includes("cycle 2") &&
+              text.split("/{ir.json, manifest.json, surface.json}").length - 1 ===
+                (hold === "after-first-artifact" ? 2 : 1),
+          );
+
+          const manifests = writes.filter((entry) => entry.file.endsWith("/manifest.json"));
+          const irWrites = writes.filter((entry) => entry.file.endsWith("/ir.json"));
+
+          if (hold === "after-first-artifact") {
+            assert.strictEqual(manifests.length, 2);
+            assert.isTrue(irWrites[0]!.text.includes("User.Get"));
+            assert.isTrue(irWrites[1]!.text.includes("User.AfterEdit"));
+            assert.isTrue(writes.indexOf(manifests[0]!) < writes.indexOf(irWrites[1]!));
+          } else {
+            assert.strictEqual(manifests.length, 1);
+            assert.strictEqual(irWrites.length, 1);
+            assert.isTrue(irWrites[0]!.text.includes("User.AfterEdit"));
+            assert.isFalse(irWrites[0]!.text.includes('"User.Get"'));
+          }
+
+          yield* Fiber.interrupt(worker);
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
+
+  it.effect.each(["direct", "physical-alias"] as const)(
+    "rejects explicit selected source/output overlap through %s",
+    (alias) =>
+      Effect.gen(function* () {
+        const { fs, dir, config, selected } = yield* fixture();
+        const output = alias === "direct" ? dir + "/src" : dir + "/output-alias";
+
+        if (alias === "physical-alias") yield* fs.symlink(dir + "/src", output);
+
+        yield* fs.writeFileString(config, selected.replace('"include":', '"files":'));
+        const worker = yield* Effect.forkScoped(dev({ project: config, outDir: output }, versions));
+        const exit = yield* Fiber.await(worker);
+        assert.isTrue(Exit.isFailure(exit));
+
+        if (Exit.isFailure(exit)) {
+          const error = Option.getOrThrow(Cause.findErrorOption(exit.cause));
+          assert.strictEqual(error._tag, "CompilerFault");
+
+          if (error._tag === "CompilerFault")
+            assert.isTrue(error.message.includes("Invalid selection"));
+        }
+
+        assert.isFalse((yield* TestConsole.logLines).map(String).some(finished));
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
+
+  it.effect(
+    "saved outDir migration releases obsolete custody and resumes old-directory authored observation",
+    () =>
+      Effect.gen(function* () {
+        const { fs, dir, config, selected } = yield* fixture();
+        const oldOutput = dir + "/old-output";
+        const newOutput = dir + "/new-output";
+
+        const oldPolicy = selected.replace(
+          '"include":',
+          '"effx":{"outDir":"old-output"},"include":',
+        );
+
+        const newPolicy = selected.replace(
+          '"include":',
+          '"effx":{"outDir":"new-output"},"include":',
+        );
+
+        yield* fs.writeFileString(config, oldPolicy);
+
+        const worker = yield* Effect.forkScoped(dev({ project: config, build: true }, versions));
+        const initial = yield* awaitOutput(0, (text) => text.includes("manifest"));
+        yield* fs.writeFileString(config, newPolicy);
+
+        const migrated = yield* awaitOutput(initial.offset, (text) =>
+          text.includes("build cycle 2 complete"),
+        );
+
+        assert.isTrue((yield* fs.readDirectory(newOutput)).length > 0);
+        assert.isFalse(yield* fs.exists(oldOutput + "/.effx-output-owner.lock"));
+        yield* Effect.scoped(
+          acquireOutputOwner({ generatedDir: oldOutput, effxDir: dir + "/independent-metadata" }),
+        );
+
+        const project = yield* resolveProject(config);
+        const result = yield* compile(project.config, project.extensions);
+        const refused = yield* acquireBuildOutput(project, result).pipe(Effect.flip);
+        assert.strictEqual(refused._tag, "OutputBusy");
+
+        const authored = oldOutput + "/authored.ts";
+        yield* fs.writeFileString(authored, "export const current = true;");
+        yield* fs.writeFileString(
+          config,
+          newPolicy.replace('"src/operations.ts"', '"src/operations.ts", "old-output/authored.ts"'),
+        );
+        const included = yield* awaitOutput(migrated.offset, (text) => text.includes("manifest"));
+        yield* fs.writeFileString(authored, 'import "../src/operations.contract-invalid.ts";');
+        const edited = yield* awaitOutput(included.offset, finished);
+        assert.isFalse(edited.text.includes("0 error(s)"));
+        yield* Fiber.interrupt(worker);
       }).pipe(Effect.scoped, Effect.provide(platform)),
   );
 });
