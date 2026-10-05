@@ -4,7 +4,7 @@ Status: **portable components approved in principle; config amendment pending**,
 Frozen contract: [`../specs/0018-watch-editor.md`](../specs/0018-watch-editor.md),
 commit `9ac1bff`; preserved draft parent `d37f77e`; baseline main `3d66eda`.
 The operator approved the four product policies with **"approve defaults"**.
-The operator then approved the session, overlay, native polling and transport plan
+The director approved the session, overlay, native polling and transport plan
 in principle, subject to real boundary tests and exception records. Config coverage
 still requires a separate approved amendment. No landing authority is granted.
 
@@ -25,7 +25,7 @@ behavior, not implementation acceptance. No heavy checks or main changes occurre
 5. **An executable-import provenance gap remains (§5).** Cache enumeration is not
    a complete logical import ledger; a global Bun plugin does not fix it. Do not
    approve this document as proof that arbitrary computed executable imports are
-   fully covered. The operator rejected restart before every generation. Section 7
+   fully covered. The director rejected restart before every generation. Section 7
    proposes explicit caller coverage; it is not a frozen-contract amendment yet.
 
 ## 1. Session, overlay and publication authority
@@ -338,7 +338,7 @@ loader framework, cache eviction or runtime replacement is proposed.
 Known executable replacement still requires RestartRequired, diagnostic clearing
 and a fresh authorized process. Config/plugin imports never reload invisibly.
 
-The operator rejected the proposed unobservable-epoch fallback that required
+The director rejected the proposed unobservable-epoch fallback that required
 restart before every generation. It makes dev unusable and will not be implemented.
 Cache-only fingerprints cannot detect every external computed symlink route.
 Section 7 proposes one explicit caller-coverage alternative for operator approval.
@@ -425,8 +425,9 @@ unmerged, dirty, unknown-owner and separately owned 0016 trees are excluded.
 
 **Proposed 2026-10-05; not approved and not applied to the frozen spec.**
 
-The operator approved isolated portable components with tests against explicit
-dependency sets. Config-coverage integration still waits for this separate decision.
+The director approved isolated portable components with tests against explicit
+dependency sets. The operator approved only the four product defaults so far.
+Config-coverage integration still waits for a separate operator decision.
 
 ### Caller data and when it exists
 
@@ -462,10 +463,13 @@ neither option promises an atomic filesystem snapshot. State this assumption.
 
 1. Executable observation MUST use the union of caller-declared coverage, known
    physical executable files and observed TS/config/resolution inputs. The caller
-   MUST declare otherwise unobservable logical routes and resolution-sensitive
-   inputs completely, including computed/external imports. The guarantee is
-   conditional on that declaration. effx cannot certify its completeness; omitted
-   routes can change without detection. No automatic full runtime ledger is claimed.
+   MUST completely declare ALL otherwise-unobservable logical routes and
+   resolution-sensitive inputs. This includes static bare-package imports through
+   symlinks when known logical coverage or TS-host observations omit their route.
+   Computed and external imports are examples, not the scope limit. The guarantee
+   is conditional on complete caller data. effx cannot certify its completeness;
+   omitted routes can change without detection. Canonical cache files alone
+   establish no automatic logical-route guarantee.
 2. Exact file declarations MUST preserve logical paths and observe each symlink
    component, raw destination, successive target chain, target identity/content
    and relevant parent membership. Missing paths retain their unresolved suffix
@@ -496,10 +500,64 @@ candidate changes, visible traversal limits and restart/clear/recovery. Tests mu
 also show unchanged declared inputs allow multiple diagnostics generations.
 
 ### Actual operator choice
+### Two concrete caller declarations
+
+**Ordinary static package symlink.** `/work/app/effx.config.ts` imports
+`effx-tags`. `/work/app/node_modules/effx-tags` links to `/work/plugins/tags-a`.
+The loaded canonical cache key is `/work/plugins/tags-a/index.mjs`. Retargeting
+the package link to `tags-b` leaves that old file unchanged. If TS/known logical
+coverage omits this route, callers must supply it even though the import is static.
+
+Config-relative coverage for this illustrated package route is:
+
+```ts
+executableCoverage: {
+  files: [
+    "package.json",
+    "tsconfig.json",
+    "bun.lock",
+    "node_modules/effx-tags/package.json",
+  ],
+  directories: [
+    { path: "node_modules", recursive: false },
+    { path: "node_modules/effx-tags", recursive: true },
+  ],
+}
+```
+
+The logical package root is explicitly declared, so observation follows that root
+link and records its raw target, target-chain identities and package tree. Parent
+membership covers replacement/missing package creation; package.json content covers
+exports selection. The config/lockfile entries cover the stated resolution inputs.
+Any other package/config selection input not established by known coverage also
+needs declaration. This example does not certify every dependency of a real plugin.
+
+**Computed external alias.** A trusted config computes the pathname
+`/opt/effx-plugins/current.mjs` and imports it. That file is a symlink to
+`/srv/plugin-releases/v1/plugin.mjs`. The previous canonical target stays unchanged
+when the alias points to `v2/plugin.mjs`. The caller must declare the LOGICAL alias:
+
+```text
+effx dev --exec-file /opt/effx-plugins/current.mjs
+```
+
+The equivalent config data is `files: ["/opt/effx-plugins/current.mjs"]`.
+Observation records every path-component link, raw final destination, successive
+target chain, target content/identity and missing-parent state. Supplying only
+`/srv/plugin-releases/v1/plugin.mjs` is insufficient. If a later callback can choose
+different aliases or reads a selector file, callers must declare ALL those logical
+routes and selector/resolution inputs too. An explicit directory covers ordinary
+candidate descendants; linked subtrees need explicit routes or known dependency edges.
+
+In both cases, declaration completeness is a caller assertion, not automatic
+provenance recovered from the canonical module cache. Observed covered changes
+require restart; unchanged complete coverage permits repeated diagnostic generations.
+
 
 **Recommend A: approve the explicit-coverage amendment above.** It preserves the
 existing Bun runtime and config behavior. Callers own complete declarations for
-computed/external routes; the limitation and startup stability condition are explicit.
+ALL otherwise-unobservable routes/selection inputs, including ordinary package
+symlinks. The coverage limitation and startup stability condition are explicit.
 
 **B: retain unconditional automatic full executable provenance.** Config integration
 must stay held until a maintained capability supplies ungated logical resolution
