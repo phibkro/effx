@@ -598,6 +598,10 @@ describe("actual scoped effx dev journey", () => {
           text.includes("build cycle 2 complete"),
         );
 
+        const settled = yield* TestConsole.logLines;
+        yield* TestClock.adjust("1 second");
+        assert.deepStrictEqual(yield* TestConsole.logLines, settled);
+
         assert.isTrue((yield* fs.readDirectory(newOutput)).length > 0);
         assert.isFalse(yield* fs.exists(oldOutput + "/.effx-output-owner.lock"));
         yield* Effect.scoped(
