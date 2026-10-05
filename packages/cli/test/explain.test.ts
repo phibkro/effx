@@ -5,13 +5,14 @@ import { Annotation } from "@effx/runtime";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
 import { testDirectory } from "../../../tools/testing/projects.ts";
+import { ManifestJson } from "../src/manifest.ts";
 
 const main = new URL("../src/main.ts", import.meta.url).pathname;
 
 const invalidDeclaration = defineDiagnostic(
   {
-    code: "EFFX[@acme/effx-test]/0001",
-    owner: "@acme/effx-test",
+    code: "EFFX[@fixture/effx-example]/0001",
+    owner: "@fixture/effx-example",
     title: "Test extension contract",
     severity: "warning",
     severityPolicy: { kind: "fixed" },
@@ -56,11 +57,11 @@ const fixture = <A, E, R>(use: (directory: string) => Effect.Effect<A, E, R>) =>
   }).pipe(Effect.scoped, Effect.provide(BunServices.layer));
 
 const configSource = (entries: string) =>
-  `export default { project: "missing-tsconfig.json", outDir: "must-not-write", extensions: [{ name: "@acme/effx-test", interpreters: {}, analyses: [], generators: [], diagnosticEntries: ${entries} }] };`;
+  `export default { project: "missing-tsconfig.json", outDir: "must-not-write", extensions: [{ name: "${customEntry.owner}", interpreters: {}, analyses: [], generators: [], diagnosticEntries: ${entries} }] };`;
 
 // Static trusted fixture data, not a boundary decoder.
 const entrySource = `{
-  code: "${customCode}", owner: "@acme/effx-test", title: "Test extension contract",
+  code: "${customCode}", owner: "${customEntry.owner}", title: "Test extension contract",
   severity: "warning", severityPolicy: { kind: "fixed" },
   explanation: "The selected extension found an invalid declaration.",
   examples: [{ before: "invalid()", after: "valid()", explanation: "Use a valid declaration." }]
@@ -71,7 +72,7 @@ describe("spec 0016 explain subprocess journeys", () => {
     const definition = Annotation.define({ name: "ExplainTest", target: "operation", args: [] });
     const implementation = implement(definition, { diagnosticEntries: [customEntry] });
 
-    const selected = extension("@acme/effx-test", [implementation], {
+    const selected = extension(customEntry.owner, [implementation], {
       diagnosticEntries: [customEntry],
     });
 
@@ -196,7 +197,7 @@ describe("spec 0016 explain subprocess journeys", () => {
     [
       "numeric.ts",
       configSource(
-        `[${entrySource.replace(customCode, "EFFX0099").replace("@acme/effx-test", "frontend")}]`,
+        `[${entrySource.replace(customCode, "EFFX0099").replace(customEntry.owner, "frontend")}]`,
       ),
       /EFFX0010.*numeric diagnostic code EFFX0099/,
     ],
@@ -204,7 +205,7 @@ describe("spec 0016 explain subprocess journeys", () => {
     [
       "owner.ts",
       configSource(
-        `[${entrySource.replace('owner: "@acme/effx-test"', 'owner: "@other/plugin"')}]`,
+        `[${entrySource.replace(`owner: "${customEntry.owner}"`, 'owner: "@other/plugin"')}]`,
       ),
       /EFFX0010/,
     ],
@@ -385,6 +386,73 @@ describe("spec 0016 explain subprocess journeys", () => {
           assert.strictEqual(selected.stderr, "");
           assert.strictEqual(selected.stdout, renderEntry(customEntry));
           assert.deepStrictEqual(yield* fs.readDirectory(directory), ["selected.ts"]);
+        }),
+      ),
+  );
+  it.effect(
+    "explicit package-qualified diagnostics agree across explain, check, build and manifest",
+    () =>
+      fixture((directory) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const repository = new URL("../../../", import.meta.url).pathname;
+          const config = path.join(directory, "effx.config.ts");
+
+          yield* fs.symlink(
+            path.join(repository, "node_modules"),
+            path.join(directory, "node_modules"),
+          );
+          yield* fs.writeFileString(
+            path.join(directory, "tsconfig.json"),
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Json))({
+              compilerOptions: {
+                target: "ES2023",
+                module: "ESNext",
+                moduleResolution: "bundler",
+                strict: true,
+                noEmit: true,
+                allowImportingTsExtensions: true,
+                skipLibCheck: true,
+                paths: {
+                  "@effx/runtime": [path.join(repository, "packages/runtime/src/index.ts")],
+                  "@effx/diagnostics": [path.join(repository, "packages/diagnostics/src/index.ts")],
+                },
+              },
+              include: ["operation.ts"],
+            }),
+          );
+          yield* fs.writeFileString(
+            path.join(directory, "operation.ts"),
+            'import { Schema } from "effect"; import { Operation } from "@effx/runtime"; export const Input = Schema.Struct({}); export const Output = Schema.String; export const lookup = Operation.query({ name: "Legacy.lookup", input: Input, success: Output }).declare();\n',
+          );
+          yield* fs.writeFileString(
+            config,
+            `import { Schema } from "effect"; import { defineDiagnostic } from "@effx/diagnostics"; const note = defineDiagnostic(${entrySource}, Schema.Struct({ subject: Schema.String }), ({ subject }) => subject + ": invalid declaration"); export default { extensions: [{ name: "${customEntry.owner}", interpreters: {}, generators: [], diagnosticEntries: [note.entry], analyses: [(ir) => ir.nodes.flatMap((node) => node._tag === "Operation" && node.name.startsWith("Legacy.") ? [note.emit({ subject: node.name })] : [])] }] };`,
+          );
+
+          const explained = yield* run(directory, "explain", customCode, "--config", config);
+
+          assert.strictEqual(explained.code, 0, explained.stderr);
+          assert.strictEqual(explained.stdout, renderEntry(customEntry));
+          assert.isFalse(yield* fs.exists(path.join(directory, ".effx")));
+
+          for (const command of ["check", "build"]) {
+            const result = yield* run(directory, command, "--config", config);
+
+            assert.strictEqual(result.code, 0, result.stderr || result.stdout);
+            assert.include(result.stdout, customCode);
+            assert.include(result.stdout, "Legacy.lookup: invalid declaration");
+          }
+
+          const manifest = yield* Schema.decodeEffect(ManifestJson)(
+            yield* fs.readFileString(path.join(directory, ".effx/manifest.json")),
+          );
+
+          assert.deepStrictEqual(
+            manifest.diagnostics.find((diagnostic) => diagnostic.code === customCode),
+            invalidDeclaration.emit({ subject: "Legacy.lookup" }),
+          );
         }),
       ),
   );
