@@ -276,6 +276,14 @@ const Published = Schema.Struct({
 
 const decodePublished = Schema.decodeUnknownEffect(Published);
 
+type PublishedDiagnostic = (typeof Published.Type)["diagnostics"][number];
+
+const primaryMessage = (message: string): string => {
+  const boundary = message.indexOf("\n\nRelated diagnostics:");
+
+  return boundary === -1 ? message : message.slice(0, boundary);
+};
+
 type Peer = Effect.Success<ReturnType<typeof acquirePeer>>;
 
 const decodeNativeCode = Schema.decodeUnknownOption(Schema.Struct({ code: Schema.Int }));
@@ -355,19 +363,25 @@ describe("maintained LSP client project journeys", () => {
           const project = yield* resolveProject(path.join(directory, "tsconfig.json"));
           const checked = yield* compile(project.config, project.extensions);
 
-          const expected = checked.diagnostics
-            .filter(
-              (diagnostic) =>
-                diagnostic.location && path.resolve(directory, diagnostic.location.file) === file,
-            )
-            .map((diagnostic) => ({
-              range: pointRange(diagnostic.location!, saved),
+          const expected: PublishedDiagnostic[] = [];
+
+          for (const diagnostic of checked.diagnostics) {
+            const location = diagnostic.location;
+
+            if (location === undefined || path.resolve(directory, location.file) !== file) continue;
+            const range = pointRange(location, saved);
+
+            if (range === undefined)
+              assert.fail("One-shot diagnostic point is outside its analyzed source snapshot");
+            expected.push({
+              range,
               severity:
                 diagnostic.severity === "error" ? 1 : diagnostic.severity === "warning" ? 2 : 3,
               source: "effx",
               code: diagnostic.code,
               message: diagnostic.message,
-            }));
+            });
+          }
 
           assert.isAbove(expected.length, 0);
           const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
@@ -389,7 +403,7 @@ describe("maintained LSP client project journeys", () => {
               severity,
               source,
               code,
-              message: message.split("\n\nRelated diagnostics:")[0],
+              message: primaryMessage(message),
             })),
             expected,
           );
