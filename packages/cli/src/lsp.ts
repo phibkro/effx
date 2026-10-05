@@ -188,6 +188,36 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     project = undefined;
   });
 
+  const terminateCapacity = Effect.fnUntraced(function* () {
+    state = "exited";
+    exitCode = 1;
+    yield* Effect.logError("effx lsp: document admission capacity exceeded; closing session.");
+    yield* stopProject();
+    yield* transport.close;
+  });
+
+  const assertSelectedRoots = Effect.fnUntraced(function* (roots: ReadonlyArray<string>) {
+    for (const file of roots) {
+      const uri = yield* path
+        .toFileUrl(file)
+        .pipe(Effect.mapError(() => unavailable("Selected root URI unavailable")));
+
+      const admitted = yield* canonicalDocument(uri.href).pipe(
+        Effect.mapError(() => unavailable("Selected root identity unavailable")),
+      );
+
+      if (
+        ownedIdentities.some(
+          (output) => under(admitted.file, output) || under(admitted.identity, output),
+        )
+      )
+        return yield* new CompilerFault({
+          stage: "lsp.selection",
+          message: "Selected source/configuration root overlaps effx-owned output",
+        });
+    }
+  });
+
   const publish = Effect.fnUntraced(function* (event: SessionEvent) {
     if (state !== "running") return;
 
@@ -206,7 +236,9 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       case "Faulted":
         for (const document of event.snapshot.documents.values()) yield* clear(document);
         yield* log(
-          "Analysis unavailable: saved project inputs could not be analyzed. Repair them to resume.",
+          event.fault.stage === "lsp.selection"
+            ? "Analysis unavailable: selected source/configuration root overlaps effx-owned output. Repair selection to resume."
+            : "Analysis unavailable: saved project inputs could not be analyzed. Repair them to resume.",
           1,
         );
 
@@ -232,6 +264,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
         for (const diagnostic of event.result.diagnostics) {
           const projected = projectDiagnostic(diagnostic, lookup, {
             relatedInformation: support?.relatedInformation === true,
+            selectedConfig,
             codeDescription: support?.codeDescriptionSupport === true,
             bundledCodes,
             registryHref: registryHref,
@@ -243,7 +276,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
             for (const message of projected.logs) yield* log(message);
           } else
             yield* log(
-              diagnosticLog(diagnostic),
+              diagnosticLog(diagnostic, selectedConfig, bundledCodes.has(diagnostic.code)),
               diagnostic.severity === "error" ? 1 : diagnostic.severity === "warning" ? 2 : 3,
             );
         }
@@ -287,6 +320,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     const texts = new Map<string, string>();
     observed.set(project.tsconfigPath, { path: project.tsconfigPath, kind: "source" });
     const sources = new Map<string, string | undefined>();
+    let selectedRoots: ReadonlyArray<string> = [];
 
     for (const [file, text] of snapshot.sources) {
       if (!ownedIdentities.some((root) => under(file, root))) sources.set(file, text);
@@ -304,7 +338,12 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       onReadSource: (file, text) => {
         texts.set(path.resolve(file), text);
       },
+      onRootSources: (roots: ReadonlyArray<string>) => {
+        selectedRoots = roots;
+      },
     });
+
+    yield* assertSelectedRoots([project.tsconfigPath, ...selectedRoots]);
 
     analyzedMembers.set(snapshot, new Set(texts.keys()));
     const locations = new Map<string, { readonly uri: string; readonly text: string }>();
@@ -344,7 +383,10 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
 
     sourceInputs = observedSources;
     yield* watch!
-      .replaceInputs([...executableInputs, ...sourceInputs])
+      .replaceInputs(
+        [...executableInputs, ...sourceInputs],
+        [...ownedIdentities, path.join(project!.rootDir, ".git")],
+      )
       .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
     yield* watch!.poll.pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
     const current = yield* watch!.current;
@@ -695,6 +737,11 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     }),
     notification: (message) =>
       notification(message).pipe(
+        Effect.catchTag("DocumentError", (error) =>
+          error.reason === "Limit"
+            ? terminateCapacity()
+            : log("Invalid notification or unavailable project operation", 2),
+        ),
         Effect.catch(() =>
           state === "running" || state === "initialized"
             ? log("Invalid notification or unavailable project operation", 2).pipe(
