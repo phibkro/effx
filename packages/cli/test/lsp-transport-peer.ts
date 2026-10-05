@@ -12,6 +12,7 @@ import {
   RAL,
   AbstractMessageBuffer,
   WriteableStreamMessageWriter,
+  ResponseError,
   type Message,
 } from "vscode-languageserver-protocol/node";
 import {
@@ -258,7 +259,15 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
 
       const failure = exit.cause.reasons.find(Cause.isFailReason);
 
-      if (failure) return yield* decodeResponseFailure(failure.error.cause);
+      if (failure) {
+        const cause = failure.error.cause;
+
+        // The maintained serializer omits data when its optional native slot is
+        // undefined. Preserve that wire contract before the strict Schema decode.
+        return yield* decodeResponseFailure(
+          cause instanceof ResponseError ? cause.toJson() : cause,
+        );
+      }
 
       return yield* Effect.failCause(exit.cause);
     }),
