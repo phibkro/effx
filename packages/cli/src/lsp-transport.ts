@@ -187,6 +187,11 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const run = yield* FiberSet.runtimePromise(fibers)<RH>();
   const fork = yield* FiberSet.runtime(fibers)<RH>();
   let state: "Open" | "Closing" | "Closed" = "Open";
+
+  // Foreign callbacks can change lifecycle after an earlier check. Every use
+  // reads current state; no async continuation inherits a stale open guarantee.
+  const isClosed = () => state === "Closed";
+
   let terminal: TransportError | undefined;
   let connection: MessageConnection;
   let dispatch: Message | undefined;
@@ -194,7 +199,14 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const closedWaiters = new Set<(error: TransportError | undefined) => void>();
   // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
   let notificationTail = Promise.resolve();
-  const credits = new Map<Message, { bytes: number; request: boolean; end: number }>();
+
+  // Request evidence is retained from the single ingress Schema decode. Public
+  // maintained Message callbacks need not expose an id to correlate this credit.
+  const credits = new Map<
+    Message,
+    { bytes: number; request: RequestEnvelope | undefined; end: number }
+  >();
+
   const checkpoints = new Set<() => void>();
   const notificationFiberIds = new Set<number>();
   let totalRead = 0;
@@ -228,7 +240,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     notifications.delete(message);
     inputBytes -= credit.bytes;
 
-    if (credit.request && "id" in message) requests.delete(String(message.id));
+    if (credit.request) requests.delete(key(credit.request.id));
 
     for (const check of checkpoints) check();
   };
@@ -282,7 +294,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     write: (data: Uint8Array | string) =>
       // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
       new Promise<void>((resolve, reject) => {
-        if (state === "Closed" || io.output.destroyed) {
+        if (isClosed() || io.output.destroyed) {
           reject(fault("Closed"));
 
           return;
@@ -317,7 +329,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     encoded.set(item.message, item.bytes);
     activeWrite = stock.write(item.message).then(
       () => {
-        if (state === "Closed") {
+        if (isClosed()) {
           item.reject(fault("Closed"));
 
           return;
@@ -327,7 +339,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
         outputCount--;
         outputBytes -= item.bytes.byteLength;
 
-        if (state !== "Closed") {
+        if (!isClosed()) {
           if ("id" in item.message) {
             const original = bypass.get(String(item.message.id));
 
@@ -343,7 +355,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
         drain();
       },
       (cause) => {
-        if (state === "Closed") {
+        if (isClosed()) {
           item.reject(fault("Closed"));
 
           return;
@@ -403,7 +415,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
             // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
             return new Promise<void>((resolve, reject) => {
               const cancel = () => {
-                if (item.started || state === "Closed") return;
+                if (item.started || isClosed()) return;
 
                 const index = pending.indexOf(item);
 
@@ -471,7 +483,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       return;
     }
 
-    credits.set(message, { bytes, request, end });
+    credits.set(message, { bytes, request: request ? message : undefined, end });
     inputBytes += bytes;
 
     if (request) requests.set(key(message.id), message);
@@ -625,17 +637,19 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       maxParallelism: 32,
       connectionStrategy: {
         cancelUndispatched: (message) => {
-          if (message.id === null) {
+          const request = credits.get(message)?.request;
+
+          if (!request) {
             stop(fault("Decode"));
 
             return undefined;
           }
 
-          bypass.set(key(message.id), message);
+          bypass.set(key(request.id), message);
 
           return {
             jsonrpc: "2.0",
-            id: message.id,
+            id: request.id,
             error: { code: -32800, message: "Request cancelled" },
           };
         },
@@ -652,7 +666,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
             })
             .then(
               () => {
-                if (state !== "Closed") release(message);
+                if (!isClosed()) release(message);
               },
               (cause) => {
                 stop(fault("Handler", cause));
@@ -744,7 +758,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   connection.listen();
 
   const close = Effect.gen(function* () {
-    if (state === "Closed") return;
+    if (isClosed()) return;
     stop();
 
     if (clientMonitor) {
