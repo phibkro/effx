@@ -36,6 +36,25 @@ const ResponseFailure = Schema.Struct({
   data: Schema.optionalKey(Schema.Json),
 });
 
+const isNullProtocolError = Schema.is(
+  Schema.Struct({ jsonrpc: Schema.Literal("2.0"), id: Schema.Null, error: ResponseFailure }),
+);
+
+const WireResponse = Schema.Union([
+  Schema.Struct({
+    jsonrpc: Schema.Literal("2.0"),
+    id: Schema.Union([Schema.String, Schema.Int, Schema.Null]),
+    result: Schema.Json,
+  }),
+  Schema.Struct({
+    jsonrpc: Schema.Literal("2.0"),
+    id: Schema.Union([Schema.String, Schema.Int, Schema.Null]),
+    error: ResponseFailure,
+  }),
+]);
+
+const isWireResponse = Schema.is(WireResponse);
+
 const decodeResponseFailure = Schema.decodeUnknownEffect(ResponseFailure);
 
 const decodeProcessId = Schema.decodeUnknownEffect(Schema.Union([Schema.Int, Schema.Null]));
@@ -154,7 +173,33 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
 
   const readerError = reader.onError(countProtocolError);
 
-  const connection = createMessageConnection(reader, new StreamMessageWriter(child.stdin));
+  const protocolResponses: Array<typeof ResponseFailure.Type> = [];
+  const protocolResponseWaiters = new Set<() => void>();
+  const responseWaiters = new Set<(response: typeof WireResponse.Type) => void>();
+
+  const connection = createMessageConnection(
+    reader,
+    new StreamMessageWriter(child.stdin),
+    undefined,
+    {
+      messageStrategy: {
+        handleMessage: (message, next) => {
+          if (isWireResponse(message)) {
+            for (const waiter of responseWaiters) waiter(message);
+          }
+
+          if (isNullProtocolError(message)) {
+            protocolResponses.push(message.error);
+
+            for (const waiter of protocolResponseWaiters) waiter();
+          }
+
+          return next(message);
+        },
+      },
+    },
+  );
+
   const connectionError = connection.onError(countProtocolError);
 
   const childClosed = () => {
@@ -277,7 +322,11 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
         catch: (cause) => new PeerError({ cause }),
       });
     }),
-    cancelledRequest: Effect.fnUntraced(function* (method: string, waitStarted = true) {
+    cancelledRequest: Effect.fnUntraced(function* (
+      method: string,
+      waitStarted = true,
+      beforeCancel: Effect.Effect<void> = Effect.void,
+    ) {
       const source = new CancellationTokenSource();
       const promise = connection.sendRequest(method, null, source.token);
 
@@ -287,6 +336,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
       );
 
       if (waitStarted) yield* waitNotification("started");
+      yield* beforeCancel;
       source.cancel();
       const result = yield* Effect.promise(() => observed);
       source.dispose();
@@ -297,6 +347,35 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
     }),
     write,
     waitNotification,
+    waitResponse: Effect.fnUntraced(function* (id: string | number) {
+      return yield* Effect.callback<typeof WireResponse.Type>((resume) => {
+        const observe = (response: typeof WireResponse.Type) => {
+          if (response.id === id) resume(Effect.succeed(response));
+        };
+
+        responseWaiters.add(observe);
+
+        return Effect.sync(() => {
+          responseWaiters.delete(observe);
+        });
+      });
+    }),
+    waitProtocolError: Effect.fnUntraced(function* (code: number) {
+      return yield* Effect.callback<typeof ResponseFailure.Type>((resume) => {
+        const check = () => {
+          const index = protocolResponses.findIndex((response) => response.code === code);
+
+          if (index !== -1) resume(Effect.succeed(protocolResponses.splice(index, 1)[0]!));
+        };
+
+        protocolResponseWaiters.add(check);
+        check();
+
+        return Effect.sync(() => {
+          protocolResponseWaiters.delete(check);
+        });
+      });
+    }),
     receivedMethods: Effect.sync(() => notifications.map((message) => message.method)),
     notifications: Effect.sync(() => notifications.map((message) => ({ ...message }))),
     waitStderr: Effect.fnUntraced(function* (receipt: string) {
@@ -341,6 +420,8 @@ if (process.argv[2] === "serve") {
       const gate = yield* Deferred.make<void>();
       transport = yield* acquireLspTransport(stdioLspIO, {
         request: Effect.fnUntraced(function* (message) {
+          if (message.method === "identify") return { receivedId: message.id };
+
           if (message.method === "watch-client") {
             const processId = yield* decodeProcessId(message.params).pipe(
               Effect.mapError(
