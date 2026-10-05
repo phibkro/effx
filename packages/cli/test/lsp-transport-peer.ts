@@ -3,7 +3,7 @@
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
 import { spawn } from "node:child_process";
 import process from "node:process";
-import { Deferred, Effect, Fiber, Predicate, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Predicate, Schema } from "effect";
 import {
   createMessageConnection,
   StreamMessageReader,
@@ -107,9 +107,12 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
   );
 
   let stderr = "";
+  const stderrWaiters = new Set<() => void>();
 
   const stderrListener = (chunk: Uint8Array) => {
     stderr += new TextDecoder().decode(chunk);
+
+    for (const waiter of stderrWaiters) waiter();
   };
 
   child.stderr.on("data", stderrListener);
@@ -118,6 +121,12 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
     new StreamMessageReader(child.stdout),
     new StreamMessageWriter(child.stdin),
   );
+
+  const childClosed = () => {
+    connection.dispose();
+  };
+
+  child.on("close", childClosed);
 
   const notifications: Array<{ method: string; params: unknown }> = [];
   const waiters = new Set<() => void>();
@@ -146,6 +155,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       connection.dispose();
+      child.off("close", childClosed);
       child.stderr.off("data", stderrListener);
       child.stdin.destroy();
       child.stdout.destroy();
@@ -214,6 +224,21 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true) {
     }),
     write,
     waitNotification,
+    receivedMethods: Effect.sync(() => notifications.map((message) => message.method)),
+    waitStderr: Effect.fnUntraced(function* (receipt: string) {
+      yield* Effect.callback<void>((resume) => {
+        const check = () => {
+          if (stderr.includes(receipt)) resume(Effect.void);
+        };
+
+        stderrWaiters.add(check);
+        check();
+
+        return Effect.sync(() => {
+          stderrWaiters.delete(check);
+        });
+      });
+    }),
     stderr: Effect.sync(() => stderr),
     eof: Effect.sync(() => {
       child.stdin.end();
@@ -240,6 +265,57 @@ if (process.argv[2] === "serve") {
       const gate = yield* Deferred.make<void>();
       transport = yield* acquireLspTransport(stdioLspIO, {
         request: Effect.fnUntraced(function* (message) {
+          if (message.method === "cancel-publication-scenario") {
+            const activeFrame = yield* Effect.forkChild(
+              transport
+                .sendNotification("active-frame", { text: "x".repeat(2 * 1024 * 1024) })
+                .pipe(Effect.orDie),
+            );
+
+            // EX-0030: observe actual native buffered bytes, not elapsed time.
+            yield* Effect.callback<void>((resume) => {
+              let turn: { dispose: () => void } | undefined;
+
+              const check = () => {
+                if (process.stdout.writableLength > 64 * 1024) {
+                  resume(Effect.void);
+
+                  return;
+                }
+
+                turn = RAL().timer.setImmediate(check);
+              };
+
+              check();
+
+              return Effect.sync(() => {
+                turn?.dispose();
+              });
+            });
+
+            const publication = yield* Effect.forkChild(
+              transport.sendNotification("cancelled-publication", { revision: 1 }),
+            );
+
+            // The maintained encoder settles before this owned native turn,
+            // while the active frame remains blocked on the unread real pipe.
+            yield* Effect.callback<void>((resume) => {
+              const turn = RAL().timer.setImmediate(() => resume(Effect.void));
+
+              return Effect.sync(() => turn.dispose());
+            });
+
+            yield* Fiber.interrupt(publication);
+            const cancelled = yield* Fiber.await(publication);
+            process.stderr.write("publication-cancelled\n");
+            yield* Fiber.join(activeFrame);
+            yield* transport.sendNotification("after-cancel", null).pipe(Effect.orDie);
+
+            return {
+              interrupted: Exit.isFailure(cancelled) && Cause.hasInterrupts(cancelled.cause),
+            };
+          }
+
           if (message.method === "inspect") {
             yield* transport.admitPending.pipe(Effect.orDie);
 
