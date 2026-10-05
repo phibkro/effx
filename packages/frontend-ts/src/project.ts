@@ -184,6 +184,10 @@ export const loadProject = Effect.fn("loadProject")(function* (
       ? parsed.fileNames
       : config.entry.map((file) => path.resolve(tsconfigDir, file));
 
+  const onRootSources = captured.onRootSources;
+
+  if (onRootSources !== undefined) yield* tryTs("collect", () => onRootSources(rootNames));
+
   const options: ts.CompilerOptions = { ...parsed.options, noEmit: true };
 
   const { program, runtimeRoot, effectPackagePath, resolveEffectModule } = yield* tryTs(

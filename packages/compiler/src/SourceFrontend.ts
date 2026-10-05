@@ -41,6 +41,11 @@ export interface AnalyzeOptions {
    * Capture is synchronous; a throwing callback fails through CompilerFault. No ts objects escape.
    */
   readonly onReadSource?: (path: string, text: string) => void;
+  /** Observes selected absolute declaration roots once before program creation.
+   * Uses actual tsconfig membership or explicit entry selection, not imported dependencies.
+   * Synchronous observation only; throwing fails through CompilerFault. Never persisted.
+   */
+  readonly onRootSources?: (paths: ReadonlyArray<string>) => void;
 }
 
 /**
