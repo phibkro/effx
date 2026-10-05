@@ -21,6 +21,11 @@
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./diagnostics": {
+      "source": "./src/diagnostics.ts",
+      "types": "./dist/diagnostics.d.ts",
+      "default": "./dist/diagnostics.js"
     }
   },
   "publishConfig": {
@@ -29,6 +34,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@effx/diagnostics": "0.1.0"
   },
   "peerDependencies": {
     "effect": ">=4.0.0-rc.116 <5"

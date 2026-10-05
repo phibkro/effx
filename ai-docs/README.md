@@ -1,7 +1,7 @@
 # AI docs
 
-`LLMS.md` is generated from `ai-docs/src`. The layout and rules follow Effect's own `ai-docs`
-(MIT, Effectful Technologies Inc.; see the header of `scripts/ai-docs.ts`).
+`LLMS.md` is generated from `ai-docs/src` and the distribution diagnostic registry. The layout
+and rules follow Effect's own `ai-docs` (MIT, Effectful Technologies Inc.; see the header of `scripts/ai-docs.ts`).
 
 ## Add content
 
@@ -9,6 +9,11 @@
 2. Add examples as `.ts` files in the same folder.
 3. Run `bun run ai-docs` to regenerate `LLMS.md`.
 4. Run `bun run ai-docs:check` (it fails when `LLMS.md` is stale).
+
+The diagnostic catalogue is generated from Schema entries exposed by `@effx/compiler`,
+using the shared `@effx/diagnostics` renderer (spec 0016). Edit entry descriptions and
+examples, not the generated catalogue. `ai-docs:check` checks registry prose drift as
+well as example-source drift. The site catalogue uses that same renderer through docs sync.
 
 ## Source file conventions
 

@@ -16,6 +16,24 @@ export { Contribution } from "./Extension.ts";
 
 export { Diagnostic, Severity, Location, error, warning, hasErrors } from "./Diagnostic.ts";
 
+export {
+  DiagnosticEntry,
+  RegistryError,
+  composeRegistry,
+  defineDiagnostic,
+  renderEntry,
+  renderCatalogue,
+} from "@effx/diagnostics";
+
+export type { Registry } from "@effx/diagnostics";
+
+export {
+  bundledDiagnosticEntries,
+  DiagnosticDefinitions,
+  CoreDiagnostics,
+  HttpDiagnostics,
+} from "./diagnostics/index.ts";
+
 export { ProjectConfig, EmitMode, TargetProfile } from "./Collected.ts";
 
 export { CompilerFault } from "./CompilerFault.ts";

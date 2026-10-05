@@ -80,9 +80,12 @@ export default defineConfig({
       },
     ],
     alias: {
+      "@effx/diagnostics": new URL("./packages/diagnostics/src/index.ts", import.meta.url).pathname,
       "@effx/ir": new URL("./packages/ir/src/index.ts", import.meta.url).pathname,
       "@effx/compiler": new URL("./packages/compiler/src/index.ts", import.meta.url).pathname,
       "@effx/frontend-ts": new URL("./packages/frontend-ts/src/index.ts", import.meta.url).pathname,
+      "@effx/runtime/diagnostics": new URL("./packages/runtime/src/diagnostics.ts", import.meta.url)
+        .pathname,
       "@effx/runtime": new URL("./packages/runtime/src/index.ts", import.meta.url).pathname,
       "@effx/persistence/syntax": new URL("./packages/persistence/src/syntax.ts", import.meta.url)
         .pathname,

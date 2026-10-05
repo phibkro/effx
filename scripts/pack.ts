@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Console, Effect } from "effect";
 import cliPackage from "../packages/cli/package.json";
 import compilerPackage from "../packages/compiler/package.json";
+import diagnosticsPackage from "../packages/diagnostics/package.json";
 import irPackage from "../packages/ir/package.json";
 import persistencePackage from "../packages/persistence/package.json";
 import runtimePackage from "../packages/runtime/package.json";
@@ -28,6 +29,8 @@ const runtimeName = `effx-runtime-${runtimePackage.version}-${revision}.tgz`;
 
 const irName = `effx-ir-${irPackage.version}-${revision}.tgz`;
 
+const diagnosticsName = `effx-diagnostics-${diagnosticsPackage.version}-${revision}.tgz`;
+
 const compilerName = `effx-compiler-${compilerPackage.version}-${revision}.tgz`;
 
 const persistenceName = `effx-persistence-${persistencePackage.version}-${revision}.tgz`;
@@ -35,6 +38,7 @@ const persistenceName = `effx-persistence-${persistencePackage.version}-${revisi
 const cliName = `effx-cli-${cliPackage.version}-${revision}.tgz`;
 
 const packageTarballs = [
+  { packageName: diagnosticsPackage.name, filename: diagnosticsName },
   { packageName: runtimePackage.name, filename: runtimeName },
   { packageName: irPackage.name, filename: irName },
   { packageName: compilerPackage.name, filename: compilerName },
@@ -46,6 +50,8 @@ const runtimeBundle = join(root, "packages/runtime/dist/index.js");
 
 const irBundle = join(root, "packages/ir/dist/index.js");
 
+const diagnosticsBundle = join(root, "packages/diagnostics/dist/index.js");
+
 const compilerBundle = join(root, "packages/compiler/dist/index.js");
 
 const cliBundle = join(root, "packages/cli/dist/effx.js");
@@ -56,7 +62,7 @@ const cliConfigTypes = join(root, "packages/cli/dist/config.d.ts");
 
 const cliHasConfig = Object.keys(cliPackage.exports).includes("./config");
 
-const bundles = [runtimeBundle, irBundle, compilerBundle, cliBundle];
+const bundles = [diagnosticsBundle, runtimeBundle, irBundle, compilerBundle, cliBundle];
 
 for (const entry of ["index", "syntax", "compiler"]) {
   bundles.push(join(root, `packages/persistence/dist/${entry}.js`));
@@ -89,6 +95,28 @@ const packageExports = {
 };
 
 try {
+  const diagnosticsStage = join(stage, "diagnostics");
+  await mkdir(diagnosticsStage);
+  await cp(join(root, "packages/diagnostics/dist"), join(diagnosticsStage, "dist"), {
+    recursive: true,
+  });
+  await cp(join(root, "packages/diagnostics/LICENSE"), join(diagnosticsStage, "LICENSE"));
+  await copyPackageDocs("packages/diagnostics", diagnosticsStage);
+  await writePackage(diagnosticsStage, {
+    name: diagnosticsPackage.name,
+    version: diagnosticsPackage.version,
+    repository: diagnosticsPackage.repository,
+    license: diagnosticsPackage.license,
+    type: "module",
+    files: ["dist", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
+    exports: packageExports,
+    peerDependencies: diagnosticsPackage.peerDependencies,
+    publishConfig: diagnosticsPackage.publishConfig,
+  });
+  await $`bun pm pack --filename ${join(artifacts, diagnosticsName)} --quiet`
+    .cwd(diagnosticsStage)
+    .quiet();
+
   const runtimeStage = join(stage, "runtime");
   await mkdir(runtimeStage);
   await cp(join(root, "packages/runtime/dist"), join(runtimeStage, "dist"), { recursive: true });
@@ -101,7 +129,11 @@ try {
     license: runtimePackage.license,
     type: "module",
     files: ["dist", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
-    exports: packageExports,
+    exports: {
+      ...packageExports,
+      "./diagnostics": { types: "./dist/diagnostics.d.ts", default: "./dist/diagnostics.js" },
+    },
+    dependencies: runtimePackage.dependencies,
     peerDependencies: runtimePackage.peerDependencies,
     publishConfig: runtimePackage.publishConfig,
   });
@@ -210,6 +242,7 @@ try {
     exports: cliExports,
     dependencies: {
       "@effx/compiler": compilerPackage.version,
+      "@effx/diagnostics": diagnosticsPackage.version,
       "@typescript/typescript6": "6.0.2",
     },
     peerDependencies: cliPackage.peerDependencies,

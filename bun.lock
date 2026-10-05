@@ -114,6 +114,7 @@
       },
       "dependencies": {
         "@effx/compiler": "0.1.0",
+        "@effx/diagnostics": "0.1.0",
         "@typescript/typescript6": "6.0.2",
       },
       "peerDependencies": {
@@ -127,9 +128,20 @@
       "name": "@effx/compiler",
       "version": "0.1.0",
       "dependencies": {
+        "@effx/diagnostics": "0.1.0",
         "@effx/ir": "0.1.0",
         "@effx/runtime": "0.1.0",
       },
+      "devDependencies": {
+        "effect": "4.0.0",
+      },
+      "peerDependencies": {
+        "effect": ">=4.0.0-rc.116 <5",
+      },
+    },
+    "packages/diagnostics": {
+      "name": "@effx/diagnostics",
+      "version": "0.1.0",
       "devDependencies": {
         "effect": "4.0.0",
       },
@@ -177,6 +189,9 @@
     "packages/runtime": {
       "name": "@effx/runtime",
       "version": "0.1.0",
+      "dependencies": {
+        "@effx/diagnostics": "0.1.0",
+      },
       "peerDependencies": {
         "effect": ">=4.0.0-rc.116 <5",
       },
@@ -313,6 +328,8 @@
     "@effx/cli": ["@effx/cli@workspace:packages/cli"],
 
     "@effx/compiler": ["@effx/compiler@workspace:packages/compiler"],
+
+    "@effx/diagnostics": ["@effx/diagnostics@workspace:packages/diagnostics"],
 
     "@effx/docs": ["@effx/docs@workspace:apps/docs"],
 
