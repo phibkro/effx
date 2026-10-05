@@ -228,6 +228,11 @@ describe("explicit native project observation (EX-0031)", () => {
         yield* observe(watch);
         assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
         assert.deepStrictEqual(yield* watch.takeChanges, { dirty: false, executableDirty: false });
+        yield* watch.replaceInputs([
+          { path: source, kind: "source" },
+          { path: config, kind: "executable" },
+        ]);
+        assert.deepStrictEqual(yield* watch.takeChanges, { dirty: false, executableDirty: false });
         yield* watch.replaceInputs([{ path: source, kind: "source" }]);
         assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: true });
         yield* fs.writeFileString(config, "c");

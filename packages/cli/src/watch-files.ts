@@ -492,18 +492,37 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     );
   }, Effect.uninterruptible);
 
+  const sameInput = (a: WatchInput, b: WatchInput) =>
+    a.path === b.path &&
+    a.kind === b.kind &&
+    (a.directory === true) === (b.directory === true) &&
+    (a.recursive === true) === (b.recursive === true);
+
   const replaceInputs = Effect.fnUntraced(function* (values: ReadonlyArray<WatchInput>) {
     if (closed) return yield* new WatchClosed();
     const replacement = yield* admit(values);
+
+    if (
+      inputs.length === replacement.length &&
+      inputs.every((input) => replacement.some((next) => sameInput(input, next)))
+    )
+      return;
+
     executableDirty ||=
-      inputs.some((input) => input.kind === "executable") ||
-      replacement.some((input) => input.kind === "executable");
+      inputs.some(
+        (input) =>
+          input.kind === "executable" && !replacement.some((next) => sameInput(input, next)),
+      ) ||
+      replacement.some(
+        (input) =>
+          input.kind === "executable" && !inputs.some((previous) => sameInput(input, previous)),
+      );
     inputs = replacement;
     epoch++;
     snapshot = {
       ...snapshot,
       fingerprints: snapshot.fingerprints.filter((old) =>
-        inputs.some((input) => input.path === old.input.path && input.kind === old.input.kind),
+        inputs.some((input) => sameInput(input, old.input)),
       ),
       changedPaths: [],
     };
