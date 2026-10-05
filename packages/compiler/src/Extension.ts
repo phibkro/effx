@@ -5,6 +5,7 @@ import type { Annotation, Collected, Declaration, HttpApiGroupInventory } from "
 import type { EmitMode, TargetProfile } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
+import type { DiagnosticEntry } from "@effx/diagnostics";
 
 /** What one annotation on one declaration contributes to the IR. Never behaviour. */
 export interface Contribution {
@@ -135,6 +136,8 @@ export type Expand = (collected: Collected) => Expansion;
 
 export interface Extension {
   readonly name: string;
+  /** Explanations published by this extension; validated when composing a registry. */
+  readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   /** Definitions this extension implements; their plans drive frontend lowering (spec 0020). */
   readonly annotations?: ReadonlyArray<DefinitionData>;
   readonly interpreters: Readonly<Record<string, Interpreter>>;

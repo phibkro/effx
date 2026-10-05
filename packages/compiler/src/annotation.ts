@@ -1,4 +1,5 @@
 import { Option, Result, Schema } from "effect";
+import type { DiagnosticEntry } from "@effx/diagnostics";
 import type {
   ArgsPlan,
   CapabilityMarker,
@@ -154,12 +155,15 @@ export interface ReadContext {
 
 export interface Implementation<D extends DefinitionData = DefinitionData> {
   readonly definition: D;
+  readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   readonly interpreter: Interpreter;
   readonly analyses: ReadonlyArray<Analysis>;
   readonly generators: ReadonlyArray<Generator>;
 }
 
 export interface ImplementOptions<Read> {
+  /** Explanations owned by this implementation, collected by extension(). */
+  readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   /** IR analyses that belong to this annotation (diagnostics only). */
   readonly analyze?: Analysis | ReadonlyArray<Analysis>;
   /** A free generator over the IR: new generated files, never a rewrite of source (spec 0020 §6). */
@@ -434,7 +438,7 @@ export const implement = <D extends DefinitionData>(
     });
   };
 
-  return {
+  const implementation: Implementation<D> = {
     definition,
     interpreter,
     analyses:
@@ -445,6 +449,10 @@ export const implement = <D extends DefinitionData>(
           : [options.analyze],
     generators: options.write === undefined ? [] : [options.write],
   };
+
+  return options.diagnosticEntries === undefined
+    ? implementation
+    : { ...implementation, diagnosticEntries: options.diagnosticEntries };
 };
 
 /**
@@ -455,7 +463,7 @@ export const implement = <D extends DefinitionData>(
 export const extension = (
   name: string,
   implementations: ReadonlyArray<Implementation>,
-  rest: Partial<Pick<Extension, "analyses" | "generators" | "expand">> = {},
+  rest: Partial<Pick<Extension, "analyses" | "generators" | "expand" | "diagnosticEntries">> = {},
 ): Extension => {
   const effectful = implementations.flatMap((implementation) =>
     implementation.definition.effect === undefined ? [] : [implementation.definition],
@@ -463,6 +471,10 @@ export const extension = (
 
   const derived: Extension = {
     name,
+    diagnosticEntries: [
+      ...implementations.flatMap((implementation) => implementation.diagnosticEntries ?? []),
+      ...(rest.diagnosticEntries ?? []),
+    ],
     interpreters: Object.fromEntries(
       implementations.map((implementation) => [
         implementation.definition.name,

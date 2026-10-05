@@ -124,7 +124,7 @@ const invalidConfig = (file: string, message: string, cause?: unknown): Compiler
 };
 
 /** Only the config module is executed, once per command invocation. No application entry is imported. */
-const loadConfig = Effect.fnUntraced(function* (file: string) {
+export const loadConfig = Effect.fnUntraced(function* (file: string) {
   const path = yield* Path.Path;
   const url = yield* path.toFileUrl(file);
 
@@ -148,7 +148,7 @@ const loadConfig = Effect.fnUntraced(function* (file: string) {
   return config;
 });
 
-const configuredExtensions = Effect.fnUntraced(function* (
+export const configuredExtensions = Effect.fnUntraced(function* (
   file: string | undefined,
   config: typeof ConfigFields.Type | undefined,
 ) {

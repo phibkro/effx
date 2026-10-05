@@ -3,8 +3,8 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { DEFAULT_CEDAR_NAMESPACE, EmitMode, TargetProfile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import { Effect, Layer, Option } from "effect";
-import { Argument, Command, Flag } from "effect/cli";
+import { Console, Effect, Layer, Option, Stdio } from "effect";
+import { Argument, CliConfig, Command, Flag, GlobalFlag } from "effect/cli";
 import effectPackage from "effect/package.json";
 import cliPackage from "../package.json";
 import {
@@ -18,6 +18,7 @@ import {
 import { cedarCommand } from "./cedar.ts";
 import { CedarWasm } from "./cedar-validate.ts";
 import { surfaceCheck } from "./surface.ts";
+import { explain, explainUsage, ExplainFailed } from "./explain.ts";
 
 const versions: Versions = {
   effx: cliPackage.version,
@@ -54,6 +55,32 @@ const selectedProject = Effect.fnUntraced(function* (ownsOutDirAndAccessGate = f
     Option.isSome(flags.project),
   );
 });
+
+const explainCli = Command.make(
+  "explain",
+  { code: Argument.String("code") },
+  Effect.fnUntraced(function* ({ code }) {
+    const flags = yield* root;
+
+    const unsupported = (
+      [
+        ["project", Option.isSome(flags.project)],
+        ["out-dir", Option.isSome(flags.outDir)],
+        ["strict-access", Option.isSome(flags.strictAccess)],
+        ["target", Option.isSome(flags.target)],
+        ["emit", Option.isSome(flags.emit)],
+      ] as const
+    ).find(([, supplied]) => supplied);
+
+    if (unsupported !== undefined) {
+      return yield* explainUsage(`Unsupported option for explain: --${unsupported[0]}`);
+    }
+
+    return yield* explain(code, Option.getOrUndefined(flags.config));
+  }),
+).pipe(
+  Command.withDescription("Explain a diagnostic offline; --config opts into extension imports"),
+);
 
 const checkCli = Command.make("check", {}, () => Effect.flatMap(selectedProject(), check)).pipe(
   Command.withDescription("Diagnose without writing"),
@@ -117,10 +144,79 @@ const Services = Layer.mergeAll(
   CedarWasm,
 );
 
+const command = root.pipe(
+  Command.withSubcommands([
+    checkCli,
+    buildCli,
+    inspectCli,
+    graphCli,
+    surfaceCli,
+    cedarCli,
+    explainCli,
+  ]),
+  Command.run({ version: versions.effx }),
+);
+
 BunRuntime.runMain(
-  root.pipe(
-    Command.withSubcommands([checkCli, buildCli, inspectCli, graphCli, surfaceCli, cedarCli]),
-    Command.run({ version: versions.effx }),
-    Effect.provide(Services),
-  ),
+  Effect.gen(function* () {
+    const stdio = yield* Stdio.Stdio;
+    const args = yield* stdio.args;
+
+    // Select the output policy only; Command remains authoritative for parsing and validation.
+    let explaining = false;
+
+    for (let index = 0; index < args.length; index++) {
+      const argument = args[index]!;
+
+      if (["--project", "--config", "--out-dir", "--target", "--emit"].includes(argument)) {
+        index++;
+        continue;
+      }
+
+      if (argument.startsWith("-")) continue;
+
+      explaining = argument === "explain";
+      break;
+    }
+
+    if (!explaining) return yield* command;
+
+    const explanationCommand = command.pipe(
+      Effect.provideService(CliConfig.CliConfig, {
+        builtIns: [GlobalFlag.Help, GlobalFlag.Version],
+      }),
+    );
+
+    if (args.some((argument) => ["--help", "-h", "--version", "-v"].includes(argument))) {
+      return yield* explanationCommand;
+    }
+
+    const console = yield* Console.Console;
+
+    // Native CLI parse failures always print help via log. Explain requires usage on stderr.
+    return yield* explanationCommand.pipe(
+      Effect.catchTag("ShowHelp", () => Effect.fail(new ExplainFailed({ exitCode: 2 }))),
+      Effect.provideService(Console.Console, {
+        assert: console.assert.bind(console),
+        clear: console.clear.bind(console),
+        count: console.count.bind(console),
+        countReset: console.countReset.bind(console),
+        debug: console.debug.bind(console),
+        dir: console.dir.bind(console),
+        dirxml: console.dirxml.bind(console),
+        error: console.error.bind(console),
+        group: console.group.bind(console),
+        groupCollapsed: console.groupCollapsed.bind(console),
+        groupEnd: console.groupEnd.bind(console),
+        info: console.info.bind(console),
+        log: console.error.bind(console),
+        table: console.table.bind(console),
+        time: console.time.bind(console),
+        timeEnd: console.timeEnd.bind(console),
+        timeLog: console.timeLog.bind(console),
+        trace: console.trace.bind(console),
+        warn: console.warn.bind(console),
+      }),
+    );
+  }).pipe(Effect.provide(Services)),
 );
