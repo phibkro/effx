@@ -161,7 +161,11 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
       observed = new Map();
       reads = new Map();
       overflow = false;
-      project = yield* rereadProject(initial);
+      project = yield* rereadProject(initial).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "CompilerFault" ? cause : fault("Cannot reread saved dev project", cause),
+        ),
+      );
 
       return yield* compile(project.config, project.extensions, {
         onObserve: (input) => {
@@ -262,7 +266,13 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
           yield* session.invalidate.pipe(
             Effect.mapError((cause) => fault("Dev session closed during reconciliation", cause)),
           );
-      }),
+      }).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "CompilerFault"
+            ? cause
+            : fault("Dev session closed before publication", cause),
+        ),
+      ),
     ),
     publish: Effect.fnUntraced(function* (event: SessionEvent) {
       if (event._tag === "RestartRequired") {
