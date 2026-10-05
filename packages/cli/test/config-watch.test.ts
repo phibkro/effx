@@ -1,7 +1,7 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { CompilerFault } from "@effx/compiler";
-import { Cause, Effect, Exit, FileSystem, Path } from "effect";
+import { Cause, Effect, Exit, FileSystem, Path, PlatformError } from "effect";
 import { expectTypeOf } from "vitest";
 import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { rereadProject, resolveProject, type ResolveOptions } from "../src/commands.ts";
@@ -44,6 +44,23 @@ describe("spec 0018 executable config epoch", () => {
     expectTypeOf(
       defineConfig(value).executableCoverage.directories[0].recursive,
     ).toEqualTypeOf<false>();
+  });
+
+  it("preserves filesystem requirements and typed failures on saved JSON refresh", () => {
+    expectTypeOf<Effect.Services<ReturnType<typeof resolveProject>>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path
+    >();
+    expectTypeOf<Effect.Services<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path
+    >();
+    expectTypeOf<Effect.Error<ReturnType<typeof resolveProject>>>().toEqualTypeOf<
+      CompilerFault | PlatformError.PlatformError
+    >();
+    expectTypeOf<Effect.Error<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
+      CompilerFault | PlatformError.PlatformError
+    >();
+    expectTypeOf<Effect.Services<ReturnType<typeof rereadProject>>>().not.toEqualTypeOf<never>();
+    expectTypeOf<Effect.Error<ReturnType<typeof rereadProject>>>().not.toEqualTypeOf<never>();
   });
 
   it.effect(
