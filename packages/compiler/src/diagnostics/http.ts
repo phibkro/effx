@@ -29,6 +29,11 @@ const ContractParams = Schema.TaggedUnion({
     group: Schema.String,
     missing: Schema.Literals(["group", "root"]),
   },
+  DuplicateProblems: { subject: Schema.String },
+  ProblemsExposure: { subject: Schema.String },
+  MalformedProblems: { subject: Schema.String, validationMessage: Schema.String },
+  ProblemsIdentifier: { subject: Schema.String },
+  ProblemsCodes: { subject: Schema.String },
 });
 
 const renderContract = ContractParams.match({
@@ -59,6 +64,13 @@ const renderContract = ContractParams.match({
     `${subject}: duplicate @${annotation} annotations`,
   ExternalGroup: ({ subject, root, group, missing }) =>
     `${subject}: external HTTP group ${root}/${group} needs ${missing === "group" ? "@Http.Group" : "a concrete HttpApi root"}`,
+  DuplicateProblems: ({ subject }) => `${subject}: duplicate @Http.Problems contracts`,
+  ProblemsExposure: ({ subject }) => `${subject}: @Http.Problems requires an HTTP exposure`,
+  MalformedProblems: ({ subject, validationMessage }) =>
+    `${subject}: malformed ProblemContract data — ${validationMessage}`,
+  ProblemsIdentifier: ({ subject }) =>
+    `${subject}: @Http.Problems identifier must be a nonempty safe identifier`,
+  ProblemsCodes: ({ subject }) => `${subject}: @Http.Problems codes must be unique`,
 });
 
 const AssociationParams = Schema.TaggedUnion({
@@ -225,7 +237,8 @@ const d2402 = defineDiagnostic(
       kind: "fixed",
     },
     explanation:
-      "This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers.",
+      "This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers." +
+      " Http.Problems variants cover duplicate contracts, missing HTTP exposure, malformed ProblemContract data with validator detail, unsafe or empty identifier overrides, and repeated problem codes.",
     examples: [
       {
         before: '@Http.Get("/users/:id")\n@Http.Contract({ group: "users", success: User })',
@@ -233,6 +246,12 @@ const d2402 = defineDiagnostic(
           '@Http.Get("/users/:id")\n@Http.Contract({ group: "users", params: UserId, success: User })',
         explanation:
           "Declare params with exactly the id field. For other variants, correct the named contract constraint; attach a single contract to one operation, export one valid group and supply its concrete root when external.",
+      },
+      {
+        before: '@Http.Problems({ registry: Problems, codes: ["NotFound", "NotFound"] })',
+        after: '@Http.Problems({ registry: Problems, codes: ["NotFound"] })',
+        explanation:
+          "Keep one Problems contract on an HTTP-exposed operation. Remove duplicate codes, use a nonempty identifier-safe identifier when overriding schema identity, and correct fields named by the ProblemContract validator.",
       },
     ],
   } as const,

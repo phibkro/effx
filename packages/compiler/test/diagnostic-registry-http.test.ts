@@ -701,4 +701,49 @@ describe("HTTP diagnostic registry", () => {
     }>();
     expectTypeOf<typeof HttpDiagnostics.EFFX2415.entry.code>().toEqualTypeOf<"EFFX2415">();
   });
+  it("preserves EFFX2402 DuplicateProblems", () => {
+    const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateProblems", subject: "op" });
+
+    assert.strictEqual(diagnostic.message, "op: duplicate @Http.Problems contracts");
+    assert.strictEqual(diagnostic.code, "EFFX2402");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("preserves EFFX2402 ProblemsExposure", () => {
+    const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsExposure", subject: "op" });
+
+    assert.strictEqual(diagnostic.message, "op: @Http.Problems requires an HTTP exposure");
+    assert.strictEqual(diagnostic.code, "EFFX2402");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("preserves EFFX2402 MalformedProblems", () => {
+    const diagnostic = HttpDiagnostics.EFFX2402.emit({
+      _tag: "MalformedProblems",
+      subject: "op",
+      validationMessage: "expected registry",
+    });
+
+    assert.strictEqual(
+      diagnostic.message,
+      "op: malformed ProblemContract data — expected registry",
+    );
+    assert.strictEqual(diagnostic.code, "EFFX2402");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("preserves EFFX2402 ProblemsIdentifier", () => {
+    const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsIdentifier", subject: "op" });
+
+    assert.strictEqual(
+      diagnostic.message,
+      "op: @Http.Problems identifier must be a nonempty safe identifier",
+    );
+    assert.strictEqual(diagnostic.code, "EFFX2402");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
+  it("preserves EFFX2402 ProblemsCodes", () => {
+    const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsCodes", subject: "op" });
+
+    assert.strictEqual(diagnostic.message, "op: @Http.Problems codes must be unique");
+    assert.strictEqual(diagnostic.code, "EFFX2402");
+    assert.strictEqual(diagnostic.severity, "error");
+  });
 });
