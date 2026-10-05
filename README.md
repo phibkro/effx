@@ -76,17 +76,24 @@ Run commands from the repository root. `check` analyzes without writing; `build`
 | `build`   | `bun run effx build`            | Compile and emit generated projections.                                   |
 | `inspect` | `bun run effx inspect User.Get` | Show an operation's contract and exposures.                               |
 | `graph`   | `bun run effx graph`            | Print the IR as a Mermaid graph; an optional node name narrows the graph. |
+| `explain` | `bun run effx explain EFFX2504` | Explain a diagnostic code offline with examples and repair guidance.      |
+
+Core lookup needs no project or config. For a package-qualified extension code, opt in with
+`effx explain 'EFFX[@owner/package]/0001' --config effx.config.ts`. Explain never compiles
+the project or writes output. The docs catalogue and installed AI guides derive from the same registry
+([spec 0016](docs/specs/0016-diagnostic-registry.md)).
 
 ## Packages
 
-| Package                                     | Status  | Role                                                                               |
-| ------------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
-| [`@effx/ir`](packages/ir)                   | Public  | Effect Schema IR, stable IDs, normalization, canonical JSON and graph indexing.    |
-| [`@effx/compiler`](packages/compiler)       | Public  | Diagnostics, extension contracts, analyses, generators, and the compiler pipeline. |
-| [`@effx/frontend-ts`](packages/frontend-ts) | Private | TypeScript 6 compiler-API frontend; bundled into the CLI distribution.             |
-| [`@effx/runtime`](packages/runtime)         | Public  | Standards-compatible decorators and builder API used only as source syntax.        |
-| [`@effx/cli`](packages/cli)                 | Public  | `effx` command-line compiler and `@effx/cli/config` extension configuration.       |
-| `examples/users`                            | Private | A worked application example.                                                      |
+| Package                                     | Status  | Role                                                                                               |
+| ------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| [`@effx/diagnostics`](packages/diagnostics) | Public  | Effect-only diagnostic entry schemas, typed factories, registry validation and Markdown rendering. |
+| [`@effx/ir`](packages/ir)                   | Public  | Effect Schema IR, stable IDs, normalization, canonical JSON and graph indexing.                    |
+| [`@effx/compiler`](packages/compiler)       | Public  | Diagnostics, extension contracts, analyses, generators, and the compiler pipeline.                 |
+| [`@effx/frontend-ts`](packages/frontend-ts) | Private | TypeScript 6 compiler-API frontend; bundled into the CLI distribution.                             |
+| [`@effx/runtime`](packages/runtime)         | Public  | Standards-compatible decorators and builder API used only as source syntax.                        |
+| [`@effx/cli`](packages/cli)                 | Public  | `effx` command-line compiler and `@effx/cli/config` extension configuration.                       |
+| `examples/users`                            | Private | A worked application example.                                                                      |
 
 Project specifications and decisions live in [`docs/`](docs/). The planned documentation site source is [`apps/docs`](apps/docs).
 
