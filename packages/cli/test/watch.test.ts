@@ -433,4 +433,29 @@ describe("actual scoped effx dev journey", () => {
       assert.isFalse(yield* fs.exists(sentinel));
     }).pipe(Effect.scoped, Effect.provide(platform)),
   );
+
+  it.effect(
+    "a watcher file-limit failure terminates rather than pretending the session is healthy",
+    () =>
+      Effect.gen(function* () {
+        const { fs, dir, config } = yield* fixture();
+        const covered = dir + "/covered.ts";
+        yield* fs.writeFileString(covered, "export const selected = true;");
+
+        const worker = yield* Effect.forkScoped(
+          dev({ project: config, executableFiles: [covered] }, versions),
+        );
+
+        yield* awaitOutput(0, finished);
+        yield* fs.writeFileString(covered, "x".repeat(16 * 1024 * 1024 + 1));
+        yield* TestClock.adjust("250 millis");
+
+        const exit = yield* Fiber.await(worker);
+        assert.isTrue(Exit.isFailure(exit));
+
+        if (Exit.isFailure(exit)) assert.isFalse(Cause.hasInterrupts(exit.cause));
+
+        assert.isFalse(yield* fs.exists(dir + "/.effx"));
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
 });
