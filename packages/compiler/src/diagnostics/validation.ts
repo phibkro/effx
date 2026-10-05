@@ -79,6 +79,10 @@ const decodeLocation = Schema.decodeUnknownOption(
   Schema.Struct({ location: Schema.optionalKey(Location) }),
 );
 
+const decodeRelated = Schema.decodeUnknownOption(
+  Schema.Struct({ related: Schema.optionalKey(Schema.Array(Schema.Unknown)) }),
+);
+
 export interface DiagnosticContext {
   readonly phase?: "collect" | "expand" | "interpret" | "analyze";
   readonly strictAccess?: boolean;
@@ -95,12 +99,8 @@ export const validateDiagnostics = (
   owner: string,
   context: DiagnosticContext = {},
 ): ReadonlyArray<Diagnostic> => {
-  const invalid = (schemaIssue: string, location?: Location): Diagnostic => {
-    return CoreDiagnostics["EFFX0010"].emit(
-      { _tag: "InvalidEntry", owner, schemaIssue },
-      location === undefined ? undefined : { location },
-    );
-  };
+  const invalid = (schemaIssue: string, options?: EmitOptions): Diagnostic =>
+    CoreDiagnostics["EFFX0010"].emit({ _tag: "InvalidEntry", owner, schemaIssue }, options);
 
   const list = decodeList(input);
 
@@ -109,27 +109,40 @@ export const validateDiagnostics = (
   const ancestors = new Set<unknown>();
 
   return list.success.map(function occurrence(value): Diagnostic {
-    const location = Option.getOrUndefined(decodeLocation(value))?.location;
+    if (ancestors.has(value)) {
+      const location = Option.getOrUndefined(decodeLocation(value))?.location;
 
-    if (ancestors.has(value)) return invalid("cyclic related diagnostic", location);
+      return invalid(
+        "cyclic related diagnostic",
+        location === undefined ? undefined : { location },
+      );
+    }
 
     const decoded = decodeOccurrence(value);
 
-    if (Result.isFailure(decoded)) return invalid(decoded.failure.message, location);
-
-    const diagnostic = decoded.success;
+    const sourceRelated = Result.isSuccess(decoded)
+      ? decoded.success.related
+      : Option.getOrUndefined(decodeRelated(value))?.related;
 
     ancestors.add(value);
 
-    const related = diagnostic.related?.map(occurrence);
+    const related = sourceRelated?.map(occurrence);
 
     ancestors.delete(value);
 
     const options: { -readonly [K in keyof EmitOptions]: EmitOptions[K] } = {};
 
-    if (diagnostic.location !== undefined) options.location = diagnostic.location;
+    const location = Result.isSuccess(decoded)
+      ? decoded.success.location
+      : Option.getOrUndefined(decodeLocation(value))?.location;
+
+    if (location !== undefined) options.location = location;
 
     if (related !== undefined) options.related = related;
+
+    if (Result.isFailure(decoded)) return invalid(decoded.failure.message, options);
+
+    const diagnostic = decoded.success;
 
     const entry = registry.get(diagnostic.code);
 

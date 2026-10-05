@@ -349,30 +349,37 @@ describe("checked diagnostic contract", () => {
     }),
   );
 
-  it.effect("retains a valid related occurrence when its parent has an undeclared code", () =>
-    Effect.gen(function* () {
-      const related = notice.emit({ subject: "valid child" }, { location: otherLocation });
+  it.effect(
+    "retains valid related occurrences and location under undeclared or malformed parents",
+    () =>
+      Effect.gen(function* () {
+        const related = notice.emit({ subject: "valid child" }, { location: otherLocation });
 
-      const result = yield* compileCollected(
-        {
-          ...empty,
-          diagnostics: forged([
-            {
-              code: "EFFX1199",
-              severity: "warning",
-              message: "invalid parent",
-              location,
-              related: [related],
-            },
-          ]),
-        },
-        [plugin()],
-      );
+        const parents = [
+          {
+            code: "EFFX1199",
+            severity: "warning",
+            message: "invalid parent",
+            location,
+            related: [related],
+          },
+          {
+            ...notice.emit({ subject: "malformed parent" }, { location, related: [related] }),
+            message: 1,
+          },
+        ];
 
-      assert.strictEqual(result.diagnostics[0]?.code, contractCode);
-      assert.deepStrictEqual(result.diagnostics[0]?.related, [related]);
-      assert.deepStrictEqual(result.diagnostics[0]?.location, location);
-    }),
+        for (const parent of parents) {
+          const result = yield* compileCollected({ ...empty, diagnostics: forged([parent]) }, [
+            plugin(),
+          ]);
+
+          assert.strictEqual(result.diagnostics[0]?.code, contractCode);
+          assert.deepStrictEqual(result.diagnostics[0]?.related, [related]);
+          assert.deepStrictEqual(result.diagnostics[0]?.location, location);
+          assert.isTrue(Option.isNone(result.files.value));
+        }
+      }),
   );
 
   it.effect(
