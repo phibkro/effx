@@ -18,6 +18,7 @@ import { inspect } from "./inspect.ts";
 import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "./manifest.ts";
 import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
+import type { WatchInput } from "./watch-files.ts";
 
 type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 
@@ -53,6 +54,30 @@ export interface Project {
   readonly effxDir: string;
   readonly config: ProjectConfig;
   readonly extensions: ReadonlyArray<Extension>;
+  /** Logical selected candidate, including an absent discovered config. */
+  readonly configPath?: string;
+  readonly executableCoverage?: ReadonlyArray<WatchInput>;
+  /** Process-epoch inputs for saved JSON refresh without executable reevaluation. */
+  readonly resolution?: ProjectResolution;
+}
+
+export interface ResolveOptions {
+  readonly trustDiscoveredConfig?: boolean;
+  readonly executableFiles?: ReadonlyArray<string>;
+  readonly executableDirectories?: ReadonlyArray<string>;
+  readonly beforeImport?: (
+    configFile: string,
+    launchCoverage: ReadonlyArray<WatchInput>,
+  ) => Effect.Effect<void, CompilerFault>;
+}
+
+export interface ProjectResolution {
+  readonly executableConfig: typeof ConfigFields.Type | undefined;
+  readonly configFile: string;
+  readonly strictAccess: boolean | undefined;
+  readonly target: TargetProfile | undefined;
+  readonly emit: EmitMode | undefined;
+  readonly outDir: string | undefined;
 }
 
 const ConfigFields = Schema.Struct({
@@ -62,6 +87,14 @@ const ConfigFields = Schema.Struct({
   target: Schema.optionalKey(TargetProfile),
   strictAccess: Schema.optionalKey(Schema.Boolean),
   extensions: Schema.optionalKey(Schema.Unknown),
+  executableCoverage: Schema.optionalKey(
+    Schema.Struct({
+      files: Schema.optionalKey(Schema.Array(Schema.String)),
+      directories: Schema.optionalKey(
+        Schema.Array(Schema.Struct({ path: Schema.String, recursive: Schema.Boolean })),
+      ),
+    }),
+  ),
   generators: Schema.optionalKey(
     Schema.Struct({
       http: Schema.optionalKey(Schema.Boolean),
@@ -72,6 +105,8 @@ const ConfigFields = Schema.Struct({
     }),
   ),
 });
+
+const decodeConfigFields = Schema.decodeUnknownEffect(ConfigFields);
 
 /** A definition an extension declares (spec 0020), as `Extension.annotations` carries it. */
 type Definition = NonNullable<Extension["annotations"]>[number];
@@ -133,7 +168,7 @@ export const loadConfig = Effect.fnUntraced(function* (file: string) {
     catch: (cause) => invalidConfig(file, "module import failed", cause),
   });
 
-  const config = yield* Schema.decodeUnknownEffect(ConfigFields)(loaded.default).pipe(
+  const config = yield* decodeConfigFields(loaded.default).pipe(
     Effect.mapError((cause) => invalidConfig(file, "invalid fields", cause)),
   );
 
@@ -191,7 +226,7 @@ export const configuredExtensions = Effect.fnUntraced(function* (
   });
 });
 
-/** Resolve paths at the source that supplied them; do not discover a second config after project override. */
+/** Resolve paths at their supplying source; retain executable values for this process epoch. */
 export const resolveProject = Effect.fn("resolveProject")(function* (
   tsconfig = "tsconfig.json",
   strictAccess?: boolean,
@@ -200,16 +235,43 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   configPath?: string,
   outDir?: string,
   projectSelected = false,
+  options: ResolveOptions = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const selectedPath = path.resolve(tsconfig);
-  const discovered = path.join(path.dirname(selectedPath), "effx.config.ts");
-  const file = configPath === undefined ? discovered : path.resolve(configPath);
+
+  const file =
+    configPath === undefined
+      ? path.join(path.dirname(selectedPath), "effx.config.ts")
+      : path.resolve(configPath);
+
+  const launchCoverage = unionCoverage([
+    { path: file, kind: "executable" },
+    ...(options.executableFiles ?? []).map((file): WatchInput => ({
+      path: path.resolve(file),
+      kind: "executable",
+    })),
+    ...(options.executableDirectories ?? []).map((directory): WatchInput => ({
+      path: path.resolve(directory),
+      kind: "executable",
+      directory: true,
+      recursive: true,
+    })),
+  ]);
+
+  if (options.beforeImport !== undefined) yield* options.beforeImport(file, launchCoverage);
   const exists = yield* fs.exists(file);
 
   if (configPath !== undefined && !exists) {
     return yield* invalidConfig(file, "file does not exist");
+  }
+
+  if (exists && configPath === undefined && options.trustDiscoveredConfig === false) {
+    return yield* invalidConfig(
+      file,
+      "execution requires launch-time --trust-config or explicit --config",
+    );
   }
 
   const config = exists ? yield* loadConfig(file) : undefined;
@@ -219,21 +281,69 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
       ? selectedPath
       : path.resolve(path.dirname(file), config.project);
 
+  const executableCoverage = unionCoverage([
+    ...launchCoverage,
+    ...(config?.executableCoverage?.files ?? []).map((entry): WatchInput => ({
+      path: path.resolve(path.dirname(file), entry),
+      kind: "executable",
+    })),
+    ...(config?.executableCoverage?.directories ?? []).map((entry): WatchInput => ({
+      path: path.resolve(path.dirname(file), entry.path),
+      kind: "executable",
+      directory: true,
+      recursive: entry.recursive,
+    })),
+  ]);
+
+  const resolution: ProjectResolution = {
+    executableConfig: config,
+    configFile: file,
+    strictAccess,
+    target,
+    emit,
+    outDir: outDir === undefined ? undefined : path.resolve(outDir),
+  };
+
+  const extensions = yield* configuredExtensions(exists ? file : undefined, config);
+
+  return yield* resolveSavedProject(tsconfigPath, resolution, extensions, executableCoverage);
+});
+
+/** Union exact logical routes without realpath canonicalization or loss of recursive authority. */
+const unionCoverage = (inputs: ReadonlyArray<WatchInput>): ReadonlyArray<WatchInput> => {
+  const routes = new Map<string, WatchInput>();
+
+  for (const input of inputs) {
+    const key = (input.directory === true ? "directory:" : "file:") + input.path;
+    const previous = routes.get(key);
+    routes.set(key, previous?.recursive === true ? previous : input);
+  }
+
+  return [...routes.values()];
+};
+
+const resolveSavedProject = Effect.fnUntraced(function* (
+  tsconfigPath: string,
+  resolution: ProjectResolution,
+  extensions: ReadonlyArray<Extension>,
+  executableCoverage: ReadonlyArray<WatchInput>,
+) {
+  const path = yield* Path.Path;
   const rootDir = path.dirname(tsconfigPath);
   const effx = yield* readTsconfigEffx(tsconfigPath);
-  const selectedTarget = target ?? config?.target ?? effx?.target;
+  const config = resolution.executableConfig;
+  const selectedTarget = resolution.target ?? config?.target ?? effx?.target;
 
   const base = {
     tsconfigPath,
     projectRoot: path.resolve(rootDir, effx?.projectRoot ?? "."),
     outDir:
-      outDir === undefined
-        ? config?.outDir === undefined
-          ? path.resolve(rootDir, effx?.outDir ?? ".effx/generated")
-          : path.resolve(path.dirname(file), config.outDir)
-        : path.resolve(outDir),
-    strictAccess: strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false,
-    emit: emit ?? config?.emit ?? effx?.emit ?? "all",
+      resolution.outDir ??
+      (config?.outDir === undefined
+        ? path.resolve(rootDir, effx?.outDir ?? ".effx/generated")
+        : path.resolve(path.dirname(resolution.configFile), config.outDir)),
+    strictAccess: resolution.strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false,
+    emit: resolution.emit ?? config?.emit ?? effx?.emit ?? "all",
   };
 
   const resolved: ProjectConfig =
@@ -244,8 +354,27 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
     rootDir,
     effxDir: path.join(rootDir, ".effx"),
     config: resolved,
-    extensions: yield* configuredExtensions(exists ? file : undefined, config),
+    extensions,
+    configPath: resolution.configFile,
+    executableCoverage,
+    resolution,
   } satisfies Project;
+});
+
+/** Refresh saved JSON only. The session owns restart admission for executable changes.
+ * No imports, extension callbacks, or config discovery occur; failures and cancellation propagate.
+ */
+export const rereadProject = Effect.fn("rereadProject")(function* (project: Project) {
+  if (project.resolution === undefined) {
+    return yield* invalidConfig(project.tsconfigPath, "project has no retained resolution epoch");
+  }
+
+  return yield* resolveSavedProject(
+    project.tsconfigPath,
+    project.resolution,
+    project.extensions,
+    project.executableCoverage ?? [],
+  );
 });
 
 /** Runs the pipeline and prints the diagnostics; the result is returned so callers decide what to do with it. */
