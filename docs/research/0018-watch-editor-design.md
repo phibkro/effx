@@ -25,8 +25,8 @@ behavior, not implementation acceptance. No heavy checks or main changes occurre
 5. **An executable-import provenance gap remains (§5).** Cache enumeration is not
    a complete logical import ledger; a global Bun plugin does not fix it. Do not
    approve this document as proof that arbitrary computed executable imports are
-   fully covered. The conservative status rule proposed below is explicit and does
-   not silently narrow the frozen contract.
+   fully covered. The operator rejected restart before every generation. Section 7
+   proposes explicit caller coverage; it is not a frozen-contract amendment yet.
 
 ## 1. Session, overlay and publication authority
 
@@ -333,32 +333,16 @@ Installed Bun compatibility guidance corroborates this at
 Newer Node declarations cannot establish those hooks in Bun 1.3.13. No alternative
 loader framework, cache eviction or runtime replacement is proposed.
 
-### Proposed conservative restart policy — explicitly for review
+### Restart policy and rejected fallback — 2026-10-05
 
-For known executable dependencies, **any** content, membership, package-resolution
-or symlink change that might replace executable code transitions the session to
-RestartRequired: clear old diagnostics, stop generation/analysis, log the reason,
-and require a fresh process under explicit launch authority. Do not hot import,
-re-evaluate config invisibly or assume unchanged canonical target means unchanged
-logical resolution. When classification is uncertain, restart rather than classify
-it as a safe source-only reload. Unsaved source overlays never execute config.
-One-shot check/build retain their current accepted config syntax and evaluation.
+Known executable replacement still requires RestartRequired, diagnostic clearing
+and a fresh authorized process. Config/plugin imports never reload invisibly.
 
-For **unobservable arbitrary executable routes**, there is no sound rule that can
-identify an unseen external symlink edit from the known-file fingerprints alone.
-The safe proposed status is to disclose an unobservable executable epoch and require
-restart before trusting a subsequent diagnostic/build generation, not silently
-continue with stale closures. This is not a rejection of the config's one-shot
-syntax, a full live-coverage claim or a covert default change.
-
-That fallback alone does **not** prove the full frozen arbitrary-import coverage:
-it can withhold watch results even though the operator has not changed config.
-Accordingly implementation remains held. A complete maintained passive logical
-resolution ledger would resolve the gap; otherwise an explicit dated contract
-amendment must authorize a stated executable observation boundary / restart rule.
-No amendment is inferred or made here, and no supported config shapes are silently
-restricted. Adding a sandbox, rewriting modules, secretly reexecuting config each
-poll or scanning the entire filesystem is not proposed.
+The operator rejected the proposed unobservable-epoch fallback that required
+restart before every generation. It makes dev unusable and will not be implemented.
+Cache-only fingerprints cannot detect every external computed symlink route.
+Section 7 proposes one explicit caller-coverage alternative for operator approval.
+The frozen contract remains unchanged until that approval.
 
 ## 6. Exception records and retirement
 
@@ -408,6 +392,27 @@ until their named tests and the final gate pass. Config coverage remains unresol
 - Retirement: native watch provides bounded/coalesced producer admission and owned
   quiescent close. Run parity/cleanup tests before removing the observation policy.
 
+**EX-0032 — native TypeScript virtual membership matcher (open).**
+
+- Owner: repository root, `AGENTS.md`; frontend boundary directory `packages/frontend-ts`.
+- Rules: FX001 version authority, FX002 native-first, FX004 checked boundary, FX012 lifecycle.
+- Scope: runtime ABI guard and local function assertion only in `src/ts.ts`.
+- Reason: public ParseConfigHost.readDirectory requires already-filtered filenames.
+  It cannot use disk-only sys.readDirectory to discover an unsaved new file.
+  A copied glob implementation would create different include/exclude semantics.
+- Native alternative: reuse the exact matcher that installed TS sys.readDirectory
+  uses. Its runtime export exists, but its public declarations omit the ABI.
+- Evidence: installed `node_modules/.bun/typescript@6.0.3/node_modules/typescript/lib/typescript.js:8611-8612,22513-22536`.
+- Examined versions: analysis TypeScript 6.0.3, wrapper6.0.2, Effect4.0.0, Bun1.3.13.
+- Boundary: verify that the runtime property is a function; assert only its exact
+  source-grounded call signature. Guard/validate returned filename data as appropriate.
+  This is not authority to cast untrusted project data or TypeScript objects into IR.
+- Verification: `packages/frontend-ts/test/watch-overlay.test.ts` will compare actual
+  overlay include/exclude/new-file/dependency behavior and one-shot fixture identity.
+  No test result is claimed before integration checks.
+- Retirement: TypeScript exposes a typed public virtual-directory matching ABI,
+  or a public host path provides identical membership without this assertion.
+
 No implementation claim, alternate protocol framework or generic poll/credit engine
 is hidden in these records. Real packed CLI and maintained-client acceptance,
 unchanged IR/hash/surface/generated-byte proof and final committed full gate remain
@@ -415,3 +420,105 @@ all required by frozen §8. Final cleanup follows verified landing only: preserv
 refs/evidence/tarballs, release owned processes, remove owned disposable clones,
 then only inactive clean merged worktrees with ownership release. Current active,
 unmerged, dirty, unknown-owner and separately owned 0016 trees are excluded.
+
+## 7. Proposed contract amendment — explicit executable coverage
+
+**Proposed 2026-10-05; not approved and not applied to the frozen spec.**
+
+The operator approved isolated portable components with tests against explicit
+dependency sets. Config-coverage integration still waits for this separate decision.
+
+### Caller data and when it exists
+
+Add optional data to the existing `EffxConfig` / `defineConfig` interface and
+the existing `ConfigFields` decoder, not a plugin mechanism:
+
+```ts
+executableCoverage?: {
+  files?: ReadonlyArray<string>;
+  directories?: ReadonlyArray<{ path: string; recursive: boolean }>;
+};
+```
+
+Equivalent repeatable launcher inputs are `--exec-file <path>` and
+`--exec-dir <path>`; a launch directory covers ordinary descendants recursively.
+Launch paths resolve from startup cwd. Config paths resolve beside the selected
+config. Merge by union and retain logical spellings. Existing selection, precedence,
+config syntax and extension behavior do not change. Editor messages cannot supply
+new executable authority. This data stays outside ProjectConfig/IR/hash/output.
+
+Before the one trusted import, observe the selected logical config path and launch
+declarations. After existing config decoding, add its coverage declarations and
+known loaded physical executable files. Reconcile before initial publication and
+refresh known files after admitted analyses; never evaluate config again.
+
+Config-returned declarations are unavailable before import. They establish a
+post-import baseline, not proof of the exact bytes/routes used during import.
+The initial-import guarantee therefore assumes stable inputs during that window.
+Complete pre-import launcher coverage permits an import-window comparison, but
+neither option promises an atomic filesystem snapshot. State this assumption.
+
+### Proposed normative amendment to 0018 §§3–4
+
+1. Executable observation MUST use the union of caller-declared coverage, known
+   physical executable files and observed TS/config/resolution inputs. The caller
+   MUST declare otherwise unobservable logical routes and resolution-sensitive
+   inputs completely, including computed/external imports. The guarantee is
+   conditional on that declaration. effx cannot certify its completeness; omitted
+   routes can change without detection. No automatic full runtime ledger is claimed.
+2. Exact file declarations MUST preserve logical paths and observe each symlink
+   component, raw destination, successive target chain, target identity/content
+   and relevant parent membership. Missing paths retain their unresolved suffix
+   and nearest existing parent so directory/file creation becomes observable.
+3. Explicit directory declarations authorize observation of those trees. Recursive
+   traversal covers ordinary descendants within finite documented path/depth/byte
+   limits. Child symlink trees require a declared route or known dependency edge;
+   traversal MUST NOT follow arbitrary links outside those inputs. Deduplicate
+   physical walks without discarding logical aliases. Cycles, inaccessible inputs,
+   limits and owned-output overlaps MUST fail visibly, never truncate silently.
+4. For package exports, `#imports`, extensionless imports and missing candidates,
+   declarations MUST include otherwise-unobserved package.json/tsconfig/lockfiles
+   and candidate-directory/missing-parent inputs. A loaded physical file alone
+   does not cover a changed selection or new higher-priority candidate. An explicit
+   directory can conservatively cover them; effx does not implement another resolver.
+5. Covered changes that can replace executable config/plugin code MUST transition
+   once to RestartRequired, clear diagnostics and suspend generation/analysis.
+   A fresh authorized process evaluates the code once. Unchanged declared inputs
+   permit repeated source/overlay analyses without restart. No syntax restriction,
+   config re-evaluation, cache-busting, hidden loader hook or sandbox is introduced.
+6. The caller declaration covers the entire executable epoch, including later
+   computed imports. Scope close joins the native observer and discards its state.
+   Observation authority is not execution containment or credential clearance.
+
+Acceptance adds actual logical alias retargets with unchanged old target, target
+chains, missing intermediate creation, external declared trees, exports/`#imports`
+candidate changes, visible traversal limits and restart/clear/recovery. Tests must
+also show unchanged declared inputs allow multiple diagnostics generations.
+
+### Actual operator choice
+
+**Recommend A: approve the explicit-coverage amendment above.** It preserves the
+existing Bun runtime and config behavior. Callers own complete declarations for
+computed/external routes; the limitation and startup stability condition are explicit.
+
+**B: retain unconditional automatic full executable provenance.** Config integration
+must stay held until a maintained capability supplies ungated logical resolution
+history, cache hits/prior loads and resolution-sensitive inputs under Bun semantics.
+The examined Bun1.3.13 cache, plugin and Node-compat APIs do not supply it (§5).
+Preserving Bun semantics requires an upstream-maintained Bun capability/release,
+then runtime/package pins and config/loader/packed acceptance across the toolchain.
+It is not a local parser, loader hook or passive cache scan.
+
+Node supplies real maintained synchronous `module.registerHooks` from22.15.0
+([Node22.23.3 primary docs, lines370-383](https://github.com/nodejs/node/blob/v22.23.3/doc/api/module.md#L370-L383)).
+Those hooks can delegate Node resolution and expose specifier/importer context.
+They are not implemented in pinned Bun (§5), do not prove its resolution semantics
+or a complete filesystem read-set, and require a runtime/toolchain migration plus
+TypeScript/Bun config compatibility work. No examined maintained alternative can
+honestly be described as complete passive logical-route capture preserving current
+Bun semantics. This is evidence from the examined alternatives, not a global claim
+that no future runtime can provide the capability.
+
+Only explicit operator approval can amend the frozen guarantee. Component work
+continues in isolated branches; no final feature acceptance or main landing occurs
+before the whole contract and its gates are settled.
