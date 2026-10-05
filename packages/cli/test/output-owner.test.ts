@@ -591,7 +591,16 @@ describe("normal build result writer and cross-process custody", () => {
     (destination) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const directory = yield* copyUsersFixture();
+        const copied = yield* copyUsersFixture();
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "effx-custom-migrate-" });
+        const path = yield* Path.Path;
+        assert.isFalse((yield* fs.realPath(directory)).split(path.sep).includes(".effx"));
+        yield* fs.copy(copied + "/src", directory + "/src");
+        yield* fs.symlink(root + "node_modules", directory + "/node_modules");
+        yield* fs.writeFileString(
+          directory + "/tsconfig.json",
+          '{ "extends": ' + (yield* encodeJsonString(copied + "/tsconfig.json")) + " }",
+        );
         const config = directory + "/tsconfig.writer.json";
         yield* fs.writeFileString(
           config,
