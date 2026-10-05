@@ -108,10 +108,10 @@ export const applyChanges = (
 
     const start = offsetAt(text, change.range.start, uri);
 
-    if (Result.isFailure(start)) return start;
+    if (Result.isFailure(start)) return Result.fail(start.failure);
     const end = offsetAt(text, change.range.end, uri);
 
-    if (Result.isFailure(end)) return end;
+    if (Result.isFailure(end)) return Result.fail(end.failure);
 
     if (end.success < start.success) {
       return Result.fail(invalidRange(uri, "Edit range ends before it starts"));

@@ -172,7 +172,17 @@ describe("bounded project session", () => {
             passes++;
 
             if (session !== undefined)
-              yield* session.restartRequired("Covered executable route changed");
+              yield* session.restartRequired("Covered executable route changed").pipe(
+                Effect.catchTag("SessionClosed", (cause) =>
+                  Effect.fail(
+                    new CompilerFault({
+                      stage: "collect",
+                      message: "Analyzer restart owner is closed",
+                      cause,
+                    }),
+                  ),
+                ),
+              );
             yield* Deferred.succeed(analyzed, undefined);
 
             return yield* compilation;

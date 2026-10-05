@@ -51,19 +51,19 @@ export interface ProjectSession {
   readonly isCurrent: (snapshot: ProjectSnapshot) => Effect.Effect<boolean>;
 }
 
-export interface SessionOptions<R> {
-  readonly analyze: (snapshot: ProjectSnapshot) => Effect.Effect<CompileResult, CompilerFault, R>;
-  readonly publish: (event: SessionEvent) => Effect.Effect<void, CompilerFault, R>;
+export interface SessionOptions<RA, RP = never, RB = never> {
+  readonly analyze: (snapshot: ProjectSnapshot) => Effect.Effect<CompileResult, CompilerFault, RA>;
+  readonly publish: (event: SessionEvent) => Effect.Effect<void, CompilerFault, RP>;
   /** Admit already-readable input before the revision guard; never called by a notification handler. */
-  readonly beforePublish?: Effect.Effect<void, CompilerFault, R>;
+  readonly beforePublish?: Effect.Effect<void, CompilerFault, RB>;
   readonly isSourceDocument?: (document: OpenDocument) => boolean;
 }
 
 /** One coordinator, one current analysis/publication, one coalesced dirty token. No worker family. */
-export const makeProjectSession = Effect.fnUntraced(function* <R>(
-  options: SessionOptions<R>,
-): Effect.fn.Return<ProjectSession, never, R | Scope.Scope> {
-  const services = yield* Effect.context<R>();
+export const makeProjectSession = Effect.fnUntraced(function* <RA, RP = never, RB = never>(
+  options: SessionOptions<RA, RP, RB>,
+): Effect.fn.Return<ProjectSession, never, RA | RP | RB | Scope.Scope> {
+  const services = yield* Effect.context<RA | RP | RB>();
   const publish = (event: SessionEvent) => options.publish(event).pipe(Effect.provide(services));
   const wake = yield* Queue.dropping<void>(1);
   let revision = 0;
