@@ -76,6 +76,7 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
         yield* peer.write(bytes.subarray(25));
         const state = yield* decodeInspect(yield* peer.request("inspect"));
         assert.deepStrictEqual(state.edits, ["é😀", { version: 2, text: "修理" }]);
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
         yield* peer.eof;
         assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
         assert.include(yield* peer.stderr, "root-released");

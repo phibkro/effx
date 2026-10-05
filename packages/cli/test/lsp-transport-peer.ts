@@ -143,10 +143,18 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
 
   child.stderr.on("data", stderrListener);
 
-  const connection = createMessageConnection(
-    new StreamMessageReader(child.stdout),
-    new StreamMessageWriter(child.stdin),
-  );
+  const reader = new StreamMessageReader(child.stdout);
+  let protocolErrors = 0;
+  let observingProtocol = true;
+
+  const countProtocolError = () => {
+    if (observingProtocol && protocolErrors < Number.MAX_SAFE_INTEGER) protocolErrors++;
+  };
+
+  const readerError = reader.onError(countProtocolError);
+
+  const connection = createMessageConnection(reader, new StreamMessageWriter(child.stdin));
+  const connectionError = connection.onError(countProtocolError);
 
   const childClosed = () => {
     connection.dispose();
@@ -183,6 +191,9 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
 
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
+      observingProtocol = false;
+      readerError.dispose();
+      connectionError.dispose();
       connection.dispose();
       child.off("close", childClosed);
       child.stderr.off("data", stderrListener);
@@ -294,6 +305,8 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
       });
     }),
     stderr: Effect.sync(() => stderr),
+    /** Bounded reader/connection error-event emissions, without retaining causes. */
+    protocolErrorCount: Effect.sync(() => protocolErrors),
     eof: Effect.sync(() => {
       child.stdin.end();
     }),
