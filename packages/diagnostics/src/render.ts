@@ -26,7 +26,7 @@ const body = (entry: DiagnosticEntry, heading: string): string => {
       : `${label(entry.severityPolicy.name)} — ${entry.severityPolicy.description}`;
 
   const sections = [
-    `${heading} ${label(entry.code)} — ${label(entry.title)}`,
+    `${heading} ${heading === "#" ? entry.code : label(entry.code)} — ${label(entry.title)}`,
     `Owner: ${label(entry.owner)}\n\nDefault severity: ${label(entry.severity)}\n\nSeverity policy: ${policy}`,
     entry.explanation.trim(),
   ];

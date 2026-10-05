@@ -136,6 +136,16 @@ describe("diagnostic Markdown projection", () => {
     }),
   );
 
+  it.effect("preserves the complete namespaced identifier in plain explain headings", () =>
+    Effect.sync(() => {
+      const plugin = { ...entry, code: "EFFX[@acme/effx-plugin]/0001", owner: "@acme/effx-plugin" };
+      assert.isTrue(
+        renderEntry(plugin).startsWith("# EFFX[@acme/effx-plugin]/0001 — Broad access\n"),
+      );
+      assert.include(renderCatalogue([plugin]), "EFFX&#91;@acme/effx-plugin&#93;/0001");
+    }),
+  );
+
   it.effect("escapes labels and protects fences from source-controlled delimiters", () =>
     Effect.sync(() => {
       const unsafe = {
