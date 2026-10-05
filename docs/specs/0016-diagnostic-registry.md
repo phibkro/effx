@@ -488,3 +488,29 @@ they are not currently one pipeline.
 
 No tests, builds, docs generation or implementation commands were run for this
 investigation. Only the requested draft commit's normal lightweight hooks are expected.
+
+## 10. Phase 1 implementation evidence — 2026-10-05
+
+The registry/help/catalogue phase is implemented without migrating existing emitters.
+The distribution has 69 entries: 68 legacy identifiers and EFFX0010.
+Core and HTTP factories cover their existing typed message variants.
+
+- Focused registry/renderer/CLI suites: eight files, 303 tests passed.
+- After a pre-command global-option correction, the focused explain suite passed all 37 tests.
+- Typecheck passed after correcting assertion generics and generating the persistence example prerequisite.
+- Strict Effect diagnostics checked 261 files: zero errors, warnings or messages.
+- Leaf and CLI builds passed. The built CLI explains EFFX2415 offline with exit 0; EFFX9999 reports `Unknown diagnostic code: EFFX9999` with exit 1.
+- AI generation/check and docs sync passed. The fence check covered 193 files and 783 fences. A full site build and full repository gate remain phase 2 acceptance checks.
+
+Identity snapshots used the existing `scripts/identity-snapshot.ts` against frozen base 4f95f81.
+Both snapshots contain 172 cases, no faults, 172 IR/hash results and 68 generated-file results.
+Only the literal checkout-directory prefix was normalized to `<worktree>` in string values.
+The complete normalized snapshots are byte-identical, with SHA-256
+`27b2aa12f097173b18caa4eb51fad7687166e1dcacb6b4108baada1b11e24acd`.
+This comparison includes Collected data and every diagnostic code/message/severity/location, not just hashes.
+Intended changes to existing compiler diagnostics, IR, semantic hashes and generated application bytes: **none**.
+The new EFFX0010 paths handle registry-contract errors; explanatory/docs bytes are new outputs.
+
+The operator reported that inventory-bootstrap landed at 7290ea5 and authorized phase 2 after this phase is committed and reported.
+Phase 2 rebases onto that commit and updates EFFX2415 to the generation-only, whole-root contract in spec 0010:262-305.
+No push or fast-forward of main is authorized.
