@@ -93,6 +93,14 @@ export const effectConfig = {
       },
     },
     {
+      files: ["packages/cli/test/packed-watch-peer.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      boundaries: ["external-data"],
+      strictness: "strict",
+      ruleOptions: bunNodeModules,
+    },
+    {
       files: ["**/*.test.ts"],
       role: "test",
       platform: "bun",
