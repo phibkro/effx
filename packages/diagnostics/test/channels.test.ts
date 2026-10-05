@@ -65,11 +65,11 @@ export const rejectsIndependentDiagnosticFields = () => {
   definition.emit({ capability: 1 });
   // @ts-expect-error Severity is owned by the entry/policy.
   definition.emit({ capability: "Database" }, { severity: "warning" });
-  // @ts-expect-error Fixed entries prohibit a severity resolver.
   defineDiagnostic(
     entry,
     params,
     (facts) => facts.capability,
+    // @ts-expect-error Fixed entries prohibit a severity resolver.
     () => "warning",
   );
 

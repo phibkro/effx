@@ -149,7 +149,7 @@ describe("diagnostic Markdown projection", () => {
             language: "ts\n```\n{danger()}",
           },
         ],
-      };
+      } as const satisfies DiagnosticEntry;
 
       const rendered = renderCatalogue([unsafe]);
       assert.include(rendered, "A &#124; &#60;Tag&#62; &#123;expression&#125;");

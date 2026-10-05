@@ -80,6 +80,7 @@ describe("diagnostic registry", () => {
     { ...entry, owner: "@acme/effx-plugin" },
     { ...plugin, owner: "@other/effx-plugin" },
     { ...entry, code: "EFFX9999" },
+    { ...entry, code: "EFFX0010", owner: "frontend" },
     { ...entry, code: "EFFX2903", owner: "example.deprecated" },
     { ...entry, code: "EFFX9003", owner: "ai-docs" },
   ])("rejects invalid documentation, policy or ownership %#", (invalid) =>
@@ -87,6 +88,13 @@ describe("diagnostic registry", () => {
       const error = yield* Effect.flip(composeRegistry([invalid]));
       assert.strictEqual(error._tag, "RegistryError");
       assert.include(error.message, "Invalid diagnostic registry:");
+    }),
+  );
+
+  it.effect("reserves the bootstrap registry-contract code for the registry subsystem", () =>
+    Effect.gen(function* () {
+      const registry = yield* composeRegistry([{ ...entry, code: "EFFX0010", owner: "registry" }]);
+      assert.strictEqual(registry.entries[0]?.owner, "registry");
     }),
   );
 
