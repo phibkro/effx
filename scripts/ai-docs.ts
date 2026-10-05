@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Renders `LLMS.md` from `ai-docs/src` and copies it, with the examples, into every publishable
- * package so it installs as `node_modules/<package>/AGENTS.md`.
+ * Renders `LLMS.md` from `ai-docs/src` and the bundled diagnostic registry, then copies it
+ * with the examples into each publishable package as `node_modules/<package>/AGENTS.md`.
  *
  * Source and license: adapted from `effect-ai-docgen`
  * (`packages/tools/ai-docgen/src/main.ts`) and `scripts/copy-ai-docs.mjs` in
@@ -31,12 +31,14 @@
  * Modes (run from the repository root):
  *
  *   bun scripts/ai-docs.ts           write LLMS.md and the per-package copies
- *   bun scripts/ai-docs.ts --check   fail when LLMS.md is not what ai-docs/src renders
+ *   bun scripts/ai-docs.ts --check   fail on drift from AI sources or registry entries
  *
  * Only `LLMS.md` is committed. `packages/<name>/AGENTS.md` and `packages/<name>/ai-docs/` are
  * derivations, gitignored, rebuilt by `bun run ai-docs` and consumed by `scripts/pack.ts`.
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { bundledDiagnosticEntries } from "@effx/compiler";
+import { composeRegistry, renderCatalogue, type DiagnosticEntry } from "@effx/diagnostics";
 import { Console, Effect, FileSystem, Path, PlatformError, Schema } from "effect";
 
 const aiDocsRoot = "ai-docs";
@@ -247,20 +249,33 @@ const copyToPackages = Effect.fn("copyToPackages")(function* (markdown: string) 
   }
 });
 
+/** Append the same catalogue body that the docs site renders. */
+export const renderRepositoryMarkdown = (
+  source: string,
+  entries: ReadonlyArray<DiagnosticEntry>,
+): string => `${source.trimEnd()}\n\n${renderCatalogue(entries)}`;
+
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const markdown = `${yield* directoryToMarkdown(sourceRoot)}\n`;
+  const registry = yield* composeRegistry(bundledDiagnosticEntries);
+
+  const markdown = renderRepositoryMarkdown(
+    yield* directoryToMarkdown(sourceRoot),
+    registry.entries,
+  );
 
   if (Bun.argv.includes("--check")) {
     const current = (yield* fs.exists(outputFile)) ? yield* fs.readFileString(outputFile) : "";
 
     if (current !== markdown) {
       return yield* new AiDocsError({
-        message: `${outputFile} is out of date with ${sourceRoot}. Run \`bun run ai-docs\` and commit the result.`,
+        message: `${outputFile} is out of date with ${sourceRoot} or the bundled diagnostic registry. Run \`bun run ai-docs\` and commit the result.`,
       });
     }
 
-    yield* Console.log(`ai-docs: ${outputFile} matches ${sourceRoot}`);
+    yield* Console.log(
+      `ai-docs: ${outputFile} matches ${sourceRoot} and the bundled diagnostic registry`,
+    );
 
     return;
   }
@@ -270,4 +285,4 @@ const program = Effect.gen(function* () {
   yield* copyToPackages(markdown);
 });
 
-BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)));
+if (import.meta.main) BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)));

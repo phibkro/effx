@@ -28,4 +28,5 @@ next-env.d.ts
 /content/docs/decisions
 /content/docs/specs
 /content/docs/api
+/content/docs/diagnostics/registry.md
 /docgen/*/out

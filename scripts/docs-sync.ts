@@ -10,12 +10,11 @@
  * generated copy needs no wrapper and derives the `title` and `description` front matter from the
  * document itself (`# H1` and the `Status:` line).
  *
- * Diagnostics hook: the compiler's diagnostic registry does not exist yet. When it lands, add a
- * `renderDiagnostics` step here that writes `content/docs/diagnostics/registry.md` from the
- * registry and replace the placeholder between the `effx:diagnostics-registry` markers in
- * `content/docs/diagnostics/index.mdx`. Do not hand-copy codes.
+ * The diagnostic catalogue uses the shared registry renderer. The landing page links to it.
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { bundledDiagnosticEntries } from "@effx/compiler";
+import { composeRegistry, renderCatalogue, type DiagnosticEntry } from "@effx/diagnostics";
 import { Console, Effect, FileSystem, Path, Schema } from "effect";
 
 /** One folder of repository documents rendered under `apps/docs/content/docs/<slug>`. */
@@ -166,7 +165,24 @@ const renderCollection = Effect.fn("renderCollection")(function* (
   yield* Console.log(`docs-sync: ${collection.source} -> ${target} (${names.length} pages)`);
 });
 
+export const renderDiagnosticPage = (entries: ReadonlyArray<DiagnosticEntry>): string =>
+  `${frontMatter("Diagnostic code registry", "Explanations and repairs from the bundled diagnostic registry.")}\n${renderCatalogue(entries)}`;
+
+/** Replaceable docs projection; no application durability or transactional guarantee. */
+export const renderDiagnostics = Effect.fn("renderDiagnostics")(function* () {
+  const registry = yield* composeRegistry(bundledDiagnosticEntries);
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const target = path.join(contentRoot, "diagnostics", "registry.md");
+  yield* fs.remove(target, { force: true });
+  yield* fs.writeFileString(target, renderDiagnosticPage(registry.entries));
+  yield* Console.log(
+    `docs-sync: diagnostic registry -> ${target} (${registry.entries.length} entries)`,
+  );
+});
+
 const program = Effect.gen(function* () {
+  yield* renderDiagnostics();
   // Every document that will have a page, as `<folder>/<file>`; links to anything else degrade.
   const rendered = new Set<string>();
 
@@ -179,4 +195,4 @@ const program = Effect.gen(function* () {
   });
 }).pipe(Effect.provide(BunServices.layer));
 
-BunRuntime.runMain(program);
+if (import.meta.main) BunRuntime.runMain(program);

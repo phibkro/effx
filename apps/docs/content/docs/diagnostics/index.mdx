@@ -1,6 +1,6 @@
 ---
 title: Diagnostics
-description: Diagnostics are plain data with a code, severity, location and related items. Their shape, where they appear, and where the code registry will be generated.
+description: Diagnostic data, severity policies, and the generated code catalogue.
 ---
 
 A diagnostic reports a problem in your source or your project. It is data, not an exception. A diagnostic with severity `error` blocks generation. Nothing is thrown.
@@ -21,7 +21,7 @@ interface Diagnostic {
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `code` | string | must match `EFFX` followed by four digits (`/^EFFX\d{4}$/`) |
+| `code` | string | numeric `EFFX####` or namespaced `EFFX[<package>]/####` identifier; validated by `DiagnosticCode` |
 | `severity` | `error`, `warning` or `info` | `Severity` schema |
 | `message` | string | human-readable text |
 | `location` | `Location`, optional | `{ file, line, col }` with integer `line` and `col` |
@@ -67,7 +67,7 @@ Diagnostics without a location omit the file suffix and are listed last under `(
 
 ## Specifications
 
-Diagnostic codes are currently defined in the specs and at their use sites in the compiler. There is no central registry in the code yet. These specs are the contracts:
+The bundled registry documents each diagnostic code. These specs define the compiler contracts:
 
 | Spec | Title |
 | --- | --- |
@@ -83,12 +83,21 @@ Diagnostic codes are currently defined in the specs and at their use sites in th
 
 ## Diagnostic code registry
 
-<Callout type="warn">
-  The code registry is not generated yet. Do not copy codes from specs into this page by hand.
-</Callout>
+Read the [diagnostic code registry](./registry.md) for each code, its severity policy, and concrete repairs.
 
-{/* effx:diagnostics-registry:begin -- GENERATED from the compiler diagnostic registry when it lands; do not hand-copy codes */}
+Use `effx explain <code>` for the same explanation offline. The catalogue comes from the bundled registry, not copied tables.
 
-The diagnostic registry index is not generated yet. When the compiler diagnostic registry lands, this section is replaced by a generated table of codes, severities and messages.
+```sh
+effx explain EFFX2504
+effx explain 'EFFX[@acme/payments]/0001' --config ./effx.config.ts
+```
 
-{/* effx:diagnostics-registry:end */}
+Without `--config`, explain uses only the bundled registry. It does not discover or evaluate `effx.config.ts`, even for unknown codes.
+
+With `--config <path>`, explain loads that config and its imports, then validates its extension entries. It does not compile project sources.
+An invalid explicit config fails even for a bundled code. Project and generation flags, such as `--project` and `--out-dir`, are not accepted.
+
+Quote namespaced codes so that the shell does not treat brackets as patterns. Codes are case-sensitive; numeric shorthand is not accepted.
+
+Extension authors supply entries through `Extension.diagnosticEntries` or the `diagnosticEntries` option of `implement`.
+The shared `@effx/diagnostics` renderer can generate a separate catalogue for those entries.
