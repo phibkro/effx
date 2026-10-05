@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Crypto, Effect, FileSystem, Layer, Path, Schema } from "effect";
+import { Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect";
 import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compiler";
 import { BunServices } from "@effect/platform-bun";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -17,6 +17,12 @@ import {
   projectDiagnostic,
   selectRoot,
 } from "../src/lsp-model.ts";
+
+const TsconfigJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json));
+
+const decodeTsconfig = Schema.decodeEffect(TsconfigJson);
+
+const encodeTsconfig = Schema.encodeEffect(TsconfigJson);
 
 describe("LSP method boundary and projection", () => {
   it("construction never acquires IO and keeps platform/frontend requirements", () => {
@@ -169,7 +175,7 @@ describe("LSP method boundary and projection", () => {
       severity: 2,
       source: "effx",
       code,
-      message: "exact\nmessage",
+      message: "exact\nmessage\n\nRelated diagnostics:\nerror EFFX0002: unlocated",
       relatedInformation: [
         {
           location: {
@@ -202,6 +208,51 @@ describe("LSP method boundary and projection", () => {
     );
 
     assert.notProperty(foreign!.diagnostic, "codeDescription");
+  });
+  it("retains primary bytes and related fallback context with selected third-party explain authority", () => {
+    const primary = "Occurrence\r\n😀";
+    const code = "EFFX[third-party]/0001";
+    const selectedConfig = "/workspace/trusted config.ts";
+
+    const result = projectDiagnostic(
+      {
+        code,
+        severity: "error",
+        message: primary,
+        location: { file: "a", line: 1, col: 1 },
+        related: [
+          { code, severity: "warning", message: "unlocated context" },
+          {
+            code,
+            severity: "info",
+            message: "located context",
+            location: { file: "b", line: 1, col: 1 },
+          },
+        ],
+      },
+      () => ({ uri: "file:///a.ts", text: "x" }),
+      {
+        relatedInformation: false,
+        codeDescription: true,
+        bundledCodes: { has: () => false },
+        registryHref: "https://example.test/registry",
+        selectedConfig,
+      },
+    );
+
+    assert.isTrue(result?.diagnostic.message.startsWith(primary));
+    assert.include(
+      result?.diagnostic.message ?? "",
+      "\n\nRelated diagnostics:\nwarning EFFX[third-party]/0001: unlocated context",
+    );
+    assert.include(result?.diagnostic.message ?? "", "located context (file:///a.ts:1:1)");
+    assert.notProperty(result!.diagnostic, "relatedInformation");
+    assert.notProperty(result!.diagnostic, "codeDescription");
+    assert.isTrue(
+      result!.logs.some((message) =>
+        message.includes(`effx explain '${code}' --config '${selectedConfig}'`),
+      ),
+    );
   });
 });
 
@@ -307,7 +358,7 @@ describe("maintained LSP client project journeys", () => {
               severity,
               source,
               code,
-              message,
+              message: message.split("\n\nRelated diagnostics:")[0],
             })),
             expected,
           );
@@ -642,6 +693,162 @@ describe("maintained LSP client project journeys", () => {
           assert.strictEqual((yield* peer.requestError("unknown", {})).code, -32600);
           yield* peer.notification("exit");
           assert.strictEqual((yield* peer.exit).code, 0);
+        }),
+      ),
+    30000,
+  );
+  it.live(
+    "refreshes saved output exclusions without leaving the former output unwatched",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+          const configPath = path.join(directory, "tsconfig.json");
+          const saved = yield* decodeTsconfig(yield* fs.readFileString(configPath));
+          const oldOutput = path.join(directory, "output-old");
+          const oldRoot = path.join(oldOutput, "broken.ts");
+          yield* fs.makeDirectory(oldOutput);
+
+          const source = (yield* fs.readFileString(
+            path.join(directory, "src", "broken.ts"),
+          )).replaceAll('from "./', 'from "../src/');
+
+          yield* fs.writeFileString(oldRoot, source);
+          yield* fs.writeFileString(
+            configPath,
+            yield* encodeTsconfig({ ...saved, effx: { outDir: "output-old" } }),
+          );
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+          yield* peer.request("initialize", clientParameters);
+          yield* peer.notification("initialized", {});
+          const uri = (yield* path.toFileUrl(oldRoot)).href;
+          yield* peer.notification("textDocument/didOpen", {
+            textDocument: { uri, version: 1, languageId: "typescript", text: source },
+          });
+          assert.deepStrictEqual((yield* published(peer, uri, 1)).diagnostics, []);
+          yield* fs.writeFileString(
+            configPath,
+            yield* encodeTsconfig({
+              ...saved,
+              files: ["output-old/broken.ts"],
+              effx: { outDir: "output-new" },
+            }),
+          );
+          const isPublished = Schema.is(Published);
+
+          const admitted = yield* decodePublished(
+            yield* peer.waitNotification(
+              "textDocument/publishDiagnostics",
+              (value) => isPublished(value) && value.uri === uri && value.diagnostics.length > 0,
+            ),
+          );
+
+          assert.strictEqual(admitted.version, 1);
+          assert.strictEqual(yield* peer.request("shutdown"), null);
+          yield* peer.notification("exit");
+          assert.strictEqual((yield* peer.exit).code, 0);
+        }),
+      ),
+    30000,
+  );
+
+  it.live(
+    "rejects a selected source root through an owned-output symlink alias visibly",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+          const configPath = path.join(directory, "tsconfig.json");
+          const saved = yield* decodeTsconfig(yield* fs.readFileString(configPath));
+          const output = path.join(directory, "output");
+          const physical = path.join(output, "broken.ts");
+          const alias = path.join(directory, "src", "output-alias.ts");
+          yield* fs.makeDirectory(output);
+          const source = yield* fs.readFileString(path.join(directory, "src", "broken.ts"));
+          yield* fs.writeFileString(physical, source);
+          yield* fs.symlink(physical, alias);
+          yield* fs.writeFileString(
+            configPath,
+            yield* encodeTsconfig({
+              ...saved,
+              files: ["src/output-alias.ts"],
+              include: [],
+              effx: { outDir: "output" },
+            }),
+          );
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+          yield* peer.request("initialize", clientParameters);
+          yield* peer.notification("initialized", {});
+          const uri = (yield* path.toFileUrl(alias)).href;
+          yield* peer.notification("textDocument/didOpen", {
+            textDocument: { uri, version: 1, languageId: "typescript", text: source },
+          });
+          const isLog = Schema.is(Schema.Struct({ message: Schema.String }));
+          yield* peer.waitNotification(
+            "window/logMessage",
+            (value) => isLog(value) && value.message.includes("overlaps effx-owned output"),
+          );
+          assert.deepStrictEqual((yield* published(peer, uri, 1)).diagnostics, []);
+          assert.strictEqual(yield* peer.request("shutdown"), null);
+          yield* peer.notification("exit");
+          assert.strictEqual((yield* peer.exit).code, 0);
+        }),
+      ),
+    30000,
+  );
+
+  it.live(
+    "closes aggregate overlay overflow rather than accepting dependent edits",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+          yield* peer.request("initialize", clientParameters);
+          yield* peer.notification("initialized", {});
+          const a = (yield* path.toFileUrl(path.join(directory, "capacity-a.txt"))).href;
+          const b = (yield* path.toFileUrl(path.join(directory, "capacity-b.txt"))).href;
+          const size = 7 * 1024 * 1024;
+          const text = "x".repeat(size);
+
+          for (const uri of [a, b]) {
+            yield* peer.notification("textDocument/didOpen", {
+              textDocument: { uri, version: 1, languageId: "plaintext", text },
+            });
+            yield* published(peer, uri, 1);
+          }
+
+          yield* peer.notification("textDocument/didChange", {
+            textDocument: { uri: a, version: 2 },
+            contentChanges: [
+              {
+                range: { start: { line: 0, character: size }, end: { line: 0, character: size } },
+                text: "x".repeat(3 * 1024 * 1024),
+              },
+            ],
+          });
+          yield* peer.waitStderr("document admission capacity exceeded");
+          assert.strictEqual((yield* peer.exit).code, 1);
+
+          const late = yield* Effect.exit(
+            peer.notification("textDocument/didChange", {
+              textDocument: { uri: a, version: 3 },
+              contentChanges: [{ text: "dependent edit" }],
+            }),
+          );
+
+          assert.isTrue(Exit.isFailure(late));
+          const isPublished = Schema.is(Published);
+
+          for (const message of yield* peer.notifications) {
+            if (message.method === "textDocument/publishDiagnostics" && isPublished(message.params))
+              assert.isAtMost(message.params.version ?? 0, 1);
+          }
         }),
       ),
     30000,

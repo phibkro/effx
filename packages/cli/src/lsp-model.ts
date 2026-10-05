@@ -140,6 +140,7 @@ export interface ProjectionSupport {
   readonly codeDescription: boolean;
   readonly bundledCodes: { readonly has: (code: string) => boolean };
   readonly registryHref: string;
+  readonly selectedConfig?: string | undefined;
 }
 
 /** Compiler points are UTF-16 units already. Reject out-of-snapshot points, never clamp. */
@@ -169,8 +170,23 @@ export const pointRange = (location: Location, text: string): typeof Range.Type 
 export const severity = (diagnostic: Diagnostic): 1 | 2 | 3 =>
   diagnostic.severity === "error" ? 1 : diagnostic.severity === "warning" ? 2 : 3;
 
-export const diagnosticLog = (diagnostic: Diagnostic): string =>
-  `${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}\nRun effx explain '${diagnostic.code}' for guidance.`;
+const quoteArgument = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+export const diagnosticLog = (
+  diagnostic: Diagnostic,
+  selectedConfig?: string,
+  bundled = true,
+): string => {
+  const configArgument =
+    !bundled && selectedConfig !== undefined ? ` --config ${quoteArgument(selectedConfig)}` : "";
+
+  const authority =
+    !bundled && selectedConfig === undefined
+      ? " Third-party explanations require an explicitly selected trusted --config."
+      : "";
+
+  return `${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}\nRun effx explain ${quoteArgument(diagnostic.code)}${configArgument} for guidance.${authority}`;
+};
 
 export type RelatedInformation = {
   location: { uri: string; range: typeof Range.Type };
@@ -212,6 +228,7 @@ export const projectDiagnostic = (
   if (!source || !range) return undefined;
   const relatedInformation: RelatedInformation[] = [];
   const logs: string[] = [];
+  const context: string[] = [];
 
   const visit = (related: Diagnostic): void => {
     const target = related.location && lookup(related.location);
@@ -222,19 +239,35 @@ export const projectDiagnostic = (
         location: { uri: target.uri, range: relatedRange },
         message: related.message,
       });
-    } else logs.push(diagnosticLog(related));
+    } else {
+      const point =
+        related.location && target && relatedRange
+          ? ` (${target.uri}:${related.location.line}:${related.location.col})`
+          : "";
+
+      context.push(`${related.severity} ${related.code}: ${related.message}${point}`);
+      logs.push(
+        diagnosticLog(related, support.selectedConfig, support.bundledCodes.has(related.code)),
+      );
+    }
 
     for (const nested of related.related ?? []) visit(nested);
   };
 
   for (const related of diagnostic.related ?? []) visit(related);
 
+  if (!support.bundledCodes.has(diagnostic.code))
+    logs.unshift(diagnosticLog(diagnostic, support.selectedConfig, false));
+
   const projected: ProjectedDiagnostic = {
     range,
     severity: severity(diagnostic),
     source: "effx",
     code: diagnostic.code,
-    message: diagnostic.message,
+    message:
+      context.length === 0
+        ? diagnostic.message
+        : `${diagnostic.message}\n\nRelated diagnostics:\n${context.join("\n")}`,
   };
 
   if (relatedInformation.length > 0) projected.relatedInformation = relatedInformation;
