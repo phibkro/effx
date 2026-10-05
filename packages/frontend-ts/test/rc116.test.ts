@@ -46,32 +46,6 @@ const directoryEntry = "../../src/directory-dense.effx.ts";
 
 const verboseDirectoryEntry = "../../src/directory-verbose.effx.ts";
 
-const copyFixture = Effect.fnUntraced(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "effx-rc116-seeds-" });
-  const copied = path.join(temporary, "packages/frontend-ts/test/fixtures/rc116");
-  yield* fs.makeDirectory(copied, { recursive: true });
-
-  for (const entry of yield* fs.readDirectory(fixtureRoot)) {
-    if (entry !== "node_modules") {
-      yield* fs.copy(path.join(fixtureRoot, entry), path.join(copied, entry));
-    }
-  }
-
-  yield* fs.symlink(path.join(fixtureRoot, "node_modules"), path.join(copied, "node_modules"));
-  yield* fs.symlink(
-    new URL("../../runtime/", import.meta.url).pathname,
-    path.join(temporary, "packages/runtime"),
-  );
-  yield* fs.symlink(
-    new URL("../../../node_modules/", import.meta.url).pathname,
-    path.join(temporary, "node_modules"),
-  );
-
-  return copied;
-});
-
 describe("isolated Effect rc.116 canonical seeds", () => {
   it.effect(
     "regenerates Profile Directory and Contact canonical seeds without drift",
@@ -79,7 +53,7 @@ describe("isolated Effect rc.116 canonical seeds", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const copied = yield* copyFixture();
+        const copied = yield* copyRc116Fixture();
 
         for (const [config, entry, seed] of [
           [
@@ -349,7 +323,14 @@ describe("isolated Effect rc.116 Profile twin", () => {
         );
 
         const seededContract = yield* fs.readFileString(
-          path.join(copied, "project", "contract", ".effx", "generated", "profile-contract.ts"),
+          path.join(
+            fixtureRoot,
+            "project",
+            "contract",
+            ".effx",
+            "generated",
+            "profile-contract.ts",
+          ),
         );
 
         const directoryHandlersPath = path.join(
@@ -586,7 +567,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
 
         const result = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "run", "typecheck"], {
-            cwd: copied,
+            cwd: fixtureRoot,
             stdout: "pipe",
             stderr: "pipe",
           });
@@ -609,7 +590,7 @@ describe("isolated Effect rc.116 Profile twin", () => {
 
         const openApiCheck = yield* Effect.sync(() => {
           const child = Bun.spawnSync(["bun", "test", "src/profile-openapi.spec.ts"], {
-            cwd: copied,
+            cwd: fixtureRoot,
             stdout: "pipe",
             stderr: "pipe",
           });
