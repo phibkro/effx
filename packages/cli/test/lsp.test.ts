@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Crypto, Effect, Exit, FileSystem, Layer, Path, Schema } from "effect";
+import { Cause, Crypto, Effect, Exit, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compiler";
 import { BunServices } from "@effect/platform-bun";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -278,6 +278,37 @@ const decodePublished = Schema.decodeUnknownEffect(Published);
 
 type Peer = Effect.Success<ReturnType<typeof acquirePeer>>;
 
+const decodeNativeCode = Schema.decodeUnknownOption(Schema.Struct({ code: Schema.Int }));
+
+const initializePeer = Effect.fnUntraced(function* (peer: Peer, params: Schema.Json) {
+  const result = yield* Effect.exit(peer.request("initialize", params));
+
+  if (Exit.isSuccess(result)) return result.value;
+
+  if (Cause.hasInterrupts(result.cause)) return yield* Effect.failCause(result.cause);
+
+  const failure = result.cause.reasons.find(Cause.isFailReason);
+
+  const nativeCode = decodeNativeCode(
+    failure?.error._tag === "PeerError" ? failure.error.cause : undefined,
+  );
+
+  const stderr = yield* peer.stderr;
+
+  const transportReason =
+    stderr.match(/^effx lsp transport: (Closed|Framing|Decode|Capacity|IO|Handler)\r?$/mu)?.[1] ??
+    "unobserved";
+
+  const child = yield* Effect.raceFirst(peer.exit.pipe(Effect.asSome), Effect.succeedNone);
+  const code = Option.isSome(nativeCode) ? nativeCode.value.code : "unobserved";
+  const childExit = Option.isSome(child) ? child.value.code : "unobserved";
+  const decodedStderrUtf8Bytes = new TextEncoder().encode(stderr).byteLength;
+
+  assert.fail(
+    `LSP initialization failed; nativeCode=${code}; transportReason=${transportReason}; decodedStderrUtf8Bytes=${decodedStderrUtf8Bytes}; childExit=${childExit}`,
+  );
+});
+
 const published = Effect.fnUntraced(function* (peer: Peer, uri: string, version?: number) {
   while (true) {
     const value = yield* decodePublished(
@@ -341,7 +372,7 @@ describe("maintained LSP client project journeys", () => {
           assert.isAbove(expected.length, 0);
           const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
           assert.deepStrictEqual(
-            yield* peer.request("initialize", {
+            yield* initializePeer(peer, {
               ...clientParameters,
               rootUri: (yield* path.toFileUrl(directory)).href,
             }),
