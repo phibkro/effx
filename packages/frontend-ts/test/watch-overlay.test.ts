@@ -92,6 +92,10 @@ describe("analysis source snapshots", () => {
     );
 
     expectTypeOf<Effect.Success<typeof analysis>>().toEqualTypeOf<Collected>();
+    expectTypeOf<Effect.Success<typeof analysis>>().not.toEqualTypeOf<{
+      declarations: never[];
+      diagnostics: never[];
+    }>();
     expectTypeOf<Effect.Error<typeof analysis>>().toEqualTypeOf<CompilerFault>();
     expectTypeOf<Effect.Services<typeof analysis>>().toEqualTypeOf<
       FileSystem.FileSystem | Path.Path
