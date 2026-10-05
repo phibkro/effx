@@ -585,4 +585,82 @@ describe("normal build result writer and cross-process custody", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(frontend)),
   );
+
+  it.effect.each(["new-output", ".effx/new-output"])(
+    "retiring custom output stays intact while migration to %s writes normally",
+    (destination) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* copyUsersFixture();
+        const config = directory + "/tsconfig.writer.json";
+        yield* fs.writeFileString(
+          config,
+          '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"], "effx": { "outDir": "old-output" } }',
+        );
+        const oldProject = yield* resolveProject(config);
+
+        const accepted = yield* failOnErrors(
+          yield* compile(oldProject.config, oldProject.extensions),
+        );
+
+        const owner = yield* acquireBuildOutput(oldProject, accepted);
+        yield* writeCompileResult(oldProject, versions, accepted, owner);
+        const oldFiles = Option.getOrThrow(accepted.files.value);
+        const oldManifest = yield* fs.readFileString(oldProject.effxDir + "/manifest.json");
+        yield* fs.writeFileString(directory + "/old-output/unrelated.ts", "user-owned\n");
+
+        const fewer = {
+          ...accepted,
+          files: { ...accepted.files, value: Option.some(oldFiles.slice(1)) },
+        };
+
+        const refused = yield* Effect.flip(writeCompileResult(oldProject, versions, fewer, owner));
+        assert.strictEqual(refused._tag, "CompilerFault");
+        assert.strictEqual(
+          yield* fs.readFileString(oldProject.effxDir + "/manifest.json"),
+          oldManifest,
+        );
+        yield* fs.writeFileString(
+          config,
+          '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"], "effx": { "outDir": "' +
+            destination +
+            '" } }',
+        );
+        const project = yield* rereadProject(oldProject);
+
+        const next = yield* failOnErrors(yield* compile(project.config, project.extensions));
+
+        const migrated = yield* migrateBuildOutput(project, next, owner, (union) =>
+          Effect.gen(function* () {
+            yield* writeCompileResult(project, versions, next, union);
+            assert.isTrue(yield* fs.exists(directory + "/old-output/" + lockName));
+          }),
+        );
+
+        for (const file of oldFiles)
+          assert.strictEqual(
+            yield* fs.readFileString(directory + "/old-output/" + file.path),
+            file.contents,
+          );
+        assert.strictEqual(
+          yield* fs.readFileString(directory + "/old-output/unrelated.ts"),
+          "user-owned\n",
+        );
+        assert.isFalse(yield* fs.exists(directory + "/old-output/" + lockName));
+
+        for (const file of Option.getOrThrow(next.files.value))
+          assert.strictEqual(
+            yield* fs.readFileString(directory + "/" + destination + "/" + file.path),
+            file.contents,
+          );
+        assert.notStrictEqual(
+          yield* fs.readFileString(project.effxDir + "/manifest.json"),
+          oldManifest,
+        );
+        yield* assertOutputOwner(migrated.owner, {
+          generatedDir: directory + "/" + destination,
+          effxDir: project.effxDir,
+        });
+      }).pipe(Effect.scoped, Effect.provide(frontend)),
+  );
 });
