@@ -1,9 +1,11 @@
 ---
 title: CLI overview
-description: The effx command line. Four compile commands and one wiring check, six shared flags, and an optional effx.config.ts that sits below the flags in the precedence order.
+description: One-shot compiler commands, saved-input watch checks, and stdio editor diagnostics.
 ---
 
-`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same six shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`). `effx surface check` and `effx cedar` are described in the table below.
+`effx check`, `build`, `inspect`, and `graph` run the same compiler pipeline over a tsconfig project.
+`dev` repeats checks for saved inputs; `lsp` checks source buffers for one editor project.
+The long-running commands use the same compiler meaning and add explicit lifetime and executable-coverage policy.
 
 Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
 
@@ -17,6 +19,8 @@ Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/
 | --- | --- | --- | --- |
 | `effx check` | Diagnose without writing | no | [check](/docs/cli/check) |
 | `effx build` | Write selected projections (default: all) | `.effx/ir.json`, `.effx/manifest.json`, `.effx/surface.json`, generated files | [build](/docs/cli/build) |
+| `effx dev [--build]` | Check saved inputs until stopped; build only with explicit write intent | no by default; normal build artifacts with `--build` | [dev](/docs/cli/dev) |
+| `effx lsp` | Stdio diagnostics for one selected project and unsaved source buffers | no compiler artifacts | [lsp](/docs/cli/lsp) |
 | `effx inspect <name>` | Show one operation's contract and exposures | no | [inspect](/docs/cli/inspect) |
 | `effx graph [name]` | Print a Mermaid graph, optionally from one node | no | [graph](/docs/cli/graph) |
 | `effx surface check --against <file>` | Verify an Alchemy Worker program wires exactly the generated handlers the surface requires (spec 0021). Compiles the project first and exits 1 on errors. | no | none yet |
@@ -30,7 +34,10 @@ Source for the `surface check` row: `main.ts` description and `packages/cli/src/
 
 ## Flags
 
-`main.ts` defines these flags once, as shared flags on the root command (`Command.withSharedFlags`). Every subcommand, including `check`, `build`, `inspect` and `graph`, receives the same set and resolves them with the same function (`resolveProject` in `packages/cli/src/commands.ts`). Every flag is optional.
+The shared compilation flags below retain the same precedence for one-shot commands and sessions.
+`dev` adds `--build`; `lsp` adds launch-time `--trust-config`.
+Both accept repeatable `--exec-file` and `--exec-dir` inputs.
+See [dev coverage](/docs/cli/dev#executable-coverage) and [LSP trust](/docs/cli/lsp#project-selection-and-trust) before you use executable config.
 
 | Flag | Type | Applies to | Precedence | Default when nothing sets it |
 | --- | --- | --- | --- | --- |
@@ -99,7 +106,10 @@ This shape is the example from spec 0015 without the `extensions` and `generator
 
 Discovery looks beside the tsconfig selected by the flag or the default. If the discovered config sets another `project`, the CLI does not look for a second config beside that project. When `--project` is given, the config `project` is ignored.
 
-The config module is the only user module the CLI evaluates, once per command invocation. The CLI never imports application source (spec 0015, `loadConfig` in `commands.ts`).
+The CLI evaluates the selected config and its imports, not application operation modules.
+A long-running session retains that executable graph until restart.
+LSP requires explicit `--config` or launch-time `--trust-config` before discovered config executes.
+Coverage is conditional on complete caller declarations; it is not a sandbox.
 
 ### Precedence
 
@@ -129,7 +139,11 @@ The `.effx` directory that holds `ir.json`, `manifest.json` and `surface.json` i
 
 ### Extensions and generators
 
-The config can also set `extensions` and `generators`. These have no CLI flags. A config `extensions` array is appended to the built-in extensions. A callback receives the built-ins and returns the whole ordered list. `generators` toggles (`http`, `rpc`, `cli`, `client`, `foldkit`) switch off only the matching built-in file generator. All four compile commands use the resulting extension list, so a custom extension's analyses run in `check`, `inspect` and `graph` as well as `build`. See [Extensions](/docs/extensions) for the authoring guide.
+The config can also set `extensions` and `generators`. These have no CLI flags. A config `extensions` array is appended to the built-in extensions. A callback receives the built-ins and returns the whole ordered list. `generators` toggles (`http`, `rpc`, `cli`, `client`, `foldkit`) switch off only the matching built-in file generator. All compilation paths use the resulting extension list. See [Extensions](/docs/extensions) for the authoring guide.
+
+For sessions, `executableCoverage` supplies files and directories relative to the config.
+Launch declarations resolve from startup cwd and merge by union while retaining logical aliases.
+See [Executable coverage](/docs/cli/dev#executable-coverage) for the exact shape, static package-link examples, and completeness limitation.
 
 ## Exit behaviour
 
@@ -146,4 +160,6 @@ Invalid `--target` or `--emit` values fail at the CLI boundary, before the compi
 
 ## Output goes to stdout
 
-Diagnostics, the summary, `inspect` text and `graph` text are all written with the `Console` service. The format is described on each command page and in [Diagnostics](/docs/diagnostics).
+One-shot diagnostics, the summary, `inspect` text, and `graph` text use stdout.
+`dev` prints complete cycle batches. LSP stdout contains only framed JSON-RPC; operational output uses stderr or protocol logs.
+See [Diagnostics](/docs/diagnostics) for the shared diagnostic data.

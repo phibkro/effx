@@ -22,6 +22,13 @@ After `bun install --frozen-lockfile`, run `bun run gate` on the committed tree 
 The Check workflow calls that same script. The ordered gate list lives only in root `package.json`.
 The gate includes the docs build and Changesets status check, not just the fast developer checks.
 
+For application diagnostics, run `bun run effx dev --project <tsconfig>`.
+Add `--build` only when you want normal generated artifacts. Stop the session with Ctrl-C.
+For editor diagnostics, configure a stdio launcher with `bun run effx lsp --project <tsconfig>`.
+Launch-time `--config` or `--trust-config` admits executable config; editor messages cannot grant trust.
+These commands do not replace the repository gate or generated-code typecheck.
+See [dev](apps/docs/content/docs/cli/dev.mdx) for complete executable coverage and [LSP](apps/docs/content/docs/cli/lsp.mdx) for protocol limits.
+
 `bun run check` remains the fast subset for development.
 Before that subset, build the users example and install the rc.116 fixture dependencies.
 The full gate owns those prerequisites, so a fresh checkout needs no test-generated fixture output.

@@ -56,6 +56,8 @@ Every pipeline stage returns a `StageResult`: an optional value plus the diagnos
 | --- | --- |
 | Terminal | `effx check` and `effx build` print them grouped by file, then a summary line ([effx check](/docs/cli/check)) |
 | `.effx/manifest.json` | `effx build` stores all diagnostics, with `related`, in the `diagnostics` field ([effx build](/docs/cli/build)) |
+| Watch terminal | [effx dev](/docs/cli/dev) prints a full batch and counts for each completed cycle |
+| Editor | [effx lsp](/docs/cli/lsp) publishes replacements only for open documents; unlocated findings use logs |
 
 Terminal line format:
 
