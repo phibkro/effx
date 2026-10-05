@@ -25,6 +25,8 @@ import {
 import { subprocess } from "../../persistence/test/process.ts";
 import {
   acquireBuildOutput,
+  migrateBuildOutput,
+  rereadProject,
   build,
   check,
   failOnErrors,
@@ -34,6 +36,7 @@ import {
 import {
   acquireOutputOwner,
   assertOutputOwner,
+  migrateOutputOwner,
   OutputBusy,
   type OutputOwner,
   type OutputResources,
@@ -344,6 +347,181 @@ describe("normal build result writer and cross-process custody", () => {
         yield* fs.readFileString(project.effxDir + "/generated/unrelated.ts"),
         "user-owned\n",
       );
+    }).pipe(Effect.scoped, Effect.provide(frontend)),
+  );
+
+  it.live(
+    "migration holds old, new aliases and metadata through callback then retires only old",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* testDirectory("owner-migrate-process-");
+        const old = resourcesAt(directory);
+        const target = { ...old, generatedDir: directory + "/.effx/next" };
+        const owner = yield* acquireOutputOwner(old);
+        let finished = false;
+
+        const migrated = yield* migrateOutputOwner(owner, target, (union) =>
+          Effect.gen(function* () {
+            yield* fs.symlink(target.generatedDir, directory + "/new-alias");
+            yield* assertOutputOwner(union, old);
+            yield* assertOutputOwner(union, target);
+
+            for (const competing of [
+              { generatedDir: old.generatedDir, effxDir: directory + "/competitor-old" },
+              { generatedDir: directory + "/new-alias", effxDir: directory + "/competitor-new" },
+              { generatedDir: directory + "/competitor-output", effxDir: old.effxDir },
+            ]) {
+              const result = yield* competingProcess(competing);
+              assert.strictEqual(result.code, 0, result.text);
+              assert.include(result.text, "REFUSED");
+            }
+
+            finished = true;
+
+            return 42;
+          }),
+        );
+
+        assert.isTrue(finished);
+        assert.strictEqual(migrated.value, 42);
+        assert.strictEqual(migrated.owner.resources.length, 2);
+        assert.deepStrictEqual(migrated.owner.generatedDirs, [target.generatedDir]);
+        yield* assertOutputOwner(migrated.owner, target);
+
+        const released = yield* competingProcess({
+          generatedDir: old.generatedDir,
+          effxDir: directory + "/independent",
+        });
+
+        assert.include(released.text, "ADMITTED");
+        assert.isFalse(yield* fs.exists(old.generatedDir + "/" + lockName));
+        assert.isTrue(yield* fs.exists(target.generatedDir + "/" + lockName));
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+  );
+
+  it.effect(
+    "failed, defective and interrupted migrations retain old custody and roll back new",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* testDirectory("owner-migrate-failure-");
+        const old = resourcesAt(directory);
+        const target = { ...old, generatedDir: directory + "/.effx/new" };
+        const owner = yield* acquireOutputOwner(old);
+
+        const failure = yield* Effect.flip(
+          migrateOutputOwner(owner, target, () =>
+            Effect.fail(new OutputBusy({ resource: target.generatedDir, message: "batch failed" })),
+          ),
+        );
+
+        assert.strictEqual(failure.message, "batch failed");
+        yield* assertOutputOwner(owner, old);
+        assert.isFalse(yield* fs.exists(target.generatedDir + "/" + lockName));
+
+        const defect = yield* Effect.exit(
+          migrateOutputOwner(owner, target, () => Effect.die("batch defect")),
+        );
+
+        assert.isTrue(Exit.isFailure(defect));
+        yield* assertOutputOwner(owner, old);
+        assert.isFalse(yield* fs.exists(target.generatedDir + "/" + lockName));
+        const admitted = yield* Deferred.make<void>();
+
+        const fiber = yield* Effect.forkChild(
+          migrateOutputOwner(owner, target, () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(admitted, undefined);
+
+              return yield* Effect.never;
+            }),
+          ),
+        );
+
+        yield* Deferred.await(admitted);
+        yield* Fiber.interrupt(fiber);
+        assert.isTrue(Exit.isFailure(yield* Fiber.await(fiber)));
+        yield* assertOutputOwner(owner, old);
+        assert.isFalse(yield* fs.exists(target.generatedDir + "/" + lockName));
+        const sessionScope = yield* Scope.Scope;
+        const before = sessionScope.state;
+
+        assert.strictEqual(before._tag, "Open");
+        const initialFinalizers = before._tag === "Open" ? (before.finalizers?.size ?? 1) : 0;
+        let current = owner;
+
+        for (let index = 0; index < 8; index++) {
+          const next = { ...old, generatedDir: directory + "/.effx/epoch-" + index };
+          const migrated = yield* migrateOutputOwner(current, next, () => Effect.void);
+          current = migrated.owner;
+          assert.strictEqual(current.resources.length, 2);
+          assert.strictEqual(current.generatedDirs.length, 1);
+          yield* assertOutputOwner(current, next);
+        }
+
+        const after = sessionScope.state;
+        assert.strictEqual(after._tag, "Open");
+        assert.strictEqual(
+          after._tag === "Open" ? (after.finalizers?.size ?? 1) : 0,
+          initialFinalizers,
+        );
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+  );
+
+  it.effect("copied fixture migration prunes only held old manifest files after admission", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* copyUsersFixture();
+      const config = directory + "/tsconfig.writer.json";
+      yield* fs.writeFileString(
+        config,
+        '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"] }',
+      );
+      const oldProject = yield* resolveProject(config);
+
+      const accepted = yield* failOnErrors(
+        yield* compile(oldProject.config, oldProject.extensions),
+      );
+
+      const owner = yield* acquireBuildOutput(oldProject, accepted);
+      yield* writeCompileResult(oldProject, versions, accepted, owner);
+      const oldFiles = Option.getOrThrow(accepted.files.value);
+      yield* fs.writeFileString(oldProject.effxDir + "/generated/unrelated.ts", "user-owned\n");
+      yield* fs.writeFileString(
+        config,
+        '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"], "effx": { "outDir": ".effx/next" } }',
+      );
+      const project = yield* rereadProject(oldProject);
+      const next = yield* failOnErrors(yield* compile(project.config, project.extensions));
+
+      const migrated = yield* migrateBuildOutput(project, next, owner, (union) =>
+        Effect.gen(function* () {
+          yield* assertOutputOwner(union, resourcesAt(directory));
+          assert.isTrue(yield* fs.exists(oldProject.effxDir + "/generated/" + oldFiles[0]!.path));
+          yield* writeCompileResult(project, versions, next, union);
+          assert.isTrue(yield* fs.exists(oldProject.effxDir + "/generated/" + lockName));
+        }),
+      );
+
+      assert.isFalse(yield* fs.exists(oldProject.effxDir + "/generated/" + lockName));
+      assert.strictEqual(
+        yield* fs.readFileString(oldProject.effxDir + "/generated/unrelated.ts"),
+        "user-owned\n",
+      );
+
+      for (const file of oldFiles)
+        assert.isFalse(yield* fs.exists(oldProject.effxDir + "/generated/" + file.path));
+
+      for (const file of Option.getOrThrow(next.files.value))
+        assert.strictEqual(
+          yield* fs.readFileString(oldProject.effxDir + "/next/" + file.path),
+          file.contents,
+        );
+      yield* assertOutputOwner(migrated.owner, {
+        generatedDir: oldProject.effxDir + "/next",
+        effxDir: oldProject.effxDir,
+      });
     }).pipe(Effect.scoped, Effect.provide(frontend)),
   );
 });

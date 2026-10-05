@@ -19,7 +19,13 @@ import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "
 import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
 import type { WatchInput } from "./watch-files.ts";
-import { acquireOutputOwner, assertOutputOwner, type OutputOwner } from "./output-owner.ts";
+import {
+  acquireOutputOwner,
+  assertOutputOwner,
+  canonicalOutputPath,
+  migrateOutputOwner,
+  type OutputOwner,
+} from "./output-owner.ts";
 
 type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 
@@ -431,7 +437,10 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
     path.relative(project.effxDir, path.join(generatedDir, file.path)).split(path.sep).join("/"),
   );
 
-  const currentFiles = new Set(generated.map((file) => path.resolve(project.effxDir, file)));
+  const currentFiles = new Set<string>();
+
+  for (const file of generated)
+    currentFiles.add(yield* canonicalOutputPath(path.resolve(project.effxDir, file)));
 
   const previous = (yield* fs.exists(manifestPath))
     ? yield* decodePreviousManifest(yield* fs.readFileString(manifestPath)).pipe(
@@ -442,37 +451,39 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
       )
     : undefined;
 
-  // A previous manifest is the ownership record: only obsolete files it lists in this output
-  // directory may be removed. Never sweep an output directory containing unrelated user files.
-  const obsolete = (previous?.generated ?? [])
-    .map((file) => path.resolve(project.effxDir, file))
-    .filter((file) => {
-      const relative = path.relative(generatedDir, file);
+  // The manifest owns only its listed .ts files inside a held generated directory.
+  // Migration custody includes the old directory until this batch finishes.
+  const obsolete: Array<string> = [];
+
+  for (const previousFile of previous?.generated ?? []) {
+    const file = path.resolve(project.effxDir, previousFile);
+    const canonicalFile = yield* canonicalOutputPath(file);
+
+    const owned = owner.generatedDirs.some((directory) => {
+      const relative = path.relative(directory, canonicalFile);
 
       return (
         relative !== "" &&
         relative !== ".." &&
         !relative.startsWith(".." + path.sep) &&
-        !path.isAbsolute(relative) &&
-        path.extname(file) === ".ts" &&
-        !currentFiles.has(file)
+        !path.isAbsolute(relative)
       );
     });
 
+    if (owned && path.extname(file) === ".ts" && !currentFiles.has(canonicalFile)) {
+      if (!canonicalFile.split(path.sep).includes(".effx")) {
+        return yield* new CompilerFault({
+          stage: "generate",
+          message: "cannot remove obsolete generated files outside .effx: " + file,
+        });
+      }
+
+      obsolete.push(file);
+    }
+  }
+
   yield* fs.makeDirectory(generatedDir, { recursive: true });
   yield* fs.makeDirectory(project.effxDir, { recursive: true });
-
-  // A custom output may be reused, but stale files can be removed only within a real .effx.
-  // Fail before writing if that ownership invariant is not satisfied.
-  if (
-    obsolete.length > 0 &&
-    !(yield* fs.realPath(generatedDir)).split(path.sep).includes(".effx")
-  ) {
-    return yield* new CompilerFault({
-      stage: "generate",
-      message: "cannot remove obsolete generated files outside .effx: " + generatedDir,
-    });
-  }
 
   for (const file of files) {
     yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
@@ -533,6 +544,27 @@ export const acquireBuildOutput = Effect.fnUntraced(function* (
     generatedDir: collected.project?.outputDir ?? path.join(project.effxDir, "generated"),
     effxDir: project.effxDir,
   });
+});
+
+/** Reconcile/admit/write under old + new custody; install the returned owner only on success. */
+export const migrateBuildOutput = Effect.fnUntraced(function* <A, E, R>(
+  project: Project,
+  accepted: CompileResult,
+  owner: OutputOwner,
+  use: (owner: OutputOwner) => Effect.Effect<A, E, R>,
+) {
+  const result = yield* failOnErrors(accepted);
+  const path = yield* Path.Path;
+  const collected = Option.getOrThrow(result.collected.value);
+
+  return yield* migrateOutputOwner(
+    owner,
+    {
+      generatedDir: collected.project?.outputDir ?? path.join(project.effxDir, "generated"),
+      effxDir: project.effxDir,
+    },
+    use,
+  );
 });
 
 /** Acquire custody only after a successful compile; scope closes on every exit. */
