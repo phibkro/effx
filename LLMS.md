@@ -1219,9 +1219,9 @@ tested reference):
 - The config module and everything it imports must not import application code that declares
   operations.
 - Your extension imports only public packages: `@effx/compiler` (`Extension`, `Interpreter`,
-  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `error`, `warning`, `GeneratedFile`, and
-  the typed layer `implement`, `extension`, `dataOf`, `laws`, `LawViolation`), `@effx/runtime` and
-  `@effx/ir`. Anything else exported from `@effx/compiler` is marked internal.
+  `Analysis`, `Generator`, `Contribution`, `decodeArgs`, `defineDiagnostic`, `DiagnosticEntry`,
+  `CoreDiagnostics`, `GeneratedFile`, and the typed layer `implement`, `extension`, `dataOf`,
+  `laws`, `LawViolation`), `@effx/runtime` and `@effx/ir` (public exports in `packages/compiler/src/index.ts`).
 
 Not available: there is no public way to run a custom extension outside the CLI without the private
 TypeScript frontend. Use the CLI with a config.
@@ -1265,7 +1265,7 @@ HttpApiEndpoint.get("Limited.Get", "/limited/:id", { ... })
 ### The extension contract
 
 The contract below is what every extension implements. The typed layer derives it; the hand-written
-form (see the linked skeleton) remains valid. The built-in features (core, http, rpc, cli, client,
+form (see the linked Audit extension) remains valid. The built-in features (core, http, rpc, cli, client,
 foldkit, http-contract, http-group, access-contract, problem-contract) are extensions built from
 the same contract (`packages/compiler/src/Extension.ts`,
 `packages/compiler/src/extensions/index.ts`).
@@ -1281,18 +1281,21 @@ the same contract (`packages/compiler/src/Extension.ts`,
                               Diagnostic[]      Effect<GeneratedFile[]>
 ```
 
-| Part           | Type (`Extension.ts`)                                                       | Rules                                                                   |
-| -------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `name`         | `string`                                                                    | identifies the extension                                                |
-| `interpreters` | `Record<annotationName, (annotation, declaration, ctx) => Contribution>`    | pure; an annotation name no extension owns is `EFFX1101`                |
-| `analyses`     | `(ir, index, { strictAccess }) => Diagnostic[]`                             | pure; reads the graph; an `error` diagnostic stops generation           |
-| `generators`   | `(ir, index, generationContext?) => Effect<GeneratedFile[], CompilerFault>` | emit ordinary files; output is sorted by path and must be deterministic |
-| `annotations`  | `ReadonlyArray<DefinitionData>?`                                            | the definitions it implements; their plans drive frontend lowering      |
-| `expand`       | `(collected) => { declarations, diagnostics }` (optional)                   | pure pre-pass before any interpreter; group defaults use it             |
-| `fragments`    | `ReadonlyArray<EndpointFragment>?`                                          | method-call suffixes appended to a generated HTTP endpoint              |
+| Part                | Type (`Extension.ts`)                                                       | Rules                                                                   |
+| ------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `name`              | `string`                                                                    | identifies the extension                                                |
+| `interpreters`      | `Record<annotationName, (annotation, declaration, ctx) => Contribution>`    | pure; an annotation name no extension owns is `EFFX1101`                |
+| `analyses`          | `(ir, index, { strictAccess }) => Diagnostic[]`                             | pure; reads the graph; an `error` diagnostic stops generation           |
+| `generators`        | `(ir, index, generationContext?) => Effect<GeneratedFile[], CompilerFault>` | emit ordinary files; output is sorted by path and must be deterministic |
+| `annotations`       | `ReadonlyArray<DefinitionData>?`                                            | the definitions it implements; their plans drive frontend lowering      |
+| `expand`            | `(collected) => { declarations, diagnostics }` (optional)                   | pure pre-pass before any interpreter; group defaults use it             |
+| `fragments`         | `ReadonlyArray<EndpointFragment>?`                                          | method-call suffixes appended to a generated HTTP endpoint              |
+| `diagnosticEntries` | `ReadonlyArray<DiagnosticEntry>?`                                           | registers this package's explanations; duplicates are rejected          |
 
-`extension(name, implementations)` fills `annotations`, derives `interpreters`, and derives the
-`fragments` of `effect` clauses. A hand-written `Extension` omits all three optional parts.
+`extension(name, implementations, options?)` fills `annotations`, derives `interpreters` and
+`fragments`, and combines the `diagnosticEntries` supplied to each `implement` with those supplied
+in extension options. Register each entry exactly once; identical duplicate entries still fail.
+A hand-written `Extension` carries its own `diagnosticEntries` when it emits package-owned codes.
 
 Rules to keep:
 
@@ -1311,8 +1314,38 @@ Rules to keep:
 - Use `decodeArgs(schema, annotation, declaration)` to decode annotation
   arguments; a failure is an `EFFX1102` diagnostic.
 - No `ts.*` objects in the IR. Source locations live in the manifest.
-- Diagnostic codes: choose codes that do not collide with the built-ins. No range is reserved
-  for third-party extensions in the sources read, so the examples use `EFFX9xxx`.
+- Diagnostic codes: new third-party packages use `EFFX[<package>]/####`, for example
+  `EFFX[@acme/effx-audit]/0001`. The package must be a canonical lowercase npm name,
+  and `owner` must match it. All numeric codes belong to the effx distribution; the six
+  shipped example codes are grandfathered reservations, not an authoring range (spec 0016 §3).
+
+### Typed diagnostic entries and factories
+
+Keep entry data, a structured parameter Schema and the message renderer together with
+`defineDiagnostic` (spec 0016 §2; `packages/diagnostics/src/definition.ts`). Call its `.emit(params,
+{ location, related })` with facts; code, message and severity derive from the definition.
+Do not copy a message template into an emitter or retain string-code helpers. Fixed severity
+entries accept no resolver. A named policy declares `allowedSeverities` as a readonly nonempty
+list of unique outcomes containing the default, documents the decision, and supplies a
+resolver whose return type is restricted to those outcomes.
+
+The inlined package-owned audit example below shows a complete entry, factory and meaningful
+analysis-only `Extension`. `diagnosticEntries: [missingAudit.entry]` enables both compilation
+and explicit-config explain lookup. With `implement`, put the entry in its options; with
+`extension`, put additional entries in its third argument. Shared `CoreDiagnostics` factories
+are already bundled: the older Audit and RateLimit examples reference those factories without
+registering their numeric entries again.
+
+Registry composition decodes selected extension entry arrays and rejects collisions before
+frontend analysis. Callback diagnostics, including related diagnostics, are checked before
+escaping the compiler; undeclared codes or unauthorized severity produce `EFFX0010` and
+stop generation, not a `CompilerFault` (spec 0016 §2). These checks cover JavaScript plugins
+too; TypeScript factory references alone are not a security guarantee.
+
+Run `effx explain EFFX1102` offline without a project. For a plugin, quote the full code
+and select its config explicitly: `effx explain 'EFFX[@acme/effx-audit]/0001' --config
+./effx.config.ts`. Explain does not discover config by default or compile application source
+(spec 0016 §4).
 
 ### Using a custom annotation in source
 
@@ -1494,7 +1527,7 @@ checks and files. `extension` bundles implementations into an ordinary `Extensio
 you list in `effx.config.ts`.
 
 ```ts
-import { dataOf, error, extension, implement, warning } from "@effx/compiler";
+import { CoreDiagnostics, dataOf, extension, implement } from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
 import { Option } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
@@ -1517,16 +1550,11 @@ const rateLimit = implement(RateLimit, {
       );
 
       if (!exposed) {
-        return [error("EFFX9101", `${node.name}: @RateLimit needs an HTTP exposure`)];
+        return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
       }
 
       return options.perMinute > 10_000
-        ? [
-            warning(
-              "EFFX9102",
-              `${node.name}: perMinute ${options.perMinute} is effectively unlimited`,
-            ),
-          ]
+        ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
         : [];
     }),
 });
@@ -1537,9 +1565,66 @@ const rateLimit = implement(RateLimit, {
 export const appExtension = extension("app", [rateLimit]);
 ```
 
+### Registering a package-owned diagnostic
+
+New extension packages own namespaced codes, not unused numeric codes (spec 0016 §3).
+This analysis requires every Command to have an AuditPolicy contribution, without adding IR
+or generated files. Select `auditRequired` in `effx.config.ts` alongside the Audit interpreter.
+
+```ts
+import { defineDiagnostic, type DiagnosticEntry, type Extension } from "@effx/compiler";
+import { IRGraph } from "@effx/ir";
+import { Schema } from "effect";
+
+export const missingAudit = defineDiagnostic(
+  {
+    code: "EFFX[@acme/effx-audit]/0001",
+    owner: "@acme/effx-audit",
+    title: "Command lacks an audit policy",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "Every Command must carry an AuditPolicy ExtensionOf contribution. Queries are exempt. Register the Audit interpreter and annotate each Command before generating the application.",
+    examples: [
+      {
+        before: '@Command("Billing.Charge")',
+        after: '@Command("Billing.Charge")\n@Annotate("Audit", { level: "sensitive" })',
+        explanation:
+          "Attach the audit policy and register the Audit interpreter in effx.config.ts.",
+        language: "ts",
+      },
+    ],
+  } as const satisfies DiagnosticEntry,
+  Schema.Struct({ operation: Schema.String }),
+  ({ operation }) => `${operation}: Command needs an AuditPolicy contribution`,
+);
+
+export const auditRequired: Extension = {
+  name: "@acme/effx-audit/required",
+  diagnosticEntries: [missingAudit.entry],
+  interpreters: {},
+  analyses: [
+    (ir, index) =>
+      ir.nodes.flatMap((node) => {
+        if (node._tag !== "Operation" || node.kind !== "Command") return [];
+
+        const audited = IRGraph.incoming(index, node.id, "ExtensionOf").some(
+          (edge) => edge.qualifier === "AuditPolicy",
+        );
+
+        return audited ? [] : [missingAudit.emit({ operation: node.name })];
+      }),
+  ],
+  generators: [],
+};
+
+// Offline lookup does not compile a project. Explicit config opts in to loading plugin entries:
+// effx explain 'EFFX[@acme/effx-audit]/0001' --config ./effx.config.ts
+```
+
 ### More examples
 
-- **[Extension skeleton: interpreter, analysis, generator](./ai-docs/src/06_custom-extensions/10_hand-written-extension.ts)**:
+- **[Audit extension: interpreter, analysis, generator](./ai-docs/src/06_custom-extensions/10_hand-written-extension.ts)**:
   An `Extension` has three parts: interpreters turn annotations into IR
   contributions, analyses read the IR graph, and generators emit ordinary files.
 
@@ -1726,6 +1811,8 @@ Owner: frontend
 Default severity: info
 
 Severity policy: typescript-major-skew — Same-major skew is info; different-major skew is warning.
+
+Allowed severities: info, warning
 
 The frontend analyses with its bundled TypeScript version while the project pins another. tsc/tsgo remains authoritative. Same-major skew is informational; different-major skew warns. A package range is compared using its first numeric major, not by resolving that range.
 
@@ -2006,6 +2093,8 @@ Owner: annotation
 Default severity: error
 
 Severity policy: frontend-resolution-versus-core-contract — Frontend runtime resolution is warning; source and IR binding contract violations are error.
+
+Allowed severities: error, warning
 
 Frontend resolution warns when @effx/runtime cannot be resolved, because no effx declarations can be recognized. Core interpretation rejects an external operation carrying a local handler or signature, or a local operation lacking an authored typed handler. IR analysis also rejects either invalid binding/handler pair. These are phase-specific policies under one legacy code, not interchangeable severities.
 
@@ -2487,7 +2576,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers. Http.Problems variants cover duplicate contracts, missing HTTP exposure, malformed ProblemContract data with validator detail, unsafe or empty identifier overrides, and repeated problem codes.
+This umbrella covers annotation target/cardinality, malformed contract data or ownership edges, missing or repeated exposures, unsafe group/root identifiers, conflicting group definitions, repeated contracts on one operation, colliding root exports, missing external group/root declarations, request and response channel constraints, status bounds, and command identity headers. Match path parameters exactly; GET cannot carry payload. conditional requires GET and responseHeaders; mediaType requires payload. payloadIsQuery requires a POST Query with explicit payload. commandIdentity belongs to a Command and requires idempotency-key and if-match headers. Http.Problems variants cover duplicate contracts, missing HTTP exposure, malformed ProblemContract data with validator detail, unsafe or empty identifier overrides, and repeated problem codes.
 
 ### Example 1
 
@@ -2735,23 +2824,24 @@ Default severity: error
 
 Severity policy: Fixed
 
-The concrete HttpApi root must have finite required group and endpoint keys with matching literal identifiers. The group inventory must resolve unambiguously, and every bound endpoint key must exist in the declared group.
+Endpoint inventory is a handler-factory generation precondition, never a declaration-lowering check: contract-only emission never reports EFFX2415. A concrete HttpApi root must prove finite required group and endpoint keys with matching literal identifiers; only groups whose handler factories are being emitted need their declared endpoints checked. An unresolved root leaf rejects the whole root because its unknown identifier may replace a healthy group. Report one root-level diagnostic naming the unresolved leaf, not cascading group diagnostics, and emit no factory using that root. Earlier fatal diagnostics defer inventory proof. Generate every contract imported by the authored root before handler generation, including groups outside the current invocation. Cold --emit=all is atomic and writes nothing, including no contract or manifest: contract-first is required. A failed build preserves previously owned handler outputs and publishes no partial ownership record.
 
 ### Example 1
 
 Before:
 
 ```text
-HttpApi.make("api").add(HttpApiGroup.make("other"))
+effx build --emit=all  // cold: authored root imports missing generated contracts
 ```
 
 After:
 
 ```text
-HttpApi.make("api").add(HttpApiGroup.make("users").add(HttpApiEndpoint.get("getUser", "/users/:id")))
+effx build --emit=contract  // every group imported by the root
+effx build --emit=handlers
 ```
 
-Declare the users group and getUser endpoint in the exported root, matching metadata.operationId users.getUser. Keep finite required literal inventory keys rather than dynamic or optional keys.
+Bootstrap every imported group contract before proving handlers. Full-root contracts support full-root or healthy-only handlers; healthy-only contracts cannot bootstrap a missing unrelated group. Fix the unresolved leaf named by the root diagnostic before emitting any factory for that root.
 
 <a id="diagnostic-effx2500" />
 
@@ -2875,6 +2965,8 @@ Owner: access
 Default severity: warning
 
 Severity policy: strictAccess — Warning by default; error when strictAccess is true.
+
+Allowed severities: error, warning
 
 HTTP exposure requires an explicit @Http.Access contract. This is a warning by default and an error under strictAccess (including --strict-access). Declare public access explicitly too; absence is not a public-access contract.
 
