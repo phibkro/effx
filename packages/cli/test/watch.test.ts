@@ -65,8 +65,9 @@ describe("actual scoped effx dev journey", () => {
   it("constructs without resolving or executing the project and preserves requirements", () => {
     const value = dev({ project: "/never-read/tsconfig.json" }, versions);
     assert.isTrue(Effect.isEffect(value));
-    expectTypeOf<Effect.Success<typeof value>>().toEqualTypeOf<never>();
+    expectTypeOf<Effect.Success<typeof value>>().toEqualTypeOf<undefined>();
     expectTypeOf<Effect.Success<typeof value>>().not.toEqualTypeOf<void>();
+    expectTypeOf<Effect.Success<typeof value>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Error<typeof value>>().toEqualTypeOf<
       | CompilerFault
       | WatchLimit
