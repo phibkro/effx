@@ -33,11 +33,11 @@ const temp = Effect.fnUntraced(function* (fixtureRoot: string, name: string, con
   yield* Effect.addFinalizer(() => fs.remove(file).pipe(Effect.ignore));
 });
 
-const support = `
+/** The native root and authored declarations share one endpoint/channel table. */
+const support = (): string => `
 import { Schema } from "effect";
-import { HttpApi } from "effect/http-api";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { Http } from "@effx/runtime";
-export const Api = HttpApi.make("derive");
 export const Success = Schema.Struct({ ok: Schema.Boolean });
 export const Search = Schema.Struct({ q: Schema.String, page: Schema.optionalKey(Schema.Number) });
 export const ById = Schema.Struct({ id: Schema.String });
@@ -55,6 +55,16 @@ export const ByShape = Object.assign(Schema.Struct({ "x-shape": Schema.String })
 });
 export const Look = Schema.Struct({ "x-token": Schema.String });
 export const Opaque = Http.headers(Schema.Union([Schema.String, Schema.Number]));
+export const Api = HttpApi.make("derive").add(
+  HttpApiGroup.make("derive").add(
+${declared
+  .map(
+    (item) =>
+      `    HttpApiEndpoint.${item.verb}("${item.name}", "${item.path}", { ${item.kept} ${item.derived} success: Success }),`,
+  )
+  .join("\n")}
+  ),
+);
 `;
 
 const lowering = `
@@ -121,7 +131,7 @@ describe("Http.headers and input field keys on the frontend", () => {
     Effect.gen(function* () {
       const fixtureRoot = yield* copyUsersFixture();
       const tsconfigPath = fixtureRoot + "/tsconfig.json";
-      yield* temp(fixtureRoot, "_derive-support.ts", support);
+      yield* temp(fixtureRoot, "_derive-support.ts", support());
       yield* temp(fixtureRoot, "_derive-lowering.ts", lowering);
 
       const collected = yield* SourceFrontend.use((frontend) =>
@@ -191,7 +201,7 @@ describe("Http.headers and input field keys on the frontend", () => {
     Effect.gen(function* () {
       const fixtureRoot = yield* copyUsersFixture();
       const tsconfigPath = fixtureRoot + "/tsconfig.json";
-      yield* temp(fixtureRoot, "_derive-support.ts", support);
+      yield* temp(fixtureRoot, "_derive-support.ts", support());
       yield* temp(
         fixtureRoot,
         "_derive-opaque.ts",
@@ -384,7 +394,7 @@ describe("derived channels from real declarations", () => {
       Effect.gen(function* () {
         const fixtureRoot = yield* copyUsersFixture();
         const tsconfigPath = fixtureRoot + "/tsconfig.json";
-        yield* temp(fixtureRoot, "_derive-support.ts", support);
+        yield* temp(fixtureRoot, "_derive-support.ts", support());
         yield* temp(fixtureRoot, "_derive-grouped.ts", source("grouped"));
         yield* temp(fixtureRoot, "_derive-bare.ts", source("bare"));
         yield* temp(fixtureRoot, "_derive-verbose.ts", source("verbose"));
@@ -407,7 +417,7 @@ describe("derived channels from real declarations", () => {
         const fixtureRoot = yield* copyUsersFixture();
         const tsconfigPath = path.join(fixtureRoot, "tsconfig.json");
 
-        yield* temp(fixtureRoot, "_derive-support.ts", support);
+        yield* temp(fixtureRoot, "_derive-support.ts", support());
 
         // One file for both spellings: the IR names the handler's module, so it must not differ.
         const file = path.join(fixtureRoot, "src", "_derive-decorated.ts");
