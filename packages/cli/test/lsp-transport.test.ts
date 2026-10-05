@@ -109,6 +109,22 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       }),
     ),
   );
+  it.live("maintained request errors omit absent optional data at the strict boundary", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+
+        const failure = yield* peer.requestError("unknown-method");
+
+        assert.deepStrictEqual(failure, { code: -32601, message: "Unknown method" });
+        assert.notProperty(failure, "data");
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      }),
+    ),
+  );
 
   it.live("running cancellation interrupts the scoped handler and returns credits once", () =>
     Effect.scoped(
