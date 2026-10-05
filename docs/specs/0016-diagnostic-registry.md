@@ -561,3 +561,33 @@ Separate real builds of the persistence and configured extension examples produc
 At this phase 2 evidence checkpoint, no push, merge or fast-forward of main was authorized.
 The director subsequently authorized local fast-forward landing after a fresh full-ref clone passes the gate and packed/docs smoke checks.
 No push is authorized.
+
+## 12. Rendered catalogue and shared severity policy amendment — 2026-10-05
+
+The director required an actual exported-page visit before local landing.
+The full-ref clone at `00408a7` passed the complete gate, but its catalogue index link for EFFX2415 did not resolve.
+The generated Markdown contained a raw anchor that the site compiler omitted.
+The real heading used the site-generated ID `effx2415--concrete-http-endpoint-inventory-unavailable`; the index targeted absent `diagnostic-effx2415`.
+Build success and source-text anchor checks did not prove the consumer-visible link.
+The owned preview stopped, and local main remained `7290ea5`.
+
+Catalogue IDs must use the existing Fumadocs custom-heading convention, ` [#id]`, not standalone raw HTML or a private slug algorithm.
+Use each full diagnostic code as the explicit heading ID and index fragment.
+This preserves code ownership and title-independent identity without a second identifier convention.
+The compiled-content regression must use the same MDX preset as the site.
+It must resolve each index link to exactly one actual entry heading and retain its explanation and before/after examples.
+Include a namespaced fixture and punctuation-sensitive collision controls.
+The old broken rendered content must fail that regression.
+Do not add mock fixture entries to the 69-entry published distribution.
+
+The director also identified duplicated severity outcomes in boundary validation and registered factories.
+EFFX1106 collect-phase validation and its RuntimeResolution factory must call one pure registry-owned policy function.
+EFFX2504 strictAccess validation and factory resolution must likewise call one pure registry-owned policy function.
+Context-to-policy facts and message facts can differ; severity outcomes cannot have independent copies.
+Preserve phase/strictAccess mismatch rejection, occurrence identity and diagnostic bytes.
+
+Before local landing, a fresh full-ref clone of the corrected final commit must pass frozen installation and the complete gate.
+Repeat packed executable smoke and visit the actual exported catalogue through its index link.
+Retain before/after rendered-page evidence, including a namespaced link, and stop the owned preview.
+Retain compatibility against `7290ea5`; repeat the candidate identity comparison because these corrections change implementation beyond prose.
+No main movement is authorized until those checks pass. No push is authorized.
