@@ -41,6 +41,11 @@ EX-0031 records native sequential filesystem observation instead of the installe
 unbounded push-watch backend. Both open records, exact versions, tests and retirement
 triggers live in `docs/research/0018-watch-editor-design.md` §6. They are not verified
 until the real boundary and cleanup tests pass. No global Bun resolver hook is permitted.
+EX-0032 permits the installed TypeScript 6.0.3 runtime-exported `matchFiles` ABI
+only inside `packages/frontend-ts/src/ts.ts`. It preserves native include/exclude
+semantics for virtual source membership without a second glob implementation.
+The runtime export is guarded; its local ABI assertion and retirement are recorded
+in the same design evidence. No TypeScript object crosses the frontend service.
 
 ## Commands
 
