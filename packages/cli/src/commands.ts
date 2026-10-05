@@ -432,6 +432,7 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
   const generatedDir = collected.project?.outputDir ?? path.join(project.effxDir, "generated");
   const manifestPath = path.join(project.effxDir, "manifest.json");
   yield* assertOutputOwner(owner, { generatedDir, effxDir: project.effxDir });
+  const canonicalGeneratedDir = yield* canonicalOutputPath(generatedDir);
 
   const generated = files.map((file) =>
     path.relative(project.effxDir, path.join(generatedDir, file.path)).split(path.sep).join("/"),
@@ -472,6 +473,13 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
 
     if (owned && path.extname(file) === ".ts" && !currentFiles.has(canonicalFile)) {
       if (!canonicalFile.split(path.sep).includes(".effx")) {
+        const relative = path.relative(canonicalGeneratedDir, canonicalFile);
+
+        // Retiring custom outputs are not deletable; leave their prior files intact.
+        // The current output still enforces normal obsolete-file refusal.
+        if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative))
+          continue;
+
         return yield* new CompilerFault({
           stage: "generate",
           message: "cannot remove obsolete generated files outside .effx: " + file,
