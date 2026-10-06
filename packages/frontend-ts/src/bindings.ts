@@ -7,6 +7,24 @@ import { isExported, positionOf, ts } from "./ts.ts";
 
 const isSymbol = Schema.is(SymbolArg);
 
+/**
+ * Type-parameter names of an exported factory, in declaration order. The bound projection mirrors
+ * them so a generic handler factory's context requirements survive its call site.
+ */
+const factoryTypeParameters = (declaration: ts.Declaration): ReadonlyArray<string> => {
+  const holder = ts.isVariableDeclaration(declaration) ? declaration.initializer : declaration;
+
+  if (
+    holder === undefined ||
+    (!ts.isArrowFunction(holder) &&
+      !ts.isFunctionExpression(holder) &&
+      !ts.isFunctionDeclaration(holder))
+  )
+    return [];
+
+  return (holder.typeParameters ?? []).map((parameter) => parameter.name.text);
+};
+
 /** Read references only. In particular, no initializer or backend function is executed. */
 export const collectGroupBinding = (
   resolver: Resolver,
@@ -79,7 +97,10 @@ export const collectGroupBinding = (
     return;
   }
 
-  const references = new Map<string, GroupBinding["handlers"]>();
+  const references = new Map<
+    string,
+    { readonly ref: GroupBinding["handlers"]; readonly typeParameters: ReadonlyArray<string> }
+  >();
 
   for (const [key, value] of entries) {
     const exported =
@@ -96,7 +117,10 @@ export const collectGroupBinding = (
       return;
     }
 
-    references.set(key, exported.ref);
+    references.set(key, {
+      ref: exported.ref,
+      typeParameters: factoryTypeParameters(exported.declaration),
+    });
   }
 
   const ref = lowered.value.ref;
@@ -114,11 +138,14 @@ export const collectGroupBinding = (
     return;
   }
 
+  const handlers = references.get("handlers")!;
+  const guards = references.get("guards");
+  const guardFor = references.get("guardFor");
+
   bindings.push({
     group: ref,
-    handlers: references.get("handlers")!,
-    ...(references.has("guards")
-      ? { guards: references.get("guards")! }
-      : { guardFor: references.get("guardFor")! }),
+    handlers: handlers.ref,
+    handlersTypeParameters: [...handlers.typeParameters],
+    ...(guards === undefined ? { guardFor: guardFor!.ref } : { guards: guards.ref }),
   });
 };

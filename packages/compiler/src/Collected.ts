@@ -167,6 +167,8 @@ export type SpreadSource = typeof SpreadSource.Type;
 export const GroupBinding = Schema.Struct({
   group: SymbolRef,
   handlers: SymbolRef,
+  /** Type-parameter names of the handler factory, in declaration order; empty when it is not generic. */
+  handlersTypeParameters: Schema.Array(Schema.String),
   guards: Schema.optionalKey(SymbolRef),
   guardFor: Schema.optionalKey(SymbolRef),
 });

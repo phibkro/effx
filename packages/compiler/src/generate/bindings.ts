@@ -26,6 +26,12 @@ export const boundHandlersLines = (
   const handlers =
     handlersImport + (binding.handlers.member === undefined ? "" : `.${binding.handlers.member}`);
 
+  // A generic handler factory keeps its own type parameters, so `Parameters<...>` at the bound
+  // wrapper's call site does not instantiate them to `unknown` and erase the context requirements.
+  const typeParameters = binding.handlersTypeParameters;
+  const typeArguments = typeParameters.length === 0 ? "" : `<${typeParameters.join(", ")}>`;
+  const context = `Parameters<typeof ${handlers}${typeArguments}>`;
+
   const root = group.metadata!.rootSymbol!;
   const rootImport = imports.addAliased(root.module, root.export, "__effxRootApi");
   const rootExpr = rootImport + (root.member === undefined ? "" : `.${root.member}`);
@@ -52,8 +58,8 @@ export const boundHandlersLines = (
 
     guardType = `ReturnType<typeof ${guards}>`;
     extra.push(
-      `const __effxCheckedGuards: Parameters<typeof ${guards}> extends Parameters<typeof ${handlers}>`,
-      `  ? (...ctx: Parameters<typeof ${handlers}>) => ReturnType<typeof ${guards}>`,
+      `const __effxCheckedGuards: Parameters<typeof ${guards}> extends ${context}`,
+      `  ? (...ctx: ${context}) => ReturnType<typeof ${guards}>`,
       `  : never = ${guards};`,
       "",
     );
@@ -90,7 +96,7 @@ export const boundHandlersLines = (
     ...extra,
     `export type ${name}Raw = ${name}RawHandlers<${name}Endpoints, ${guardType}>;`,
     "",
-    `export const ${factory} = (...ctx: Parameters<typeof ${handlers}>) =>`,
+    `export const ${factory} = ${typeArguments}(...ctx: ${context}) =>`,
     `  ${factory}With({`,
     `    raw: ${handlers}(...ctx),`,
     ...guardExpression,
