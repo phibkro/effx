@@ -8,7 +8,7 @@ import * as process from "node:process";
 import { fileURLToPath } from "node:url";
 import { acquireLinuxLspIO, defaultLinuxLspManifestPath, LinuxLspError } from "../lsp-linux.ts";
 import { type LspIO } from "@effx/cli";
-import { LinuxPeerResult } from "./lsp-linux.contract.ts";
+import { LinuxPeerResult, type LinuxPeerResult as PeerResult } from "./lsp-linux.contract.ts";
 import { NativeAssetManifest, compareVersions } from "../lsp-native-manifest.ts";
 
 const peer = fileURLToPath(new URL("./lsp-linux.peer.ts", import.meta.url));
@@ -32,16 +32,28 @@ const runPeer = Effect.fnUntraced(function* (
       );
 
       const text = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString);
-      assert.strictEqual(
-        Number(yield* child.exitCode),
-        0,
-        "Node peer exited unsuccessfully; this code alone does not establish a deadline kill",
+      const outerCode = Number(yield* child.exitCode);
+
+      const result = yield* Schema.decodeEffect(Schema.fromJsonString(LinuxPeerResult))(
+        text.trim(),
       );
 
-      return yield* Schema.decodeEffect(Schema.fromJsonString(LinuxPeerResult))(text.trim());
+      assert.strictEqual(
+        outerCode,
+        0,
+        `Node peer exit=${outerCode}; reason=${result.peerFault?.reason ?? "unobserved"}; stage=${result.peerFault?.stage ?? "unobserved"}; fixtureSignal=${result.signal ?? "none"}`,
+      );
+
+      return result;
     }),
   ).pipe(Effect.timeout("15 seconds"));
 });
+
+const fixtureOutcome = (result: PeerResult): string => {
+  const failed = result.receipts.find((receipt) => receipt.event === "failure");
+
+  return `fixture exit=${result.code}; signal=${result.signal ?? "none"}; reason=${failed?.reason ?? "unobserved"}; category=${failed?.failureCategory ?? "unobserved"}; stage=${failed?.stage ?? "unobserved"}`;
+};
 
 // Each live case uses real public Bun dlopen and actual OS descriptors; there is
 // no monkeypatch, fake readiness implementation or imported fixture execution.
@@ -86,7 +98,7 @@ describe("Linux native LSP boundary", () => {
     (mode) =>
       Effect.gen(function* () {
         const result = yield* runPeer(mode);
-        assert.strictEqual(result.code, 0);
+        assert.strictEqual(result.code, 0, fixtureOutcome(result));
         assert.deepStrictEqual(
           result.receipts.map((r) => r.event),
           ["acquired", "result", "released"],
@@ -110,7 +122,7 @@ describe("Linux native LSP boundary", () => {
   it.live("unread stdout fails and releases without a peer drain", () =>
     Effect.gen(function* () {
       const result = yield* runPeer("blocked-write");
-      assert.strictEqual(result.code, 0);
+      assert.strictEqual(result.code, 0, fixtureOutcome(result));
       assert.deepStrictEqual(
         result.receipts.map((r) => r.event),
         ["acquired", "result", "released"],

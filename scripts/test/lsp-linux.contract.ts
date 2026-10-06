@@ -53,6 +53,7 @@ export const LinuxFixtureReceipt = Schema.Struct({
       "Symbols",
       "Procfs",
       "StdinForm",
+      "StdoutForm",
       "Ownership",
       "IO",
     ]),
@@ -81,3 +82,5 @@ export const LinuxPeerResult = Schema.Struct({
   stdoutBytes: Schema.Int,
   peerFault: Schema.optionalKey(LinuxPeerFault),
 });
+
+export type LinuxPeerResult = typeof LinuxPeerResult.Type;
