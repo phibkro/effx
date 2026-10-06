@@ -36,7 +36,7 @@ const decodeLaunch = Schema.decodeUnknownEffect(
       "signal",
       "lazy",
     ]),
-    form: Schema.Literals(["socket", "fifo", "file", "pty", "device", "procfs"]),
+    form: Schema.Literals(["socket", "fifo", "file", "pty", "device", "procfs", "regular-output"]),
   }),
 );
 
@@ -73,6 +73,22 @@ const main = Effect.gen(function* () {
             ? openSync("/proc/version", "r")
             : undefined,
     ),
+    (owned) =>
+      Effect.sync(() => {
+        if (owned !== undefined) closeSync(owned);
+      }),
+  );
+
+  const regularOutputPath = join(directory, "regular-output.txt");
+  const regularOutputSentinel = "unchanged-synthetic-output";
+
+  const regularOutput = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      if (launch.form !== "regular-output") return undefined;
+      writeFileSync(regularOutputPath, regularOutputSentinel);
+
+      return openSync(regularOutputPath, "r+");
+    }),
     (owned) =>
       Effect.sync(() => {
         if (owned !== undefined) closeSync(owned);
@@ -140,7 +156,7 @@ const main = Effect.gen(function* () {
     Effect.try({
       try: () => {
         const owned = spawn(command, childArgs, {
-          stdio: [descriptor ?? "pipe", sinkWriter ?? "pipe", "pipe", "pipe"],
+          stdio: [descriptor ?? "pipe", regularOutput ?? sinkWriter ?? "pipe", "pipe", "pipe"],
         });
 
         owned.once("close", () => {
@@ -385,7 +401,15 @@ const main = Effect.gen(function* () {
     return Effect.sync(cleanup);
   }).pipe(Effect.timeout("10 seconds"));
 
-  const safe = yield* encodeResult(result);
+  const selected =
+    regularOutput === undefined
+      ? result
+      : {
+          ...result,
+          regularOutputUnchanged: readFileSync(regularOutputPath, "utf8") === regularOutputSentinel,
+        };
+
+  const safe = yield* encodeResult(selected);
   yield* Effect.sync(() => {
     writeSync(1, safe + "\n");
 

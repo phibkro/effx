@@ -16,7 +16,7 @@ _Static_assert(sizeof(void *) == 8, "Bun Linux-x64 ABI requires 64-bit pointers"
  * flag mutation or process-global signal policy. Root owns descriptors/buffers,
  * validates pointer bounds and serializes a single retained output cursor.
  * count is at most 65536; C never dereferences the foreign pointer itself.
- * O_NONBLOCK does NOT establish a regular-storage syscall latency bound. */
+ * Regular-file stdout is rejected by the root before writer acquisition. */
 int ready_now(int fd) {
   struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };
   int rc = poll(&p, 1, 0);
@@ -57,8 +57,8 @@ int socket_write_now(int fd, const void *buffer, uint32_t count) {
   return rc < 0 ? -errno : (int)rc;
 }
 
-/* fd is root-owned: independently opened O_NONBLOCK for FIFO/PTY, or original
- * regular-output fd 1 to preserve inherited offset (storage may block).
+/* fd is root-owned: an independently opened O_NONBLOCK FIFO/PTY description.
+ * The root never routes regular-file stdout into this writer.
  * POSIX write generates SIGPIPE for the calling thread on EPIPE. Block it only
  * in that thread, retain any pre-existing pending signal, consume a new one,
  * then restore exactly the old mask. No handler or global ignore is installed.

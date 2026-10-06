@@ -89,6 +89,8 @@ describe("Linux native LSP boundary", () => {
 
         if (form === "pty") assert.strictEqual(read?.bytes, 4);
 
+        if (form === "pty") assert.strictEqual(result.ptyChildJoined, true);
+
         if (form !== "pty") assert.strictEqual(result.stdoutBytes, 0);
       }).pipe(Effect.provide(BunServices.layer)),
   );
@@ -101,9 +103,19 @@ describe("Linux native LSP boundary", () => {
         assert.strictEqual(result.code, 0, fixtureOutcome(result));
         assert.deepStrictEqual(
           result.receipts.map((r) => r.event),
-          ["acquired", "result", "released"],
+          mode === "closed"
+            ? ["acquired", "result", "result", "released"]
+            : ["acquired", "result", "released"],
         );
-        assert.isTrue((result.receipts.find((r) => r.event === "result")?.checks?.length ?? 0) > 0);
+
+        if (mode === "closed") {
+          const identity = result.receipts.find((receipt) => receipt.stage === "fd0-close");
+          assert.isDefined(identity?.fd0Before);
+          assert.strictEqual(identity?.fd0AfterStatus, "EBADF");
+          assert.strictEqual(identity?.fd0After, null);
+        }
+
+        assert.isTrue(result.receipts.some((receipt) => (receipt.checks?.length ?? 0) > 0));
         assert.strictEqual(result.stdoutBytes, 0);
       }).pipe(Effect.provide(BunServices.layer)),
   );
@@ -119,18 +131,33 @@ describe("Linux native LSP boundary", () => {
     }).pipe(Effect.provide(BunServices.layer)),
   );
 
+  it.live("rejects real regular-file FD1 before manifest/native writer acquisition", () =>
+    Effect.gen(function* () {
+      const result = yield* runPeer("read", "regular-output", "/not-an-asset/lsp-readiness.json");
+      assert.strictEqual(result.code, 0, fixtureOutcome(result));
+      assert.deepStrictEqual(result.receipts, [{ event: "failure", reason: "StdoutForm" }]);
+      assert.strictEqual(result.regularOutputUnchanged, true);
+      assert.strictEqual(result.stdoutBytes, 0);
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
   it.live("unread stdout fails and releases without a peer drain", () =>
     Effect.gen(function* () {
       const result = yield* runPeer("blocked-write");
       assert.strictEqual(result.code, 0, fixtureOutcome(result));
       assert.deepStrictEqual(
         result.receipts.map((r) => r.event),
-        ["acquired", "result", "released"],
+        ["acquired", "result", "result", "released"],
       );
-      assert.deepStrictEqual(result.receipts.find((r) => r.event === "result")?.checks, [
-        "writer-deadline",
-        "release-deadline",
-      ]);
+      const saturated = result.receipts.find((receipt) => receipt.stage === "sink-prefill");
+      assert.strictEqual(saturated?.sinkKind, "fifo");
+      assert.strictEqual(saturated?.wouldBlock, true);
+      assert.isAbove(saturated?.finiteAcceptedBytes ?? 0, 0);
+      assert.isAtMost(saturated?.finiteAcceptedBytes ?? Infinity, 8 * 1024 * 1024);
+      assert.deepStrictEqual(saturated?.checks, ["sink-saturated"]);
+      assert.deepStrictEqual(
+        result.receipts.find((receipt) => receipt.checks?.includes("writer-deadline"))?.checks,
+        ["writer-deadline", "release-deadline"],
+      );
     }).pipe(Effect.provide(BunServices.layer)),
   );
 

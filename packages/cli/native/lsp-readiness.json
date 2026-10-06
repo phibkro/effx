@@ -3,15 +3,11 @@
   "abiVersion": 2,
   "abi": {
     "ready_now": {
-      "args": [
-        "i32"
-      ],
+      "args": ["i32"],
       "returns": "i32"
     },
     "fd_flags": {
-      "args": [
-        "i32"
-      ],
+      "args": ["i32"],
       "returns": "i32"
     },
     "poll_in": {
@@ -35,9 +31,7 @@
       "returns": "i32"
     },
     "output_ready_now": {
-      "args": [
-        "i32"
-      ],
+      "args": ["i32"],
       "returns": "i32"
     },
     "poll_out": {
@@ -49,25 +43,15 @@
       "returns": "i32"
     },
     "socket_write_now": {
-      "args": [
-        "i32",
-        "ptr",
-        "u32"
-      ],
+      "args": ["i32", "ptr", "u32"],
       "returns": "i32"
     },
     "fd_write_now": {
-      "args": [
-        "i32",
-        "ptr",
-        "u32"
-      ],
+      "args": ["i32", "ptr", "u32"],
       "returns": "i32"
     },
     "io_would_block": {
-      "args": [
-        "i32"
-      ],
+      "args": ["i32"],
       "returns": "i32"
     }
   },
@@ -93,19 +77,14 @@
   "elfMachine": 62,
   "libc": "glibc",
   "minimumGlibc": "2.32",
-  "glibcVersions": [
-    "2.2.5",
-    "2.32"
-  ],
-  "neededLibraries": [
-    "libc.so.6"
-  ],
+  "glibcVersions": ["2.2.5", "2.32"],
+  "neededLibraries": ["libc.so.6"],
   "byteLength": 14272,
   "sha256": "db8843396d90597318a5eacdfb7a11cdee22df912dae1e2ee2c7eb99f0e49d3c",
   "source": {
     "file": "tools/native/lsp-readiness.c",
-    "byteLength": 4475,
-    "sha256": "075485ac7e5fa6e8d5327b34399780913f555080514c17ce27fec830a627b23b"
+    "byteLength": 4464,
+    "sha256": "8fad9c4eb545bb136b3ef655c61b693ee9a0da0833b76a4913f5d75e764a1b67"
   },
   "compiler": {
     "family": "gcc",

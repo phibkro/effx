@@ -105,6 +105,7 @@ export const LinuxPeerResult = Schema.Struct({
   stdoutBytes: Schema.Int,
   peerFault: Schema.optionalKey(LinuxPeerFault),
   ptyChildJoined: Schema.optionalKey(Schema.Boolean),
+  regularOutputUnchanged: Schema.optionalKey(Schema.Boolean),
 });
 
 export type LinuxPeerResult = typeof LinuxPeerResult.Type;
