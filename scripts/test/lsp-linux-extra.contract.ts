@@ -77,6 +77,20 @@ export const ExtraReceipt = Schema.Struct({
   libraryUnmapped: Schema.optionalKey(Schema.Boolean),
   postCloseRefused: Schema.optionalKey(Schema.Boolean),
   expectedReleaseFault: Schema.optionalKey(Schema.Boolean),
+  prefillFailure: Schema.optionalKey(
+    Schema.Literals([
+      "native-write",
+      "invalid-write",
+      "one-byte-blocked-without-partial",
+      "bound",
+      "frame-bound",
+    ]),
+  ),
+  commandFailure: Schema.optionalKey(
+    Schema.Literals(["poll", "terminal", "read", "short-read", "unexpected-byte"]),
+  ),
+  fixtureErrno: Schema.optionalKey(count),
+  fixtureScopeCleanupFailed: Schema.optionalKey(Schema.Boolean),
   identityFailure: Schema.optionalKey(
     Schema.Literals([
       "fd0-kind",
