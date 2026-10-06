@@ -10,9 +10,10 @@
  * needs establish a symbol-version floor, not distribution compatibility: actual
  * packed-host qualification remains a separate director-owned gate.
  *
- * The audited POSIX source exports seven int-only functions. poll owns its local
- * struct; neither pointers nor read buffers cross its ABI. Native C has full
- * process authority and no memory-safety containment. No runtime build is allowed.
+ * Audited target headers own local structs; output receives root-owned pointers
+ * and bounded u32 counts. ELF proves names, not C signatures; the shared ABI
+ * records source-reviewed types. Native C has no memory-safety containment.
+ * No runtime build is allowed.
  * Temporary files and subprocesses belong to this program's Scope; interruption
  * cancels children and removes build directories. No retries or durable state.
  * Only the closed manifest projection is written; tool output and causes are not.
@@ -20,7 +21,13 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import { NativeAssetManifest, compareVersions, toolchainNarHash } from "./lsp-native-manifest.ts";
+import {
+  NativeAssetManifest,
+  compareVersions,
+  nativeAssetSymbols,
+  nativeSymbols,
+  toolchainNarHash,
+} from "./lsp-native-manifest.ts";
 
 const sourceFile = "tools/native/lsp-readiness.c";
 
@@ -50,16 +57,6 @@ export class NativeBuildFailure extends Schema.TaggedError<NativeBuildFailure>()
     ]),
   },
 ) {}
-
-const symbols = [
-  "ready_now",
-  "fd_flags",
-  "poll_in",
-  "poll_hup",
-  "poll_err",
-  "poll_invalid",
-  "pollfd_size",
-];
 
 /** No raw command output, command arguments or foreign failures are reported. */
 const toolOutput = Effect.fnUntraced(function* (
@@ -123,6 +120,21 @@ const program = Effect.gen(function* () {
   const second = yield* fs.makeTempDirectoryScoped({ prefix: "effx-lsp-native-" });
   const source = yield* fs.readFile(sourceFile);
 
+  // Actual target-header feature selection, not a guessed host ABI. POSIX.1c
+  // exposes pthread_sigmask under signal.h; no pthread linker dependency is
+  // needed when the target libc provides it. -z defs below proves resolution.
+  const headerMacros = yield* toolOutput("gcc", ["-std=c11", "-E", "-dM", sourceFile], reference);
+  yield* Schema.decodeUnknownEffect(
+    Schema.Struct({
+      posixFeature: Schema.Literal("200809L"),
+      threadSignalMask: Schema.Literal("1"),
+    }),
+    { onExcessProperty: "error" },
+  )({
+    posixFeature: /^#define _POSIX_C_SOURCE (\S+)$/m.exec(headerMacros)?.[1],
+    threadSignalMask: /^#define __USE_POSIX199506 (\S+)$/m.exec(headerMacros)?.[1],
+  }).pipe(Effect.mapError(() => new NativeBuildFailure({ stage: "toolchain" })));
+
   // Build the same audited bytes independently; source paths and directories do
   // not enter ELF bytes (no debug info/ident/build-id, no Nix wrapper RPATH).
   for (const directory of [first, second]) {
@@ -132,10 +144,14 @@ const program = Effect.gen(function* () {
       [
         "-shared",
         "-fPIC",
+        "-std=c11",
+        "-Werror=implicit-function-declaration",
+        "-Werror=incompatible-pointer-types",
         "-O2",
         "-fno-ident",
         "-Wl,--build-id=none",
         "-Wl,--fatal-warnings",
+        "-Wl,-z,defs",
         "-s",
         "-o",
         `${directory}/${library}`,
@@ -248,7 +264,7 @@ const program = Effect.gen(function* () {
     })
     .sort();
 
-  if (exported.join(",") !== [...symbols].sort().join(",")) {
+  if (exported.join(",") !== nativeAssetSymbols.join(",")) {
     return yield* new NativeBuildFailure({ stage: "symbols" });
   }
 
@@ -263,6 +279,9 @@ const program = Effect.gen(function* () {
     onExcessProperty: "error",
   })({
     formatVersion: 1,
+    abiVersion: 2,
+    abi: nativeSymbols,
+    exportedFunctions: exported,
     library,
     platform: "linux",
     architecture: "x64",
@@ -302,7 +321,9 @@ if (import.meta.main) {
       Effect.mapError((error) =>
         Schema.is(NativeBuildFailure)(error) ? error : new NativeBuildFailure({ stage: "io" }),
       ),
+      Effect.tapError((error) => Effect.logError({ stage: error.stage })),
       Effect.provide(BunServices.layer),
     ),
+    { disableErrorReporting: true },
   );
 }

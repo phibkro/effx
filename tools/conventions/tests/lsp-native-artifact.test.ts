@@ -1,7 +1,12 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Crypto, Effect, FileSystem, Schema } from "effect";
-import { compareVersions, NativeAssetManifest } from "../../../scripts/lsp-native-manifest.ts";
+import {
+  compareVersions,
+  NativeAssetManifest,
+  nativeAssetSymbols,
+  nativeSymbols,
+} from "../../../scripts/lsp-native-manifest.ts";
 
 const root = new URL("../../../", import.meta.url).pathname;
 
@@ -28,6 +33,9 @@ describe("build-time LSP native artifact", () => {
       assert.strictEqual(source.length, manifest.source.byteLength);
       assert.strictEqual(hex(yield* crypto.digest("SHA-256", source)), manifest.source.sha256);
       assert.strictEqual(bytes.length, manifest.byteLength);
+      assert.strictEqual(manifest.abiVersion, 2);
+      assert.deepStrictEqual(manifest.abi, nativeSymbols);
+      assert.deepStrictEqual(manifest.exportedFunctions, nativeAssetSymbols);
       assert.strictEqual(hex(yield* crypto.digest("SHA-256", bytes)), manifest.sha256);
       const changed = bytes.slice();
       changed[changed.length - 1] = (changed[changed.length - 1] ?? 0) ^ 1;
@@ -68,6 +76,14 @@ describe("build-time LSP native artifact", () => {
         { ...manifest, neededLibraries: ["libgcc_s.so.1"] },
         { ...manifest, sha256: "invalid" },
         { ...manifest, elfMachine: 183 },
+        { ...manifest, abiVersion: 1 },
+        { ...manifest, exportedFunctions: manifest.exportedFunctions.slice(1) },
+        { ...manifest, exportedFunctions: [...manifest.exportedFunctions, "unexpected_export"] },
+        { ...manifest, abi: { ...manifest.abi, privatePayload: "not-an-approved-field" } },
+        {
+          ...manifest,
+          abi: { ...manifest.abi, socket_write_now: { args: ["i32", "ptr", "u64"], returns: "i32" } },
+        },
       ]) {
         const error = yield* Effect.flip(decode(input));
         assert.strictEqual(error._tag, "SchemaError");
