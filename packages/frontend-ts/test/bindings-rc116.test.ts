@@ -82,7 +82,14 @@ const generatedFixture = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  for (const group of ["profile", "content", "generic", "generic-defaulted"] as const) {
+  for (const group of [
+    "profile",
+    "content",
+    "generic",
+    "generic-defaulted",
+    "generic-alias",
+    "generic-qualified",
+  ] as const) {
     const config = path.join(directory, "project", `bound-${group}`, "tsconfig.effx.json");
     const contract = yield* compile({ tsconfigPath: config, emit: "contract" }, Extensions.builtin);
     const bound = yield* compile({ tsconfigPath: config, emit: "handlers" }, Extensions.builtin);
