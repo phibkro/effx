@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Option, Predicate, Schema } from "effect";
 import { StableId } from "@effx/ir";
 import type { AnnotationArg, Declaration } from "./Collected.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
@@ -73,7 +73,7 @@ export const nameProblems = (
     const options = contract === undefined ? undefined : optionsOf(contract);
 
     if (options === undefined) return declaration;
-    const group = Schema.is(Schema.String)(options.group) ? options.group : "operations";
+    const group = Predicate.isString(options.group) ? options.group : "operations";
 
     const metadata: Readonly<Record<string, AnnotationArg>> | undefined = isAnnotationOptions(
       options.metadata,
@@ -83,7 +83,7 @@ export const nameProblems = (
 
     const operationId = metadata?.operationId;
 
-    const key = Schema.is(Schema.String)(operationId)
+    const key = Predicate.isString(operationId)
       ? operationId.slice(group.length + 1)
       : StableId.nameOf(operation.value);
 
