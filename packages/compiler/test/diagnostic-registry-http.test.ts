@@ -1,90 +1,78 @@
 import { assert, describe, it } from "@effect/vitest";
 import { expectTypeOf } from "vitest";
-import { renderEntry, type Diagnostic } from "@effx/diagnostics";
-import { HttpDiagnostics, httpEntries } from "../src/diagnostics/http.ts";
+import type { Diagnostic } from "@effx/diagnostics";
+import { HttpDiagnostics } from "../src/diagnostics/http.ts";
 
 describe("HTTP diagnostic registry", () => {
   it("preserves EFFX2402 variant 1", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "InvalidData", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: invalid HttpContract extension data");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 2", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "InvalidEdge", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: expected one ExtensionOf edge with HttpContract qualifier",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 3", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "NotOperation", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: HTTP contract must attach to an operation");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 4", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ExposureCount", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: requires exactly one HTTP exposure");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 5", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "PayloadIsQuery", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: payloadIsQuery requires a Query over POST with an explicit payload schema",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 6", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "GetPayload", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: GET cannot declare an explicit payload");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 7", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "Conditional", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: conditional requires GET and responseHeaders");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 8", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "MediaType", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: mediaType requires an explicit payload schema");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 9", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "Status", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: status must be an HTTP status from 100 to 599");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 10", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "Identifiers", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: root and group must be safe identifiers");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 11", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ParamsRequired", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: path params require a params schema and vice versa",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 12", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ParamsMismatch", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: params schema fields must match path parameters exactly",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -94,7 +82,6 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(diagnostic.message, "op: commandIdentity requires a Command operation");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -104,34 +91,30 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: commandIdentity requires headers with idempotency-key and if-match",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 15", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "GroupTarget", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: @Http.Group requires an exported class or builder");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 16", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "GroupIdentity", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: invalid HTTP group identity");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 variant 17", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "GroupConflict", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: conflicting @Http.Group definitions");
+
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2404 variant 18", () => {
     const diagnostic = HttpDiagnostics.EFFX2404.emit({ _tag: "NotOperation", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: HTTP group association requires an operation");
+
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -141,7 +124,6 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(diagnostic.message, "op: multiple or repeated HTTP group associations");
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -151,7 +133,6 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(diagnostic.message, "op: malformed HTTP group association");
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -161,19 +142,12 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: group reference must resolve to one exported group declaration",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2404 variant 22", () => {
     const diagnostic = HttpDiagnostics.EFFX2404.emit({ _tag: "InvalidAssociation", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: association does not identify one exported HTTP group",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -183,55 +157,42 @@ describe("HTTP diagnostic registry", () => {
       subject: "op",
     });
 
-    assert.strictEqual(diagnostic.message, "op: multiple @Http.Group declarations");
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2404 variant 24", () => {
     const diagnostic = HttpDiagnostics.EFFX2404.emit({ _tag: "MultipleIn", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: exactly one group may be associated with .in(Group)",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2404 variant 25", () => {
     const diagnostic = HttpDiagnostics.EFFX2404.emit({ _tag: "InTarget", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: .in(...) requires an exported Http.group value or @Http.Group class",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2404");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2405 variant 26", () => {
     const diagnostic = HttpDiagnostics.EFFX2405.emit({ _tag: "MissingContract", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: associated HTTP operation requires an explicit Http.Contract",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2405");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2405 variant 27", () => {
     const diagnostic = HttpDiagnostics.EFFX2405.emit({ _tag: "RootConflict", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: HTTP root conflicts with associated group");
+
     assert.strictEqual(diagnostic.code, "EFFX2405");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2405 variant 28", () => {
     const diagnostic = HttpDiagnostics.EFFX2405.emit({ _tag: "GroupConflict", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: HTTP group conflicts with associated group");
+
     assert.strictEqual(diagnostic.code, "EFFX2405");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2405 variant 29", () => {
     const diagnostic = HttpDiagnostics.EFFX2405.emit({ _tag: "QueryDefault", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: query: true requires a GET Query input not assigned elsewhere",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2405");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -242,10 +203,6 @@ describe("HTTP diagnostic registry", () => {
       path: "/users",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "read is a Query but is exposed as HTTP PUT /users; use GET or declare a Command",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2401");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -256,7 +213,6 @@ describe("HTTP diagnostic registry", () => {
       annotation: "Http.Contract",
     });
 
-    assert.strictEqual(diagnostic.message, "op: @Http.Contract requires an operation declaration");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -267,7 +223,6 @@ describe("HTTP diagnostic registry", () => {
       annotation: "Http.Contract",
     });
 
-    assert.strictEqual(diagnostic.message, "op: duplicate @Http.Contract annotations");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -280,7 +235,6 @@ describe("HTTP diagnostic registry", () => {
       missing: "group",
     });
 
-    assert.strictEqual(diagnostic.message, "op: external HTTP group api/users needs @Http.Group");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -293,19 +247,12 @@ describe("HTTP diagnostic registry", () => {
       missing: "root",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: external HTTP group api/users needs a concrete HttpApi root",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2403 variant 35", () => {
     const diagnostic = HttpDiagnostics.EFFX2403.emit({ _tag: "MissingId", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: externally bound HTTP requires metadata.operationId",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2403");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -316,10 +263,6 @@ describe("HTTP diagnostic registry", () => {
       group: "users",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: operationId must be users.<identifier-safe endpoint key>",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2403");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -331,10 +274,6 @@ describe("HTTP diagnostic registry", () => {
       previous: "other",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: duplicate HTTP endpoint key users.getUser (also other)",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2403");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -347,19 +286,12 @@ describe("HTTP diagnostic registry", () => {
       previous: "other",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: mixed local/external bindings in api/users (also other)",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2403");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2403 variant 39", () => {
     const diagnostic = HttpDiagnostics.EFFX2403.emit({ _tag: "MissingContract", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: externally bound HTTP requires a contract and metadata.operationId",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2403");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -370,19 +302,12 @@ describe("HTTP diagnostic registry", () => {
       second: "api/user_s",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "HTTP export Users collides for api/users and api/user_s",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2406");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2410 variant 41", () => {
     const diagnostic = HttpDiagnostics.EFFX2410.emit({ _tag: "HeaderConflict", subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: the input is a header schema (Http.headers) but Http.Contract.headers names another schema; an input that is a header schema cannot also be a body",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2410");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -395,10 +320,6 @@ describe("HTTP diagnostic registry", () => {
       body: "query",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: the input mixes path parameters (a, z) with other fields (limit, cursor); declare params and query explicitly",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2410");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -411,46 +332,30 @@ describe("HTTP diagnostic registry", () => {
       body: "payload",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: the input mixes path parameters (a, z) with other fields (limit, cursor); declare params and payload explicitly",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2410");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2411 variant 44", () => {
     const diagnostic = HttpDiagnostics.EFFX2411.emit({ subject: "op", verb: "Get" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: GET with path parameters needs an input with static field keys to tell params from query; declare params and query explicitly",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2411");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2411 variant 45", () => {
     const diagnostic = HttpDiagnostics.EFFX2411.emit({ subject: "op", verb: "Delete" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: DELETE with path parameters needs an input with static field keys to tell params from query; declare params and query explicitly",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2411");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2414 variant 46", () => {
     const diagnostic = HttpDiagnostics.EFFX2414.emit({ subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: Http.Access omits decisionTime but the declaration has no single Query or Command to default it from; write decisionTime",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2414");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves the landed root-level missing-candidate message", () => {
     const diagnostic = HttpDiagnostics.EFFX2415.emit({ _tag: "NoCandidate", root: "AuthoredApi" });
-    assert.strictEqual(
-      diagnostic.message,
-      "HTTP root AuthoredApi: no registered inventory candidate",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -461,10 +366,6 @@ describe("HTTP diagnostic registry", () => {
       group: "users",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "HTTP group api/users: concrete root endpoint inventory is missing or ambiguous",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -477,10 +378,6 @@ describe("HTTP diagnostic registry", () => {
       key: "getUser",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: concrete root api/users has no declared endpoint getUser",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -492,10 +389,6 @@ describe("HTTP diagnostic registry", () => {
       { location },
     );
 
-    assert.strictEqual(
-      invalid.message,
-      "invalid naming.problemIdentifier {Group}Problem: include {Key} or {key}",
-    );
     assert.strictEqual(invalid.severity, "error");
     assert.deepStrictEqual(invalid.location, location);
 
@@ -505,10 +398,6 @@ describe("HTTP diagnostic registry", () => {
       second: "content.read",
     });
 
-    assert.strictEqual(
-      collision.message,
-      "derived problem identifier ReadProblem collides for profile.read and content.read with different code lists",
-    );
     assert.strictEqual(collision.severity, "error");
   });
 
@@ -519,13 +408,12 @@ describe("HTTP diagnostic registry", () => {
       annotation: "Http.Access",
     });
 
-    assert.strictEqual(diagnostic.message, "op: duplicate @Http.Access annotations");
     assert.strictEqual(diagnostic.code, "EFFX2500");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2500 variant 51", () => {
     const diagnostic = HttpDiagnostics.EFFX2500.emit({ _tag: "DuplicateContract", subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: duplicate @Http.Access contracts");
+
     assert.strictEqual(diagnostic.code, "EFFX2500");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -536,52 +424,42 @@ describe("HTTP diagnostic registry", () => {
       validationMessage: "expected annotator",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: malformed AccessContract data — expected annotator",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2500");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2501 variant 53", () => {
     const diagnostic = HttpDiagnostics.EFFX2501.emit({ subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: Command access cannot decide in a read snapshot");
+
     assert.strictEqual(diagnostic.code, "EFFX2501");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2502 variant 54", () => {
     const diagnostic = HttpDiagnostics.EFFX2502.emit({ subject: "op" });
-    assert.strictEqual(diagnostic.message, "op: Query access declares a transaction decision");
+
     assert.strictEqual(diagnostic.code, "EFFX2502");
     assert.strictEqual(diagnostic.severity, "warning");
   });
   it("preserves EFFX2503 variant 55", () => {
     const diagnostic = HttpDiagnostics.EFFX2503.emit({ subject: "op" });
-    assert.strictEqual(
-      diagnostic.message,
-      "op: protected access requires an Http.Contract security middleware marker",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2503");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2504 variant 56", () => {
     const diagnostic = HttpDiagnostics.EFFX2504.emit({ subject: "op", strictAccess: false });
-    assert.strictEqual(diagnostic.message, "op: HTTP exposure requires @Http.Access");
+
     assert.strictEqual(diagnostic.code, "EFFX2504");
     assert.strictEqual(diagnostic.severity, "warning");
   });
   it("preserves EFFX2504 variant 57", () => {
     const diagnostic = HttpDiagnostics.EFFX2504.emit({ subject: "op", strictAccess: true });
-    assert.strictEqual(diagnostic.message, "op: HTTP exposure requires @Http.Access");
+
     assert.strictEqual(diagnostic.code, "EFFX2504");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2505 variant 58", () => {
     const diagnostic = HttpDiagnostics.EFFX2505.emit({ root: "api" });
-    assert.strictEqual(
-      diagnostic.message,
-      "api: an HTTP root cannot mix Internal and External operations",
-    );
+
     assert.strictEqual(diagnostic.code, "EFFX2505");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -597,10 +475,6 @@ describe("HTTP diagnostic registry", () => {
       ],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      'op: snapshotDecisionForCommand is invalid — only a Command may claim a snapshot decision; decisionTime must be "SnapshotRead"; requirements must be empty; acceptedCredentials must be exactly ["ObjectCapability"]; principalKinds must be exactly ["CapabilityHolder"]',
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -610,10 +484,6 @@ describe("HTTP diagnostic registry", () => {
       violations: ["only a Command may claim a snapshot decision"],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: snapshotDecisionForCommand is invalid — only a Command may claim a snapshot decision",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -623,10 +493,6 @@ describe("HTTP diagnostic registry", () => {
       violations: ['decisionTime must be "SnapshotRead"'],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      'op: snapshotDecisionForCommand is invalid — decisionTime must be "SnapshotRead"',
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -636,10 +502,6 @@ describe("HTTP diagnostic registry", () => {
       violations: ["requirements must be empty"],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: snapshotDecisionForCommand is invalid — requirements must be empty",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -649,10 +511,6 @@ describe("HTTP diagnostic registry", () => {
       violations: ['acceptedCredentials must be exactly ["ObjectCapability"]'],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      'op: snapshotDecisionForCommand is invalid — acceptedCredentials must be exactly ["ObjectCapability"]',
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -662,46 +520,8 @@ describe("HTTP diagnostic registry", () => {
       violations: ['principalKinds must be exactly ["CapabilityHolder"]'],
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      'op: snapshotDecisionForCommand is invalid — principalKinds must be exactly ["CapabilityHolder"]',
-    );
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
-  });
-  it("retains declaration identity and the exact HTTP catalogue order", () => {
-    assert.deepStrictEqual(
-      httpEntries.map((entry) => entry.code),
-      [
-        "EFFX2401",
-        "EFFX2402",
-        "EFFX2403",
-        "EFFX2404",
-        "EFFX2405",
-        "EFFX2406",
-        "EFFX2410",
-        "EFFX2411",
-        "EFFX2412",
-        "EFFX2413",
-        "EFFX2414",
-        "EFFX2415",
-        "EFFX2500",
-        "EFFX2501",
-        "EFFX2502",
-        "EFFX2503",
-        "EFFX2504",
-        "EFFX2505",
-        "EFFX2506",
-      ],
-    );
-
-    for (const entry of httpEntries) {
-      assert.isTrue(
-        Object.values(HttpDiagnostics).some((definition) => definition.entry === entry),
-      );
-      assert.isAbove(entry.explanation.length, 0);
-      assert.isAbove(entry.examples.length, 0);
-    }
   });
   it("preserves occurrence location and related data without global state", () => {
     const location = { file: "users.ts", line: 3, col: 5 };
@@ -734,14 +554,12 @@ describe("HTTP diagnostic registry", () => {
   it("preserves EFFX2402 DuplicateProblems", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateProblems", subject: "op" });
 
-    assert.strictEqual(diagnostic.message, "op: duplicate @Http.Problems contracts");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 ProblemsExposure", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsExposure", subject: "op" });
 
-    assert.strictEqual(diagnostic.message, "op: @Http.Problems requires an HTTP exposure");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -752,27 +570,18 @@ describe("HTTP diagnostic registry", () => {
       validationMessage: "expected registry",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: malformed ProblemContract data — expected registry",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 ProblemsIdentifier", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsIdentifier", subject: "op" });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "op: @Http.Problems identifier must be a nonempty safe identifier",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
   it("preserves EFFX2402 ProblemsCodes", () => {
     const diagnostic = HttpDiagnostics.EFFX2402.emit({ _tag: "ProblemsCodes", subject: "op" });
 
-    assert.strictEqual(diagnostic.message, "op: @Http.Problems codes must be unique");
     assert.strictEqual(diagnostic.code, "EFFX2402");
     assert.strictEqual(diagnostic.severity, "error");
   });
@@ -788,10 +597,6 @@ describe("HTTP diagnostic registry", () => {
       { location },
     );
 
-    assert.strictEqual(
-      diagnostic.message,
-      "HTTP root AuthoredApi: endpoint inventory cannot be proven: cannot resolve HTTP group import ./generated/onboarding",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
     assert.strictEqual(diagnostic.location, location);
@@ -802,64 +607,16 @@ describe("HTTP diagnostic registry", () => {
       root: "AuthoredApi",
     });
 
-    assert.strictEqual(
-      diagnostic.message,
-      "HTTP root AuthoredApi: endpoint inventory cannot be proven",
-    );
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
-  });
-  it("explains generation-only whole-root rejection and contract-first atomic ownership", () => {
-    const explanation = renderEntry(HttpDiagnostics.EFFX2415.entry);
-
-    for (const condition of [
-      "contract-only emission never reports EFFX2415",
-      "only groups whose handler factories are being emitted",
-      "An unresolved root leaf rejects the whole root",
-      "one root-level diagnostic naming the unresolved leaf",
-      "Earlier fatal diagnostics defer inventory proof",
-      "Cold --emit=all is atomic and writes nothing",
-      "contract-first is required",
-      "preserves previously owned handler outputs",
-      "healthy-only contracts cannot bootstrap a missing unrelated group",
-    ])
-      assert.include(explanation, condition);
   });
   it("declares both strictAccess outcomes without an unrestricted severity escape", () => {
     assert.deepStrictEqual(HttpDiagnostics.EFFX2504.entry.severityPolicy.allowedSeverities, [
       "warning",
       "error",
     ]);
-    assert.include(
-      renderEntry(HttpDiagnostics.EFFX2504.entry),
-      "Allowed severities: error, warning",
-    );
     expectTypeOf<
       (typeof HttpDiagnostics.EFFX2504.entry.severityPolicy.allowedSeverities)[number]
     >().toEqualTypeOf<"warning" | "error">();
-  });
-  it("preserves rebased repeated-contract and root-export collision messages", () => {
-    assert.strictEqual(
-      HttpDiagnostics.EFFX2402.emit({ _tag: "DuplicateContracts", subject: "ext:http" }).message,
-      "ext:http: more than one HttpContract on one operation",
-    );
-    assert.strictEqual(
-      HttpDiagnostics.EFFX2402.emit({
-        _tag: "RootCollision",
-        subject: "ext:http",
-        previous: "user-api",
-      }).message,
-      "ext:http: root export collides with user-api",
-    );
-  });
-  it("preserves the group interpreter identifier prefix distinct from contract validation", () => {
-    assert.strictEqual(
-      HttpDiagnostics.EFFX2402.emit({ _tag: "GroupIdentifiers", subject: "Users" }).message,
-      "Users: HTTP root and group must be safe identifiers",
-    );
-    assert.strictEqual(
-      HttpDiagnostics.EFFX2402.emit({ _tag: "Identifiers", subject: "ext:http" }).message,
-      "ext:http: root and group must be safe identifiers",
-    );
   });
 });

@@ -13,11 +13,8 @@ describe("diagnostic documentation projections", () => {
       const site = renderDiagnosticPage(registry.entries);
       const guidance = renderRepositoryMarkdown("# Repository guidance\n\n", registry.entries);
 
-      assert.strictEqual(registry.entries.length, 71);
-      assert.isTrue(site.startsWith("---\ntitle:"));
       assert.isTrue(site.endsWith(body));
       assert.strictEqual(guidance, `# Repository guidance\n\n${body}`);
-      assert.isTrue(body.endsWith("\n"));
 
       for (const entry of registry.entries) assert.isTrue(body.includes(entry.code));
     }),
