@@ -5,6 +5,7 @@ import {
   ContentApiHandlers,
   ContentApiHandlersWith,
 } from "../project/bound-generic/.effx/generated/content-handlers.js";
+import { ContentApiHandlers as DefaultedGuardHandlers } from "../project/bound-generic-defaulted-guard/.effx/generated/content-handlers.js";
 import { ExternalContentApi } from "./content-root.js";
 import { makeGenericGuards, makeGenericRawHandlers } from "./content-bound-generic.js";
 import { PersonSecurity } from "./profile-support.js";
@@ -12,6 +13,8 @@ import { PersonSecurity } from "./profile-support.js";
 export interface GenericBehaviorObservations {
   readonly success: { readonly status: number; readonly body: string };
   readonly denial: { readonly status: number; readonly body: string };
+  /** The same raw factory paired with a guards factory that adds an extra defaulted type parameter. */
+  readonly defaultedGuard: { readonly status: number; readonly body: string };
 }
 
 const Security = Layer.succeed(PersonSecurity, { sessionCookie: (effect) => effect });
@@ -85,9 +88,32 @@ export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservati
         const denialResponse = yield* Effect.promise(() => denialHost.handler(publishRequest()));
         const denialBody = yield* Effect.promise(() => denialResponse.text());
 
+        const defaultedGuardHost = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(ExternalContentApi).pipe(
+                Layer.provide(DefaultedGuardHandlers({ maxBodyBytes: 256 })),
+                Layer.provide(Security),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (host) => Effect.promise(() => host.dispose()),
+        );
+
+        const defaultedGuardResponse = yield* Effect.promise(() =>
+          defaultedGuardHost.handler(publishRequest()),
+        );
+        const defaultedGuardBody = yield* Effect.promise(() => defaultedGuardResponse.text());
+
         return {
           success: { status: successResponse.status, body: successBody },
           denial: { status: denialResponse.status, body: denialBody },
+          defaultedGuard: {
+            status: defaultedGuardResponse.status,
+            body: defaultedGuardBody,
+          },
         };
       }),
     ),

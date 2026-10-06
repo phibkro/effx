@@ -55,6 +55,7 @@ const GenericObservations = Schema.Struct({
     ): value is () => Promise<{
       success: { status: number; body: string };
       denial: { status: number; body: string };
+      defaultedGuard: { status: number; body: string };
     }> => Predicate.isFunction(value),
   ),
 });
@@ -269,6 +270,10 @@ describe("bound Profile and Content against installed rc.116", () => {
         assert.strictEqual(observed.success.body, "publish:4096");
         assert.notStrictEqual(observed.denial.status, 200);
         assert.notStrictEqual(observed.denial.body, observed.success.body);
+        // The same raw factory paired with a guards factory that adds an extra defaulted type
+        // parameter still authorizes and completes the handler Effect.
+        assert.strictEqual(observed.defaultedGuard.status, 200);
+        assert.strictEqual(observed.defaultedGuard.body, "publish:256");
       }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
