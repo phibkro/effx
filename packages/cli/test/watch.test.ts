@@ -934,4 +934,56 @@ describe("actual scoped effx dev journey", () => {
       yield* Fiber.interrupt(worker);
     }).pipe(Effect.scoped, Effect.provide(platform)),
   );
+
+  it.effect(
+    "dev retains include-directory membership through identity probes without listing effect/dist",
+    () =>
+      Effect.gen(function* () {
+        const { fs, dir, config, selected } = yield* fixture();
+        const target = dir + "/src/members";
+        const included = dir + "/watched-members";
+        yield* fs.makeDirectory(target);
+        yield* fs.symlink(target, included);
+        yield* fs.writeFileString(
+          config,
+          selected.replace('"src/operations.ts"', '"src/operations.ts", "watched-members/**/*.ts"'),
+        );
+        const listed: Array<string> = [];
+
+        const observedFs: FileSystem.FileSystem = {
+          ...fs,
+          readDirectory: Effect.fnUntraced(function* (
+            ...args: Parameters<typeof fs.readDirectory>
+          ) {
+            listed.push(args[0]);
+
+            return yield* fs.readDirectory(...args);
+          }),
+        };
+
+        const worker = yield* Effect.forkScoped(
+          observeDev({ project: config }, versions).pipe(
+            Effect.provideService(FileSystem.FileSystem, observedFs),
+          ),
+        );
+
+        const initial = yield* awaitOutput(0, finished);
+        assert.isTrue(initial.text.includes("0 error(s)"));
+        assert.isFalse(listed.some((directory) => directory.endsWith("/effect/dist")));
+
+        // Native includes enumerate this symlinked directory. Subsequent realpath
+        // and existence observations must not downgrade that enumeration authority.
+        yield* fs.writeFileString(target + "/first.ts", "export const first = true;");
+        const first = yield* awaitOutput(initial.offset, finished);
+        assert.isTrue(first.text.includes("0 error(s)"));
+        assert.isTrue(first.text.includes("cycle 2"));
+        yield* fs.writeFileString(target + "/second.ts", "export const second = true;");
+        const second = yield* awaitOutput(first.offset, finished);
+        assert.isTrue(second.text.includes("0 error(s)"));
+        assert.isTrue(second.text.includes("cycle 3"));
+        assert.isFalse(listed.some((directory) => directory.endsWith("/effect/dist")));
+        assert.isFalse(yield* fs.exists(dir + "/.effx"));
+        yield* Fiber.interrupt(worker);
+      }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
 });
