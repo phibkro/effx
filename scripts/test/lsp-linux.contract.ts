@@ -59,9 +59,25 @@ export const LinuxFixtureReceipt = Schema.Struct({
   ),
 });
 
+export const LinuxPeerFault = Schema.Struct({
+  reason: Schema.Literals(["Spawn", "Receipt", "Write", "Exit"]),
+  stage: Schema.Literals([
+    "spawn",
+    "receipt",
+    "socket-write",
+    "fifo-open",
+    "fifo-write",
+    "pty-write",
+    "child-exit",
+  ]),
+});
+
+export type LinuxPeerFault = typeof LinuxPeerFault.Type;
+
 export const LinuxPeerResult = Schema.Struct({
   code: Schema.NullOr(Schema.Int),
   signal: Schema.NullOr(Schema.String.check(Schema.isPattern(/^SIG[A-Z]+$/))),
   receipts: Schema.Array(LinuxFixtureReceipt),
   stdoutBytes: Schema.Int,
+  peerFault: Schema.optionalKey(LinuxPeerFault),
 });
