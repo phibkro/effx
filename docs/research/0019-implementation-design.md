@@ -1,4 +1,4 @@
-> Revision (director correction): 0024's five items are inventoried below in "0024 remainder staged before 0019". Where this document earlier calls Binding extraction a 0019-owned addition, that is superseded by the staged phase.
+> The director approved the staged design on 2026-10-06. The 0024 prerequisite phase and the dated 0019 §0.6 clarification govern implementation.
 
 # Spec 0019 implementation design
 
@@ -13,12 +13,12 @@ The actual read-only mono-web main is /srv/share/projects/vektorprogrammet/mono-
 ## Verified prerequisite boundary and frozen-contract precedence
 
 - Annotation.implement({ lift }) is not present: packages/compiler/src/annotation.ts:158-193,404-465 defines Implementation, ImplementOptions and implement without it; extension() at 472-509 aggregates implementations. Runtime Annotation is currently { define } (packages/runtime/src/define/index.ts:39-42). Add S1 only through this existing 0020 seam; never invent Extension.lifters.
-- Binding.group and Binding.target are not present: full Binding search found no runtime Binding; packages/runtime/src/index.ts:1-75 has none and packages/compiler/src/Collected.ts:159-167 has no binding term. 0024 has landed channel/default/density behavior, but not its §6 binding commitment. Binding extraction is therefore a 0019 frontend/source-model addition, target Binding.group, with backend-authored source declarations, not an assumed prerequisite.
+- Binding.group is a missing 0024 item-5 prerequisite at the base commit. P0c implements it before 0019: runtime identity syntax, static frontend Collected.bindings and generator-only input. No binding enters IR. Binding.target is neither specified nor present and will not be invented.
 - S2 remains wholly owned: packages/compiler/src/generate/http.ts:95-203 endpointExpr intermixes decision and string rendering; group/access/problem rendering is also string-first (:51-93,232-264,300-361). Refactor endpoint and related terms into a pure neutral term model/printer while preserving current generation bytes exactly. Terms stay outside IR; schema references remain SchemaRef only (packages/ir/src/Refs.ts:4-20).
-- S3 is absent and targets packages/ir/src/Node.ts plus packages/compiler/src/extensions/http-contract.ts; trace all callers and preserve no-input diagnostics. S4 is recognition only. S5 is already landed (0024 §3); do not restore status 200 or its withdrawn modes. Dense output follows 0024 §0 and 0019 §0.4, not stale body tables.
+- S3 resolves lift declaration input from allowed request channels or a real configured emptyInput export. None produces EFFX3009. IR input stays required and fully resolved, with no IR-v2 shape/version change. S4 is recognition only. S5 is already landed (0024 §3).
 - Frozen §0 precedence resolves old-body conflicts: §5/S1 Extension.lifters is superseded by §0.2; old S5/status modes and S4 compiler change are withdrawn; §0.4 mandates the dense oracle and Binding.group despite historical body forms; §0.5 requires recognizing eight NoContent helper calls and Contact direct WithHeaders(Schema.Void.status(201), headers). §10's “37 unliftable” is stale under this S4 ruling and must be recomputed from actual sources and codes, not retained as acceptance arithmetic. No operator-only decision is inferred here.
 
-## Implementation ownership and sequence (only after director approval)
+## Approved implementation ownership and sequence
 
 1. Term/printer SSOT — compiler owner: generate/http.ts, focused compiler generator tests and identity fixtures. Make term construction and printing pure; prove exact prior contract bytes, including imports, groups, access, problem schemas and endpoint fragments. Neutral algebra mirrors §3.1 (Lit, Ref, Call, Obj, Arr, Opaque) but preserves resolved SchemaRef/SymbolRef; stores no ts.* and introduces no IR/hash changes.
 2. Static source frontend + core recognizer — frontend owner: new lift frontend under packages/frontend-ts/src, reusing project.ts, TsSourceFrontend.ts, resolve.ts exportedSymbol/schemaRefOf (lines 67-112), and current TypeScript project boundary. Add source inventory/locations in manifest-side model only. Parse only exact supported shapes; unsupported, spread, unknown and computed constructs yield registered 30xx diagnostics, never guesses.
