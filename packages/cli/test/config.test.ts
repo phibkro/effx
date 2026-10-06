@@ -124,6 +124,28 @@ describe("spec 0024 naming config precedence", () => {
           assert.strictEqual(rejected.code, 1);
           assert.include(rejected.stdout, "EFFX2412");
 
+          const unsafe = yield* run(
+            project,
+            "check",
+            "--target",
+            "effect-4.0",
+            "--emit",
+            "contract",
+            "--naming-problem-identifier",
+            "{Group}{Key}Problem",
+          );
+
+          assert.strictEqual(unsafe.code, 1);
+          assert.include(unsafe.stdout, "EFFX2412");
+          const operations = path.join(dir, "src/operations.access.builder.ts");
+          const source = yield* fs.readFileString(operations);
+          yield* fs.writeFileString(
+            operations,
+            source
+              .replace("Profile.Read", "profile.read")
+              .replace("Profile.Update", "profile.update"),
+          );
+
           const accepted = yield* run(
             project,
             "check",
