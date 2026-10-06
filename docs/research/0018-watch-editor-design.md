@@ -1187,3 +1187,35 @@ Kernel descriptor/library/deadline/actual Exit laws remain separate proof points
 Packed maintained-client compiler journeys, final 172-case identity/full-ref gate
 and common-root injection still depend on the director’s 0019 reference/order.
 The observed smoke subset is accepted; full 0018/packed CLI/main landing is not.
+
+## 13. Extended native-law gate and setup repair — 2026-10-06
+
+The committed `14f5cca` gate ran all three native files sequentially through
+`proc://spec0018-native-laws-14f5cca`: exit 1, 36 tests, 24 passed and 12 failed;
+two files passed and the extra ownership file failed. The existing native smoke
+and SIGPIPE file passed. Every progress/cancel/closing/release-fault case for
+socket/FIFO/PTY failed before the new law assertions established acceptance.
+Socket/PTY cases reported outer peer exit 1 before safe result decoding; FIFO
+reported inner fixture exit 1, `FixtureDefect`, stage `identity`. The selected
+receipt is `native-gate-14f5cca.json` in the external evidence root. No timeout,
+forced kill, partial-output, cancellation-prefix or concurrent-close acceptance
+is inferred from those early failures. The failed gate is not rerun to confirm it.
+
+The fixture baseline enumerated `/proc/self/fd`, saved every listed number, then
+excluded those numbers while selecting the Root-owned reopened output. The
+listing itself opens a directory descriptor that is closed before readdir
+returns; a later output open may reuse its number. A number in the directory
+listing is therefore not evidence of a live pre-acquisition descriptor. The
+repair checks actual descriptor liveness after enumeration, then preserves
+original kind/device/inode/flags separately from the independently opened
+nonblocking output. It does not mutate shared flags or compare incidental stat
+objects. This is a source-supported failure mechanism, not an observed descriptor
+number or a claim that the new laws passed.
+
+Outer peer failures now have a closed selected stage/reason contract before
+capture. The consumer decodes a safe result before asserting actual outer exit;
+nonzero exit remains a failure, and absent classification remains unobserved.
+Fixture Scope exit, native release, descriptor identity, independent OFD flags,
+kernel progress and actual close Exit remain distinct evidence. No raw arguments,
+environment, stderr, Cause or private handles are recorded. Product Root/C/native
+asset behavior and Linux+B/common-root/main holds are unchanged by setup repair.
