@@ -636,13 +636,17 @@ outside sandbox containment. Unusual devices, procfs and unsupported stdin forms
 MUST receive explicit classified limits/failure, not silent supported assumptions.
 Other CLI commands and `effx dev` retain their existing runtime/platform behavior.
 
-The trusted fixed 511-byte POSIX readiness C source MUST be compiled at build
-time against declared target headers/toolchain and loaded through public Bun
+The trusted fixed/audited POSIX readiness C source (prototype 511 bytes) MUST be
+compiled at build time against declared target headers/toolchain and loaded through public Bun
 1.3.13 dlopen. No runtime experimental cc/compiler/header discovery, guessed ABI
 or constants, shared descriptor-flag mutation, private handles, per-read helper
 process, fake backend or stub is permitted. After actual readiness, raw reads
 MUST use at most 65,536 bytes, under the explicit exclusive-reader premise.
 Accepted kernel bytes cannot be retracted; Closed admits no new native calls.
+The prototype byte count is provenance, not a normative source-length gate.
+Actual source/artifact hashes MUST be derived; semantic shim changes require
+actual native-capability and release verification. Audited prototype evidence
+remains preserved; reviewed comments/helper changes are not blocked by a size pin.
 
 Shipping MUST declare artifact-derived ELF target ABI, minimum glibc and needed
 libraries with actual compatibility evidence. The local glibc 2.44 probe does not
