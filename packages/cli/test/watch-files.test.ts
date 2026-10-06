@@ -881,4 +881,198 @@ describe("explicit native project observation (EX-0031)", () => {
         }),
       ),
   );
+
+  it.effect(
+    "keeps readable file and directory aliases to own output quiet and observes retargets away",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const ownOutput = path.join(dir, "own-output");
+          const ownContract = path.join(ownOutput, "contract.ts");
+          const fileAlias = path.join(dir, "contract-alias.ts");
+          const directoryAlias = path.join(dir, "contracts-alias");
+          const directoryDependency = path.join(directoryAlias, "contract.ts");
+          yield* fs.symlink(ownContract, fileAlias);
+          yield* fs.symlink(ownOutput, directoryAlias);
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: dir, kind: "source", directory: true, recursive: true },
+              { path: fileAlias, kind: "source" },
+              { path: directoryAlias, kind: "source", directory: true, recursive: true },
+              { path: directoryDependency, kind: "source" },
+            ],
+            exclusions: [ownOutput],
+          });
+
+          const missingOutput = yield* observe(watch);
+          assert.isTrue(
+            missingOutput.fingerprints[1]?.entries.some(
+              (entry) => entry.path === fileAlias && entry.destination === ownContract,
+            ),
+          );
+          assert.isTrue(
+            missingOutput.fingerprints[3]?.entries.some(
+              (entry) => entry.path === directoryAlias && entry.destination === ownOutput,
+            ),
+          );
+          yield* fs.makeDirectory(ownOutput);
+          yield* fs.writeFileString(ownContract, "generated-a");
+          assert.strictEqual(
+            yield* fs.readFileString(fileAlias),
+            yield* fs.readFileString(ownContract),
+          );
+          assert.strictEqual(
+            yield* fs.readFileString(directoryDependency),
+            yield* fs.readFileString(ownContract),
+          );
+          assert.deepStrictEqual((yield* observe(watch)).fingerprints, missingOutput.fingerprints);
+          assert.deepStrictEqual(yield* watch.takeChanges, {
+            dirty: false,
+            executableDirty: false,
+          });
+          yield* fs.writeFileString(path.join(ownOutput, "replacement.ts"), "generated-b");
+          yield* fs.rename(path.join(ownOutput, "replacement.ts"), ownContract);
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+
+          const otherProject = yield* fs.makeTempDirectoryScoped({
+            prefix: "effx-other-contract-",
+          });
+
+          const otherOutput = path.join(otherProject, ".effx");
+          const otherContract = path.join(otherOutput, "contract.ts");
+          yield* fs.makeDirectory(otherOutput);
+          yield* fs.writeFileString(otherContract, "other-a");
+          yield* fs.remove(fileAlias);
+          yield* fs.remove(directoryAlias);
+          yield* fs.symlink(otherContract, fileAlias);
+          yield* fs.symlink(otherOutput, directoryAlias);
+
+          const retargeted = yield* observe(watch);
+          assert.deepStrictEqual(retargeted.changedPaths, [
+            dir,
+            fileAlias,
+            directoryAlias,
+            directoryDependency,
+          ]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+          assert.strictEqual(
+            yield* fs.readFileString(fileAlias),
+            yield* fs.readFileString(otherContract),
+          );
+          assert.strictEqual(
+            yield* fs.readFileString(directoryDependency),
+            yield* fs.readFileString(otherContract),
+          );
+
+          const direct = yield* makeWatchFiles({
+            inputs: [{ path: otherContract, kind: "source" }],
+            exclusions: [ownOutput],
+          });
+
+          yield* observe(direct);
+          yield* fs.writeFileString(otherContract, "other-b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [
+            fileAlias,
+            directoryAlias,
+            directoryDependency,
+          ]);
+          assert.deepStrictEqual((yield* observe(direct)).changedPaths, [otherContract]);
+          assert.deepStrictEqual(yield* watch.takeChanges, yield* direct.takeChanges);
+        }),
+      ),
+  );
+
+  it.effect(
+    "retains successive dependency link metadata when its current target is own output",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const ownOutput = path.join(dir, "own-output");
+          const ownContract = path.join(ownOutput, "contract.ts");
+          const outside = yield* fs.makeTempDirectoryScoped({ prefix: "effx-owned-alias-route-" });
+          const bridge = path.join(outside, "bridge.ts");
+          const otherContract = path.join(outside, "other.ts");
+          const alias = path.join(dir, "contract-alias.ts");
+          yield* fs.makeDirectory(ownOutput);
+          yield* fs.writeFileString(ownContract, "own-a");
+          yield* fs.writeFileString(otherContract, "other-a");
+          yield* fs.symlink(ownContract, bridge);
+          yield* fs.symlink(bridge, alias);
+
+          const watch = yield* makeWatchFiles({
+            inputs: [{ path: alias, kind: "source" }],
+            exclusions: [ownOutput],
+          });
+
+          const initial = yield* observe(watch);
+          assert.isTrue(
+            initial.fingerprints[0]?.entries.some(
+              (entry) => entry.path === bridge && entry.destination === ownContract,
+            ),
+          );
+          yield* fs.writeFileString(ownContract, "own-b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          yield* fs.remove(bridge);
+          yield* fs.symlink(otherContract, bridge);
+
+          const retargeted = yield* observe(watch);
+          assert.deepStrictEqual(retargeted.changedPaths, [alias]);
+          assert.isTrue(
+            retargeted.fingerprints[0]?.entries.some(
+              (entry) => entry.path === alias && entry.digest.length > 0,
+            ),
+          );
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
+          yield* fs.writeFileString(otherContract, "other-b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [alias]);
+        }),
+      ),
+  );
+
+  it.effect(
+    "ignores implicit child-link targets but rejects explicit executable own-output aliases",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const ownOutput = path.join(dir, "own-output");
+          const ownContract = path.join(ownOutput, "contract.mjs");
+          const fileAlias = path.join(dir, "contract-alias.mjs");
+          const directoryAlias = path.join(dir, "contracts-alias");
+          yield* fs.symlink(ownContract, fileAlias);
+          yield* fs.symlink(ownOutput, directoryAlias);
+
+          const membership = yield* makeWatchFiles({
+            inputs: [{ path: dir, kind: "executable", directory: true, recursive: true }],
+            exclusions: [ownOutput],
+            maxFileBytes: 64,
+          });
+
+          yield* observe(membership);
+          yield* fs.makeDirectory(ownOutput);
+          yield* fs.writeFileString(ownContract, "generated".repeat(64));
+          assert.deepStrictEqual((yield* observe(membership)).changedPaths, []);
+          assert.deepStrictEqual(yield* membership.takeChanges, {
+            dirty: false,
+            executableDirty: false,
+          });
+
+          for (const input of [
+            { path: fileAlias, kind: "executable" as const },
+            { path: directoryAlias, kind: "executable" as const, directory: true, recursive: true },
+          ]) {
+            const selected = yield* makeWatchFiles({
+              inputs: [input],
+              exclusions: [ownOutput],
+              maxFileBytes: 64,
+            });
+
+            const failure = yield* Effect.flip(selected.poll);
+            assert.strictEqual(failure._tag, "WatchLimit");
+
+            if (failure._tag === "WatchLimit") assert.strictEqual(failure.resource, "selection");
+          }
+        }),
+      ),
+  );
 });

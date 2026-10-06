@@ -16,6 +16,7 @@ import { Hex } from "effect/encoding";
 
 export interface WatchInput {
   readonly path: string;
+  /** Source dependencies retain owned-output alias routes; selected-root/config rejection belongs to the caller. */
   readonly kind: "source" | "executable";
   readonly directory?: boolean;
   readonly recursive?: boolean;
@@ -23,7 +24,7 @@ export interface WatchInput {
 
 export interface WatchFilesOptions {
   readonly inputs: ReadonlyArray<WatchInput>;
-  /** Absolute, resolved subtree exclusions. Explicit inputs overlapping them fail admission. */
+  /** Resolved owned subtrees. Executable declarations reject overlap; source dependencies exclude targets. */
   readonly exclusions?: ReadonlyArray<string>;
   readonly maxPaths?: number;
   readonly maxBytes?: number;
@@ -241,6 +242,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
       const entries = new Map<string, WatchEntry>();
       const visited = new Set<string>();
       let declaredDependencyRoot = input.path.split(path.sep).includes("node_modules");
+      let observeTarget = true;
 
       const visit = Effect.fnUntraced(function* (
         name: string,
@@ -251,6 +253,20 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         if (excluded(name, selectedExclusions)) return;
         yield* count(name);
         const destination = yield* link(name);
+
+        if (!explicit && Option.isSome(destination)) {
+          // Child links describe membership, not permission to observe their targets.
+          entries.set(name, {
+            path: name,
+            type: "symlink",
+            identity: "",
+            destination: destination.value,
+            digest: "",
+          });
+
+          return;
+        }
+
         const stat = yield* info(name);
 
         if (Option.isNone(stat)) {
@@ -284,8 +300,22 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 
         if (explicit) declaredDependencyRoot ||= real.split(path.sep).includes("node_modules");
 
-        if (excluded(real, selectedExclusions))
-          return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+        if (excluded(real, selectedExclusions)) {
+          if (explicit && input.kind === "executable")
+            return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+
+          if (Option.isSome(destination))
+            entries.set(name, {
+              path: name,
+              type: "symlink",
+              identity: "",
+              destination: destination.value,
+              digest: "",
+            });
+
+          return;
+        }
+
         const physical = identity(stat.value, real);
 
         const type = Option.isSome(destination)
@@ -401,8 +431,13 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         const name = path.join(routeRoot, component);
         yield* count(name);
 
-        if (excluded(name, selectedExclusions))
-          return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+        if (excluded(name, selectedExclusions)) {
+          if (input.kind === "executable")
+            return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+
+          observeTarget = false;
+          break;
+        }
 
         const destination = yield* link(name);
 
@@ -479,8 +514,13 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 
         const real = yield* fs.realPath(name);
 
-        if (excluded(real, selectedExclusions))
-          return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+        if (excluded(real, selectedExclusions)) {
+          if (input.kind === "executable")
+            return yield* new WatchLimit({ resource: "selection", path: name, limit: maxPaths });
+
+          observeTarget = false;
+          break;
+        }
 
         entries.set(name, {
           path: name,
@@ -497,7 +537,8 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         routeRoot = real;
       }
 
-      yield* visit(input.path, input.directory === true, input.recursive === true, true);
+      if (observeTarget)
+        yield* visit(input.path, input.directory === true, input.recursive === true, true);
       fingerprints.push({
         input,
         entries: [...entries.values()].sort((a, b) =>
