@@ -10,6 +10,7 @@ import { bundledDiagnosticEntries, HttpDiagnostics } from "../src/diagnostics/in
 const binding: GroupBinding = {
   group: { module: "./contract", export: "ProfileGroup" },
   handlers: { module: "./backend", export: "makeRaw" },
+  handlersTypeParameters: [],
   guards: { module: "./backend", export: "makeGuards" },
 };
 
