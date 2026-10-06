@@ -8,6 +8,7 @@ import {
   type GroupBindingReference,
   type GroupBindingTypeParameter,
 } from "@effx/compiler";
+import type { SymbolRef } from "@effx/ir";
 import { lowerExpression } from "./lower.ts";
 import { exportedSymbol, type Resolver } from "./resolve.ts";
 import { aliased, declarationOf, isExported, positionOf, ts } from "./ts.ts";
@@ -22,14 +23,92 @@ const isFactoryHolder = (holder: ts.Node | undefined): holder is FactoryHolder =
     ts.isFunctionExpression(holder) ||
     ts.isFunctionDeclaration(holder));
 
+/** The public import target for a module export with its member path, if any. */
+const ownerRef = (
+  resolver: Resolver,
+  fileName: string,
+  segments: ReadonlyArray<string>,
+): SymbolRef => {
+  const module = resolver.moduleOf(fileName);
+
+  return segments.length === 1
+    ? { module, export: segments[0]! }
+    : { module, export: segments[0]!, member: segments.slice(1).join(".") };
+};
+
 /**
- * A type reference written in a mirrored type parameter resolves to the exported declaration it
- * names, following import aliases, so the generated clause can import that declaration and address
- * the written span exactly. Type parameters of the same declaration need no import.
+ * The public module export that owns a declaration, with its member path when the declaration lives
+ * inside an exported namespace or is a class member. A leaf's own export modifier is not enough: the
+ * generated clause must import the export the module actually publishes.
  */
-const typeReferenceOf = (
+const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolRef | undefined => {
+  const segments: Array<string> = [];
+  let node: ts.Node | undefined = declaration;
+
+  while (node !== undefined) {
+    if (ts.isModuleDeclaration(node)) {
+      if (!ts.isIdentifier(node.name) || !isExported(node)) return undefined;
+
+      segments.unshift(node.name.text);
+
+      if (ts.isSourceFile(node.parent)) return ownerRef(resolver, node.parent.fileName, segments);
+
+      node = node.parent;
+
+      continue;
+    }
+
+    if (ts.isPropertyDeclaration(node) && ts.isClassDeclaration(node.parent)) {
+      const owner = exportedOwner(resolver, node.parent);
+
+      return owner === undefined || owner.member !== undefined
+        ? undefined
+        : { ...owner, member: node.name.getText() };
+    }
+
+    if (
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isEnumDeclaration(node) ||
+      ts.isFunctionDeclaration(node) ||
+      ts.isVariableDeclaration(node)
+    ) {
+      const name: ts.Node | undefined = node.name;
+
+      if (name === undefined || !ts.isIdentifier(name) || !isExported(node)) return undefined;
+
+      segments.unshift(name.text);
+
+      if (ts.isModuleDeclaration(node.parent) || ts.isModuleBlock(node.parent)) {
+        node = ts.isModuleBlock(node.parent) ? node.parent.parent : node.parent;
+
+        continue;
+      }
+
+      const module = resolver.moduleOf(node.getSourceFile().fileName);
+
+      return segments.length === 1
+        ? { module, export: segments[0]! }
+        : { module, export: segments[0]!, member: segments.slice(1).join(".") };
+    }
+
+    return undefined;
+  }
+
+  return undefined;
+};
+
+/**
+ * A name written in a mirrored constraint/default resolves to the public export that owns it —
+ * a type reference or the value named by `typeof` — with the exact span of the written name, so the
+ * generated clause imports that export and replaces that span precisely. Type parameters of the
+ * same declaration need no import.
+ */
+const referenceOf = (
   resolver: Resolver,
   name: ts.EntityName,
+  value: boolean,
   where: "constraint" | "default",
   base: number,
 ): GroupBindingReference | undefined => {
@@ -39,23 +118,13 @@ const typeReferenceOf = (
   const canonical = aliased(resolver.project.checker, symbol);
   const declaration = declarationOf(canonical) ?? canonical.declarations?.[0];
 
-  if (declaration === undefined) return undefined;
+  if (declaration === undefined || ts.isTypeParameterDeclaration(declaration)) return undefined;
 
-  if (ts.isTypeParameterDeclaration(declaration)) return undefined;
-
-  const ref =
-    (ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) &&
-    declaration.name !== undefined &&
-    isExported(declaration)
-      ? {
-          module: resolver.moduleOf(declaration.getSourceFile().fileName),
-          export: declaration.name.text,
-        }
-      : exportedSymbol(resolver, canonical)?.ref;
+  const ref = exportedOwner(resolver, declaration);
 
   if (ref === undefined) return undefined;
 
-  return { ref, where, start: name.getStart() - base, end: name.getEnd() - base };
+  return { ref, value, where, start: name.getStart() - base, end: name.getEnd() - base };
 };
 
 const typeParameterOf = (
@@ -69,7 +138,14 @@ const typeParameterOf = (
 
     const visit = (child: ts.Node): void => {
       if (ts.isTypeReferenceNode(child)) {
-        const reference = typeReferenceOf(resolver, child.typeName, where, base);
+        const reference = referenceOf(resolver, child.typeName, false, where, base);
+
+        if (reference !== undefined)
+          references.set(`${where}\0${reference.ref.module}\0${reference.start}`, reference);
+      }
+
+      if (ts.isTypeQueryNode(child)) {
+        const reference = referenceOf(resolver, child.exprName, true, where, base);
 
         if (reference !== undefined)
           references.set(`${where}\0${reference.ref.module}\0${reference.start}`, reference);
@@ -233,7 +309,7 @@ export const collectGroupBinding = (
     group: ref,
     handlers: handlers.ref,
     handlersTypeParameters: [...handlers.typeParameters],
-    guardsTypeParameters: guards === undefined ? [] : guards.typeParameters.map(({ name }) => name),
+    guardsTypeParameters: guards === undefined ? [] : [...guards.typeParameters],
     ...(guards === undefined ? { guardFor: guardFor!.ref } : { guards: guards.ref }),
   });
 };

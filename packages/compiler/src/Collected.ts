@@ -166,6 +166,8 @@ export type SpreadSource = typeof SpreadSource.Type;
 /** A type reference inside a mirrored constraint/default, addressed by its source span. */
 export const GroupBindingReference = Schema.Struct({
   ref: SymbolRef,
+  /** True when the clause needs the value binding (`typeof`); false when a type-only import suffices. */
+  value: Schema.Boolean,
   where: Schema.Literals(["constraint", "default"]),
   /** Offsets of the whole resolved type-reference name inside its text, so printing replaces it exactly. */
   start: Schema.Finite,
@@ -192,8 +194,8 @@ export const GroupBinding = Schema.Struct({
   handlers: SymbolRef,
   /** Type parameters the bound wrapper must mirror; empty when the factory is not generic. */
   handlersTypeParameters: Schema.Array(GroupBindingTypeParameter),
-  /** Type-parameter names of the guard factory, so the tuple check can instantiate it consistently. */
-  guardsTypeParameters: Schema.Array(Schema.String),
+  /** The guard factory's own type parameters, so the tuple check instantiates its positional prefix. */
+  guardsTypeParameters: Schema.Array(GroupBindingTypeParameter),
   guards: Schema.optionalKey(SymbolRef),
   guardFor: Schema.optionalKey(SymbolRef),
 });

@@ -42,9 +42,14 @@ export const boundHandlersLines = (
         .toSorted((left, right) => right.start - left.start);
 
       for (const span of spans) {
-        const local = imports.addTypeAliased(span.ref.module, span.ref.export, span.ref.export);
+        // A `typeof` reference needs the value binding; a type reference needs a type-only import.
+        const local = span.value
+          ? imports.addAliased(span.ref.module, span.ref.export, span.ref.export)
+          : imports.addTypeAliased(span.ref.module, span.ref.export, span.ref.export);
 
-        printed = printed.slice(0, span.start) + local + printed.slice(span.end);
+        const owner = local + (span.ref.member === undefined ? "" : `.${span.ref.member}`);
+
+        printed = printed.slice(0, span.start) + owner + printed.slice(span.end);
       }
 
       return printed;
@@ -64,10 +69,21 @@ export const boundHandlersLines = (
 
   const guardsTypeParameters = binding.guardsTypeParameters;
 
-  // The guard factory's parameters correspond to the handler factory's by position, not by name, so
-  // an alpha-renamed pair instantiates consistently; differing arity stays uninstantiated.
+  // The guard factory takes the handler factory's type arguments by position, truncated to the guard
+  // factory's own arity: extra parameters are legal only when they are defaulted, and a required extra
+  // parameter leaves the guard uninstantiated so the typed check reports the incompatibility.
+  const guardPrefix = Math.min(names.length, guardsTypeParameters.length);
+
+  const guardDefaults = guardsTypeParameters
+    .slice(guardPrefix)
+    .every((parameter) => parameter.default !== "");
+
   const guardsTypeArguments =
-    names.length > 0 && guardsTypeParameters.length === names.length ? typeArguments : "";
+    names.length > 0 && guardDefaults
+      ? guardPrefix === 0
+        ? ""
+        : `<${names.slice(0, guardPrefix).join(", ")}>`
+      : "";
 
   const context = `Parameters<typeof ${handlers}${typeArguments}>`;
 

@@ -42,3 +42,10 @@ export const makeGenericGuards = <C extends GenericContentContext>(_context: C) 
     "content.publishArticle": contentGuard(endpoints.publishArticle),
     "content.unpublishArticle": contentGuard(endpoints.unpublishArticle),
   }) satisfies ContentGuards<ContentEndpoints>;
+
+/** The same value tuple as the raw factory, with an extra legal defaulted type parameter. */
+export const makeDefaultedGuards = <T extends GenericContentContext, U = never>(_context: T) =>
+  ({
+    "content.publishArticle": contentGuard(endpoints.publishArticle),
+    "content.unpublishArticle": contentGuard(endpoints.unpublishArticle),
+  }) satisfies ContentGuards<ContentEndpoints>;
