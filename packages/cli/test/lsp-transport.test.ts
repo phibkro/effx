@@ -48,63 +48,73 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
   );
 
   it.live("injected native demand keeps exact byte bounds, one bridge and one release", () =>
-    Effect.scoped(Effect.gen(function* () {
-      const peer = yield* acquirePeer();
-      yield* peer.waitNotification("ready");
-      yield* peer.notification("edit", { text: "é".repeat(96 * 1024) });
-      yield* peer.request("inspect");
-      const stats = yield* Schema.decodeUnknownEffect(Schema.Struct({
-        maxRequested: Schema.Int,
-        maxReturned: Schema.Int,
-        maxBacking: Schema.Int,
-        runtimeAcquisitions: Schema.Int,
-        ioReleases: Schema.Int,
-      }))(yield* peer.request("io-inspect"));
-      assert.isAbove(stats.maxRequested, 0);
-      assert.isAtMost(stats.maxRequested, 65536);
-      assert.isAbove(stats.maxReturned, 0);
-      assert.isAtMost(stats.maxReturned, 65536);
-      assert.isAtMost(stats.maxBacking, 65536);
-      assert.strictEqual(stats.runtimeAcquisitions, 1);
-      assert.strictEqual(stats.ioReleases, 0);
-      yield* peer.eof;
-      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
-      const log = yield* peer.stderr;
-      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
-      assert.notInclude(log, "native-io-release-duplicated");
-      assert.include(log, "native-io-closed-fence\n");
-      assert.notInclude(log, "native-io-closed-fence-failed");
-    })),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        yield* peer.notification("edit", { text: "é".repeat(96 * 1024) });
+        yield* peer.request("inspect");
+
+        const stats = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            maxRequested: Schema.Int,
+            maxReturned: Schema.Int,
+            maxBacking: Schema.Int,
+            runtimeAcquisitions: Schema.Int,
+            ioReleases: Schema.Int,
+          }),
+        )(yield* peer.request("io-inspect"));
+
+        assert.isAbove(stats.maxRequested, 0);
+        assert.isAtMost(stats.maxRequested, 65536);
+        assert.isAbove(stats.maxReturned, 0);
+        assert.isAtMost(stats.maxReturned, 65536);
+        assert.isAtMost(stats.maxBacking, 65536);
+        assert.strictEqual(stats.runtimeAcquisitions, 1);
+        assert.strictEqual(stats.ioReleases, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        const log = yield* peer.stderr;
+        assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+        assert.notInclude(log, "native-io-release-duplicated");
+        assert.include(log, "native-io-closed-fence\n");
+        assert.notInclude(log, "native-io-closed-fence-failed");
+      }),
+    ),
   );
 
   it.live("framing failure releases the injected native owner exactly once", () =>
-    Effect.scoped(Effect.gen(function* () {
-      const peer = yield* acquirePeer();
-      yield* peer.waitNotification("ready");
-      yield* peer.write(new TextEncoder().encode("Content-Length: -1\r\n\r\n"));
-      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
-      const log = yield* peer.stderr;
-      assert.include(log, "terminal:Framing");
-      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
-      assert.notInclude(log, "native-io-release-duplicated");
-      assert.include(log, "native-io-closed-fence\n");
-    })),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        yield* peer.write(new TextEncoder().encode("Content-Length: -1\r\n\r\n"));
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        const log = yield* peer.stderr;
+        assert.include(log, "terminal:Framing");
+        assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+        assert.notInclude(log, "native-io-release-duplicated");
+        assert.include(log, "native-io-closed-fence\n");
+      }),
+    ),
   );
 
   it.live("host interruption joins the injected IO release and handler finalizer", () =>
-    Effect.scoped(Effect.gen(function* () {
-      const peer = yield* acquirePeer();
-      yield* peer.waitNotification("ready");
-      const held = yield* Effect.forkChild(peer.request("hold").pipe(Effect.exit));
-      yield* peer.waitNotification("started");
-      yield* peer.interrupt;
-      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
-      yield* Fiber.join(held);
-      const log = yield* peer.stderr;
-      assert.strictEqual(log.split("handler-released").length - 1, 1);
-      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
-      assert.notInclude(log, "native-io-release-duplicated");
-    })),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        const held = yield* Effect.forkChild(peer.request("hold").pipe(Effect.exit));
+        yield* peer.waitNotification("started");
+        yield* peer.interrupt;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        yield* Fiber.join(held);
+        const log = yield* peer.stderr;
+        assert.strictEqual(log.split("handler-released").length - 1, 1);
+        assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+        assert.notInclude(log, "native-io-release-duplicated");
+      }),
+    ),
   );
 
   it.live("stateful maintained client applies UTF-8 chunked and coalesced edits in order", () =>
@@ -737,12 +747,17 @@ it("platform and callback bridge keep their acquisition and handler channels", (
   expectTypeOf(platform).toEqualTypeOf<
     Effect.Effect<LspIO, TransportError, LspPlatform | Scope.Scope>
   >();
+
   const bridge = Effect.andThen(AcquisitionDependency, (service) =>
     service.io.makeCallbackRuntime<HandlerDependency>(),
   );
+
   expectTypeOf(bridge).toEqualTypeOf<
-    Effect.Effect<LspCallbackRuntime<HandlerDependency>, never,
-      AcquisitionDependency | HandlerDependency | Scope.Scope>
+    Effect.Effect<
+      LspCallbackRuntime<HandlerDependency>,
+      never,
+      AcquisitionDependency | HandlerDependency | Scope.Scope
+    >
   >();
   expectTypeOf(bridge).not.toEqualTypeOf<
     Effect.Effect<LspCallbackRuntime<HandlerDependency>, never, Scope.Scope>
