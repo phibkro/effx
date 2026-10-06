@@ -142,7 +142,7 @@ function assertCatalogue(html, entries) {
   return tree;
 }
 
-assert.equal(bundledDiagnosticEntries.length, 69, 'the production catalogue must remain 69 entries');
+assert.equal(bundledDiagnosticEntries.length, 71, 'the production catalogue includes both declared naming diagnostics');
 const catalogue = renderCatalogue(bundledDiagnosticEntries);
 const catalogueHtml = await renderMarkdown(catalogue);
 assertCatalogue(catalogueHtml, bundledDiagnosticEntries);
