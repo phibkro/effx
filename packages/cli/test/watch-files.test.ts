@@ -357,22 +357,28 @@ describe("explicit native project observation (EX-0031)", () => {
       Effect.gen(function* () {
         const entered = yield* Deferred.make<WatchFiles>();
         const opened = yield* Deferred.make<void>();
+        const released = yield* Deferred.make<void>();
         let releases = 0;
         const name = path.join(dir, "a.ts");
         yield* fs.writeFileString(name, "a");
 
+        const original = fs.open;
+
         const controlled = {
           ...fs,
-          open: Effect.fnUntraced(function* () {
+          open: Effect.fnUntraced(function* (...args: Parameters<typeof original>) {
+            // Receipt precedes native acquisition: LIFO scope close releases the
+            // real file first, then acknowledges completion of pass cleanup.
+            yield* Effect.addFinalizer(() =>
+              Effect.gen(function* () {
+                releases++;
+                yield* Deferred.succeed(released, undefined);
+              }),
+            );
+            yield* original(...args);
             yield* Deferred.succeed(opened, undefined);
 
-            return yield* Effect.never.pipe(
-              Effect.ensuring(
-                Effect.sync(() => {
-                  releases++;
-                }),
-              ),
-            );
+            return yield* Effect.never;
           }),
         };
 
@@ -391,7 +397,11 @@ describe("explicit native project observation (EX-0031)", () => {
         const watch = yield* Deferred.await(entered);
         yield* Deferred.await(opened);
         yield* Fiber.interrupt(user);
-        assert.isTrue(Exit.isFailure(yield* Fiber.await(user)));
+
+        const exit = yield* Fiber.await(user);
+        assert.isTrue(Exit.hasInterrupts(exit));
+        assert.isFalse(Exit.hasDies(exit));
+        assert.isTrue(yield* Deferred.isDone(released));
         assert.strictEqual(releases, 1);
         assert.strictEqual((yield* Effect.flip(watch.poll))._tag, "WatchClosed");
         assert.deepStrictEqual((yield* watch.current).fingerprints, []);
