@@ -98,6 +98,17 @@ const outputPaths = (project: Project): ReadonlyArray<string> => {
   return outputs;
 };
 
+/** Immediate membership is authority from enumeration, never an existence probe. @internal */
+export const lspSourceCoverage = (
+  file: string,
+  membership: boolean,
+  previous?: WatchInput,
+): WatchInput => ({
+  path: file,
+  kind: "source",
+  directory: membership || previous?.directory === true,
+});
+
 /** Portable one-project LSP owner. Building this Effect performs no work. The outer
  * scope owns transport/client liveness; shutdown closes the nested project owner
  * before replying null, leaving transport alive until exit or EOF. No disk emission. */
@@ -331,9 +342,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       onObserve: (input) =>
         observed.set(
           input.path,
-          input.kind === "directory"
-            ? { path: input.path, kind: "source", directory: true }
-            : { path: input.path, kind: "source" },
+          lspSourceCoverage(input.path, input.membership === true, observed.get(input.path)),
         ),
       onReadSource: (file, text) => {
         texts.set(path.resolve(file), text);
@@ -396,7 +405,10 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
 
     for (const input of observed.values()) {
       if (!ownedIdentities.some((output) => under(input.path, output)))
-        observedSources.set(input.path, input);
+        observedSources.set(
+          input.path,
+          lspSourceCoverage(input.path, input.directory === true, observedSources.get(input.path)),
+        );
     }
 
     const nextSourceInputs = [...observedSources.values()];
