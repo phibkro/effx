@@ -4,10 +4,15 @@
   "include": [
     "src/profile-bound-http.ts",
     "src/content-bound-http.ts",
+    "src/content-bound-generic.ts",
+    "src/profile-bound-defaulted.ts",
     "src/bound-witnesses.ts",
+    "src/generic-witnesses.ts",
     "src/bound-runtime.spec.ts",
     "src/bound-behaviors.ts",
     "project/bound-profile/.effx/generated/profile-handlers.ts",
-    "project/bound-content/.effx/generated/content-handlers.ts"
+    "project/bound-content/.effx/generated/content-handlers.ts",
+    "project/bound-generic/.effx/generated/content-handlers.ts",
+    "project/bound-generic-defaulted/.effx/generated/profile-handlers.ts"
   ]
 }

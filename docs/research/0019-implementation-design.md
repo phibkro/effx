@@ -72,7 +72,22 @@ Ordering: P0a, P0b, P0c, then 0019 slices S2 → S7/core → S1 → S6 → S3 �
 
 ## Execution evidence (2026-10-06)
 
-### Spec 0024 §8 item 5 acceptance — P0c (2026-10-06)
+### Generic bound-consumer reproduction (WIP, 2026-10-06)
+
+Independent review rejected P0c because bound generation is only correct for a **non-generic** handler factory: `415ce05` mirrors the handler factory's type-parameter **names only**. New legal consumers were added to the rc116 bound fixture and reproduce two independent defects:
+
+- files: `packages/frontend-ts/test/fixtures/rc116/src/content-bound-generic.ts` (constrained `<C extends GenericContentContext>` raw + a guards factory with the same tuple), `src/profile-bound-defaulted.ts` (`<R = never>(work?: Effect.Effect<void, never, R>)`), `src/generic.bind.ts`, `src/generic-defaulted.bind.ts`, `src/generic-witnesses.ts`, projects `project/bound-generic` and `project/bound-generic-defaulted`.
+- observed red (`bun --bun vitest run packages/frontend-ts/test/bindings-rc116.test.ts --no-file-parallelism --maxWorkers=1`, 1 failed | 3 passed):
+  1. `project/bound-generic/.effx/generated/content-handlers.ts` — `Cannot find name 'C'` twice, because the emitted tuple check is a **module-level** statement that mentions `C`:
+     `const __effxCheckedGuards: Parameters<typeof __effxMakeGuards> extends Parameters<typeof __effxMakeRaw<C>> …`
+  2. the same file — `Type 'C' does not satisfy the constraint 'GenericContentContext'`, because the emitted wrapper drops the constraint: `export const ContentApiHandlers = <C>(...ctx: Parameters<typeof __effxMakeRaw<C>>) =>`.
+  3. `src/generic-witnesses.ts` — `Type 'false' does not satisfy the constraint 'true'` for `assert unknown extends GenericServices` (the defaulted/constrained consumer still collapses to `unknown`).
+- three required fix parts, none of which may be a cast, an `unknown` fallback, an unsupported-shape diagnostic, or an erased error/requirement channel:
+  (a) emit the **full** type-parameter clause (name, constraint, default) instead of names only, importing every referenced exported symbol into the generated file under the same local name (aliased import; a name that cannot be preserved is a loud invariant break, never a silently different type);
+  (b) move the guards tuple check **inside** the generic wrapper's scope (`<C extends …>(...ctx: Parameters<typeof __effxMakeRaw<C>>)`) so `C` is bound where the check is written;
+  (c) keep the defaulted-optional-Effect case free of `unknown`: a no-argument call must infer `R = never` and leave the layer's requirements at `never`.
+- this commit is intentionally red (WIP) on `feat/lift-0019`; the last fully verified revision for P0c's named shapes remains `1452846` (its standing batch and the `lift-0019-p0c-item5-r4` measurement stay qualified and unchanged).
+
 
 This records P0c only; P0a and P0b were accepted earlier (below). P0c remains **unlanded and unreviewed**: nothing was published, pushed, or merged into `main`, and no operator approval was consumed.
 

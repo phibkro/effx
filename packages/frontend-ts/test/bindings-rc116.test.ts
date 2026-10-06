@@ -71,7 +71,7 @@ const generatedFixture = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  for (const group of ["profile", "content"] as const) {
+  for (const group of ["profile", "content", "generic", "generic-defaulted"] as const) {
     const config = path.join(directory, "project", `bound-${group}`, "tsconfig.effx.json");
     const contract = yield* compile({ tsconfigPath: config, emit: "contract" }, Extensions.builtin);
     const bound = yield* compile({ tsconfigPath: config, emit: "handlers" }, Extensions.builtin);
@@ -220,6 +220,33 @@ describe("bound Profile and Content against installed rc.116", () => {
         assert.isTrue(
           diagnostics.some((diagnostic) =>
             diagnostic.file?.endsWith("/bound-content/.effx/generated/content-handlers.ts"),
+          ),
+          diagnostics.map((diagnostic) => `${diagnostic.file}: ${diagnostic.message}`).join("\n"),
+        );
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+    120_000,
+  );
+
+  it.effect(
+    "rejects a generic guards factory whose context tuple differs from the raw factory's",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* generatedFixture();
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const backend = path.join(directory, "src", "content-bound-generic.ts");
+        const source = yield* fs.readFileString(backend);
+        yield* fs.writeFileString(
+          backend,
+          source.replace(
+            "makeGenericGuards = <C extends GenericContentContext>(_context: C)",
+            "makeGenericGuards = <C extends GenericContentContext>(_context: C, _extra: number)",
+          ),
+        );
+        const diagnostics = yield* typeDiagnostics(directory);
+        assert.isTrue(
+          diagnostics.some((diagnostic) =>
+            diagnostic.file?.endsWith("/bound-generic/.effx/generated/content-handlers.ts"),
           ),
           diagnostics.map((diagnostic) => `${diagnostic.file}: ${diagnostic.message}`).join("\n"),
         );
