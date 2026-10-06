@@ -490,52 +490,61 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
     }
   }
 
-  yield* fs.makeDirectory(generatedDir, { recursive: true });
-  yield* fs.makeDirectory(project.effxDir, { recursive: true });
+  // Admission ends here: finish ordered native writes (or their IO failure) before
+  // interruption can close the caller's custody. This is not filesystem atomicity.
+  yield* Effect.uninterruptible(
+    Effect.gen(function* () {
+      yield* fs.makeDirectory(generatedDir, { recursive: true });
+      yield* fs.makeDirectory(project.effxDir, { recursive: true });
 
-  for (const file of files) {
-    yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
-  }
+      for (const file of files) {
+        yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
+      }
 
-  for (const file of obsolete) yield* fs.remove(file, { force: true });
+      for (const file of obsolete) yield* fs.remove(file, { force: true });
 
-  const irText = canonical(ir) + "\n";
-  yield* fs.writeFileString(path.join(project.effxDir, "ir.json"), irText);
-  yield* writeSurface(project.effxDir, ir, Option.getOrThrow(result.index));
+      const irText = canonical(ir) + "\n";
+      yield* fs.writeFileString(path.join(project.effxDir, "ir.json"), irText);
+      yield* writeSurface(project.effxDir, ir, Option.getOrThrow(result.index));
 
-  const manifestData: ManifestDraft = {
-    format: "effx-manifest",
-    version: 1,
-    compiler: versions,
-    semanticHash: yield* semanticHash(ir),
-    emit: collected.project?.emit ?? project.config.emit ?? "all",
-    generated,
-    diagnostics: result.diagnostics,
-    locations: locationsOf(collected, (file) =>
-      path.relative(
-        collected.project === undefined
-          ? project.rootDir
-          : path.dirname(path.dirname(collected.project.canonicalImportBase)),
-        file,
-      ),
-    ),
-  };
+      const manifestData: ManifestDraft = {
+        format: "effx-manifest",
+        version: 1,
+        compiler: versions,
+        semanticHash: yield* semanticHash(ir),
+        emit: collected.project?.emit ?? project.config.emit ?? "all",
+        generated,
+        diagnostics: result.diagnostics,
+        locations: locationsOf(collected, (file) =>
+          path.relative(
+            collected.project === undefined
+              ? project.rootDir
+              : path.dirname(path.dirname(collected.project.canonicalImportBase)),
+            file,
+          ),
+        ),
+      };
 
-  if (collected.spreads !== undefined) {
-    manifestData.spreads = collected.spreads.map((spread) => ({
-      ...spread,
-      location: { ...spread.location, file: path.relative(project.rootDir, spread.location.file) },
-    }));
-  }
+      if (collected.spreads !== undefined) {
+        manifestData.spreads = collected.spreads.map((spread) => ({
+          ...spread,
+          location: {
+            ...spread.location,
+            file: path.relative(project.rootDir, spread.location.file),
+          },
+        }));
+      }
 
-  const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
+      const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
 
-  yield* fs.writeFileString(manifestPath, manifest + "\n");
-  yield* Console.log(
-    "wrote " +
-      path.relative(".", project.effxDir) +
-      "/{ir.json, manifest.json, surface.json}; generated: " +
-      generated.join(", "),
+      yield* fs.writeFileString(manifestPath, manifest + "\n");
+      yield* Console.log(
+        "wrote " +
+          path.relative(".", project.effxDir) +
+          "/{ir.json, manifest.json, surface.json}; generated: " +
+          generated.join(", "),
+      );
+    }),
   );
 });
 /** Watch callers retain custody in their session scope after first success. */
