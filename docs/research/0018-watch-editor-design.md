@@ -1228,3 +1228,34 @@ Fixture Scope exit, native release, descriptor identity, independent OFD flags,
 kernel progress and actual close Exit remain distinct evidence. No raw arguments,
 environment, stderr, Cause or private handles are recorded. Product Root/C/native
 asset behavior and Linux+B/common-root/main holds are unchanged by setup repair.
+
+The changed `da21638` gate also exited 1: 24/36 passed, 12 failed, two files
+passed and the extra file failed. Its safe receipt is `native-gate-da21638.json`.
+It observed outer `Control/prefix` for progress/socket, `Drain/drain` for the
+remaining socket and all FIFO cases, and `Receipt/prefill` for every PTY case.
+Those are outer classifications, not established underlying fixture causes.
+The old and changed failed gates remain separate; neither establishes the
+extra-law acceptance. Already-decoded closed results are now retained before
+assertions, including selected inner failure categories and public errno only.
+
+Two additional source defects are distinct from those observed labels:
+
+- After a large prefill request returned EAGAIN, a successful one-byte capacity
+  probe left all subsequent requests at one byte. Restoring the existing large
+  request after each actual positive result repairs that artificial call-bound
+  exhaustion without changing bounds, assuming capacity, or relaxing partial
+  progress and one-byte EAGAIN assertions.
+- Node creates extra `stdio: "pipe"` descriptors as child-writable; its libuv
+  parent stream is readable, not writable. A JavaScript Writable class test does
+  not give FD4 parent-to-child write authority. The control seam uses an owned
+  real FIFO with an explicitly inherited child reader and independent parent
+  writer. FD3 keeps its proper child-to-parent receipt direction. Late ACKs after
+  actual producer exit and incidental terminal drain errors must not conceal
+  a retained fixture failure or fabricate successful frame verification.
+
+Independently read pinned primary direction sources:
+https://github.com/nodejs/node/blob/v24.21.0/lib/internal/child_process.js#L1050-L1062
+and https://github.com/nodejs/node/blob/v24.21.0/deps/uv/src/unix/process.c#L253-L259.
+These establish source semantics, not an observed timeout, forced kill, or runtime
+origin for the old gate. The fixture’s observer library is explicitly closed
+before Root release, so its reference cannot conceal actual library unmapping.
