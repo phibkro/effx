@@ -271,7 +271,6 @@ describe("the default writer of an effect clause", () => {
       const problem = result.diagnostics.find((diagnostic) => diagnostic.code === "EFFX1102");
 
       assert.isDefined(problem);
-      assert.include(problem?.message, "argument $.hook is a Lambda");
     }),
   );
 

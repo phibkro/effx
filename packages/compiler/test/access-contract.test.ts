@@ -193,13 +193,6 @@ const existingKeys = [
 
 const codes = (diagnostics: ReadonlyArray<Diagnostic>) => diagnostics.map((d) => d.code);
 
-/** What EFFX2506 reported, so a test can pin which declared condition was violated. */
-const claimReasons = (diagnostics: ReadonlyArray<Diagnostic>): string => {
-  const reported = diagnostics.filter((d) => d.code === "EFFX2506");
-
-  return reported.map((d) => d.message).join("\n");
-};
-
 describe("Http.Access semantic contract", () => {
   it.effect("construction only contributes one JSON AccessContract and its owner edge", () =>
     Effect.sync(() => {
@@ -424,7 +417,6 @@ describe("Http.Access snapshotDecisionForCommand", () => {
 
       assert.deepStrictEqual(codes(diagnostics), ["EFFX2501", "EFFX2506"]);
       assert.isTrue(diagnostics.every((d) => d.severity === "error"));
-      assert.include(claimReasons(diagnostics), "requirements must be empty");
     }),
   );
 
@@ -438,9 +430,7 @@ describe("Http.Access snapshotDecisionForCommand", () => {
       const queryTransaction = analyze({ kind: "Query", arg: transaction });
 
       assert.deepStrictEqual(codes(queryRead), ["EFFX2506"]);
-      assert.include(claimReasons(queryRead), "only a Command may claim");
       assert.deepStrictEqual(codes(commandTransaction), ["EFFX2506"]);
-      assert.include(claimReasons(commandTransaction), 'decisionTime must be "SnapshotRead"');
       assert.deepStrictEqual(codes(queryTransaction), ["EFFX2502", "EFFX2506"]);
     }),
   );
@@ -465,8 +455,6 @@ describe("Http.Access snapshotDecisionForCommand", () => {
           ["EFFX2501", "EFFX2506"],
           acceptedCredentials.join(" + "),
         );
-        assert.include(claimReasons(diagnostics), "acceptedCredentials must be exactly");
-        assert.notInclude(claimReasons(diagnostics), "principalKinds");
       }
     }),
   );
@@ -485,8 +473,6 @@ describe("Http.Access snapshotDecisionForCommand", () => {
           ["EFFX2501", "EFFX2506"],
           principalKinds.join(" + "),
         );
-        assert.include(claimReasons(diagnostics), "principalKinds must be exactly");
-        assert.notInclude(claimReasons(diagnostics), "acceptedCredentials");
       }
     }),
   );

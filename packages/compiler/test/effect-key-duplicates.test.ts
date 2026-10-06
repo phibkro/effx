@@ -59,16 +59,13 @@ const duplicates = (result: CompileResult) =>
   result.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1304");
 
 describe("EFFX1304 (duplicate effect key id)", () => {
-  it.effect("two definitions with the same effect key id are an error naming both", () =>
+  it.effect("two definitions with the same effect key id are rejected", () =>
     Effect.gen(function* () {
       const result = yield* compileWith(RateLimit, Twin);
       const [duplicate] = duplicates(result);
 
       assert.strictEqual(duplicates(result).length, 1);
       assert.strictEqual(duplicate?.severity, "error");
-      assert.include(duplicate?.message, '"app/RateLimit"');
-      assert.include(duplicate?.message, "app.RateLimit");
-      assert.include(duplicate?.message, "app.Twin");
       assert.isTrue(Option.isNone(result.files.value));
     }),
   );

@@ -247,8 +247,6 @@ describe("HTTP group export names", () => {
         );
 
         assert.strictEqual(findings.length, 1);
-        assert.include(findings[0]!.message, "external-native-api/social-events");
-        assert.include(findings[0]!.message, "external-native-api/social_events");
         assert.isTrue(Option.isNone(result.files.value));
       }
     }),

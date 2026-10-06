@@ -151,10 +151,8 @@ describe("public compiler extension index", () => {
       );
 
       assert.deepStrictEqual(
-        result.diagnostics
-          .filter((diagnostic) => diagnostic.code === noteFinding.entry.code)
-          .map((diagnostic) => diagnostic.message),
-        ["User.Get: from the typed layer"],
+        result.diagnostics.filter((diagnostic) => diagnostic.code === noteFinding.entry.code),
+        [noteFinding.emit({ subject: "User.Get", text: "from the typed layer" })],
       );
 
       // The derived laws run from the same index: a violation is the public `LawViolation`.

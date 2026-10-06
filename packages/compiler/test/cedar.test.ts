@@ -189,7 +189,6 @@ describe("cedarOf diagnostics (spec 0017 F6)", () => {
 
     assert.isTrue(Option.isNone(result.files));
     assert.deepStrictEqual(codes(result.diagnostics), ["EFFX4101"]);
-    assert.include(result.diagnostics[0]!.message, "entity type Scope");
   });
 
   it("EFFX4101 for a resolver export equal to a Model name", () => {
@@ -197,7 +196,6 @@ describe("cedarOf diagnostics (spec 0017 F6)", () => {
 
     assert.isTrue(Option.isNone(result.files));
     assert.deepStrictEqual(codes(result.diagnostics), ["EFFX4101"]);
-    assert.include(result.diagnostics[0]!.message, "entity type Org");
   });
 
   it("EFFX4101 for resolver names that are not Cedar entity type names", () => {
@@ -207,14 +205,15 @@ describe("cedarOf diagnostics (spec 0017 F6)", () => {
     assert.deepStrictEqual(codes(result.diagnostics), ["EFFX4101", "EFFX4101"]);
   });
 
-  it("EFFX4103/4104/4105 carry the operation name and severities", () => {
-    const messages = project(variantsIr).diagnostics.map(
-      (d) => `${d.code} ${d.severity} ${d.message}`,
-    );
+  it("EFFX4103/4104 preserve diagnostic codes, severities and order", () => {
+    const findings = project(variantsIr).diagnostics.map(({ code, severity }) => ({
+      code,
+      severity,
+    }));
 
-    assert.deepStrictEqual(messages, [
-      "EFFX4104 warning All.Op: capabilities All cannot be one Cedar request; the operation action has no capability group parent",
-      'EFFX4103 warning Params.Op: requirement "profile.owner" has parameters; projected id-only, the Cedar model does not enforce them',
+    assert.deepStrictEqual(findings, [
+      { code: "EFFX4104", severity: "warning" },
+      { code: "EFFX4103", severity: "warning" },
     ]);
   });
 

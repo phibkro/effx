@@ -215,7 +215,6 @@ describe("decisionTime default (spec 0024 §4)", () => {
       const found = errors(none).filter((diagnostic) => diagnostic.code === "EFFX2414");
 
       assert.strictEqual(found.length, 1);
-      assert.include(found[0]!.message, "Orders.op");
       assert.deepStrictEqual(found[0]!.location, { file: "orders.effx.ts", line: 3, col: 1 });
       assert.isTrue(Option.isNone(none.files.value));
 

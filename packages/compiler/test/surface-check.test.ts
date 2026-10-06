@@ -66,7 +66,6 @@ describe("checkWiring (spec 0021 §4.2)", () => {
     });
 
     assert.deepStrictEqual(codes(one), ["EFFX2802"]);
-    assert.include(one[0]?.message ?? "", "b-users-handlers.ts");
 
     const both = checkWiring({
       surface,

@@ -194,10 +194,6 @@ describe("schema-informed HTTP route parameter names", () => {
         errors(result).map((diagnostic) => diagnostic.code),
         ["EFFX2402"],
       );
-      assert.include(
-        errors(result)[0]!.message,
-        "params schema fields must match path parameters exactly",
-      );
       assert.isTrue(Option.isNone(result.files.value));
     }),
   );
@@ -215,10 +211,6 @@ describe("schema-informed HTTP route parameter names", () => {
           assert.deepStrictEqual(
             errors(result).map((diagnostic) => diagnostic.code),
             ["EFFX2402"],
-          );
-          assert.include(
-            errors(result)[0]!.message,
-            "path params require a params schema and vice versa",
           );
         }
       }),

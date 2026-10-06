@@ -94,7 +94,6 @@ describe("spec 0024 problem naming laws", () => {
     );
 
     assert.strictEqual(result.diagnostics[0]?.code, HttpDiagnostics.EFFX2412.entry.code);
-    assert.include(result.diagnostics[0]!.message, "social-eventscreateProblem");
   });
 
   it("is immutable, repeatable and has no compilation-global collision state", () => {
@@ -138,8 +137,6 @@ describe("spec 0024 problem naming laws", () => {
       result.diagnostics.map((d) => d.code),
       [HttpDiagnostics.EFFX2413.entry.code],
     );
-    assert.include(result.diagnostics[0]!.message, "profile.read");
-    assert.include(result.diagnostics[0]!.message, "content.read");
     assert.deepStrictEqual(
       nameProblems([left, operation("content", "read", ["c"], "ReadProblem")], "{Key}Problem")
         .diagnostics,

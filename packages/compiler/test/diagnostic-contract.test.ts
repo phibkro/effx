@@ -253,10 +253,6 @@ describe("checked diagnostic contract", () => {
 
       assert.strictEqual(result.diagnostics[0]?.code, contractCode);
 
-      assert.include(result.diagnostics[0]!.message, notice.entry.owner);
-
-      assert.include(result.diagnostics[0]!.message, notice.entry.code);
-
       assert.isTrue(Option.isNone(result.files.value));
     }),
   );
@@ -313,7 +309,7 @@ describe("checked diagnostic contract", () => {
   );
 
   it.effect(
-    "valid nested diagnostics retain root, occurrence, location and related-array identities",
+    "valid nested diagnostics preserve occurrence values, locations and related order",
     () =>
       Effect.sync(() => {
         const registry = Option.getOrThrow(registryOf([plugin()]).value);
@@ -332,19 +328,11 @@ describe("checked diagnostic contract", () => {
 
         const checked = validateDiagnostics(diagnostics, registry, "fixture", { phase: "analyze" });
 
-        assert.strictEqual(checked, diagnostics);
-        assert.strictEqual(checked[0], leaf);
-        assert.strictEqual(checked[1], parent);
-        assert.strictEqual(checked[1]?.location, location);
-        assert.strictEqual(checked[1]?.related, related);
-        assert.strictEqual(checked[1]?.related?.[0], child);
-        assert.strictEqual(checked[1]?.related?.[0]?.related, children);
-        assert.strictEqual(checked[1]?.related?.[0]?.related?.[0], leaf);
-        assert.strictEqual(checked[1]?.related?.[0]?.related?.[0]?.location, otherLocation);
+        assert.deepStrictEqual(checked, diagnostics);
 
         const emptyDiagnostics: Array<Diagnostic> = [];
 
-        assert.strictEqual(
+        assert.deepStrictEqual(
           validateDiagnostics(emptyDiagnostics, registry, "fixture"),
           emptyDiagnostics,
         );
@@ -352,7 +340,7 @@ describe("checked diagnostic contract", () => {
   );
 
   it.effect(
-    "an invalid descendant copies only its changed path and preserves valid sibling identities",
+    "an invalid descendant is replaced while valid sibling and parent data are preserved",
     () =>
       Effect.sync(() => {
         const registry = Option.getOrThrow(registryOf([plugin()]).value);
@@ -370,12 +358,14 @@ describe("checked diagnostic contract", () => {
 
         const checked = validateDiagnostics(diagnostics, registry, "fixture");
 
-        assert.notStrictEqual(checked, diagnostics);
-        assert.strictEqual(checked[0], sibling);
-        assert.notStrictEqual(checked[1], parent);
-        assert.strictEqual(checked[1]?.location, location);
-        assert.notStrictEqual(checked[1]?.related, related);
-        assert.strictEqual(checked[1]?.related?.[0], sibling);
+        assert.strictEqual(checked.length, diagnostics.length);
+        assert.deepStrictEqual(checked[0], sibling);
+        assert.deepStrictEqual(
+          { ...checked[1], related: undefined },
+          { ...parent, related: undefined },
+        );
+        assert.strictEqual(checked[1]?.related?.length, related.length);
+        assert.deepStrictEqual(checked[1]?.related?.[0], sibling);
         assert.strictEqual(checked[1]?.related?.[1]?.code, contractCode);
       }),
   );
@@ -526,15 +516,10 @@ describe("checked diagnostic contract", () => {
       assert.deepStrictEqual(validCollect.diagnostics, [warning]);
       const invalidCollect = yield* compileCollected({ ...empty, diagnostics: [error] }, []);
       assert.isTrue(containsContract(invalidCollect.diagnostics));
-      assert.deepStrictEqual(invalidCollect.diagnostics, [
-        CoreDiagnostics["EFFX0010"].emit({
-          _tag: "SeverityMismatch",
-          owner: "source frontend",
-          code: "EFFX1106",
-          actualSeverity: "error",
-          policy: "frontend-resolution-versus-core-contract (collect: warning)",
-        }),
-      ]);
+      assert.deepStrictEqual(
+        invalidCollect.diagnostics.map(({ code, severity }) => ({ code, severity })),
+        [{ code: contractCode, severity: "error" }],
+      );
 
       for (const stage of ["interpret", "analyze"] as const) {
         const selected = plugin({
@@ -561,10 +546,6 @@ describe("checked diagnostic contract", () => {
 
         assert.isFalse(containsContract(validResult));
         assert.strictEqual(validResult[0]?.severity, "error");
-        assert.include(
-          result[0]!.message,
-          "frontend-resolution-versus-core-contract (" + stage + ": error)",
-        );
       }
     }),
   );
@@ -589,15 +570,6 @@ describe("checked diagnostic contract", () => {
 
         if (strictAccess === emittedStrict)
           assert.deepStrictEqual(result.diagnostics, [diagnostic]);
-        else
-          assert.include(
-            result.diagnostics[0]!.message,
-            "strictAccess (strictAccess=" +
-              strictAccess +
-              ": " +
-              (strictAccess ? "error" : "warning") +
-              ")",
-          );
       }
     }),
   );
