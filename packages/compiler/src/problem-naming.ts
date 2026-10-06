@@ -1,11 +1,11 @@
 import { Option, Schema } from "effect";
 import { StableId } from "@effx/ir";
-import type { Declaration } from "./Collected.ts";
+import type { AnnotationArg, Declaration } from "./Collected.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
 import { HttpDiagnostics } from "./diagnostics/http.ts";
 import { operationIdOf } from "./extensions/core.ts";
 import { groupExportPart } from "./generate/http-contracts.ts";
-import { isAnnotationOptions } from "./request-channels.ts";
+import { isAnnotationOptions, optionsOf } from "./request-channels.ts";
 
 const safeIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
@@ -70,11 +70,17 @@ export const nameProblems = (
       (annotation) => annotation.name === "Http.Contract",
     );
 
-    const options = contract?.args[0];
+    const options = contract === undefined ? undefined : optionsOf(contract);
 
-    if (!isAnnotationOptions(options)) return declaration;
+    if (options === undefined) return declaration;
     const group = Schema.is(Schema.String)(options.group) ? options.group : "operations";
-    const metadata = isAnnotationOptions(options.metadata) ? options.metadata : undefined;
+
+    const metadata: Readonly<Record<string, AnnotationArg>> | undefined = isAnnotationOptions(
+      options.metadata,
+    )
+      ? options.metadata
+      : undefined;
+
     const operationId = metadata?.operationId;
 
     const key = Schema.is(Schema.String)(operationId)
@@ -84,11 +90,11 @@ export const nameProblems = (
     return {
       ...declaration,
       annotations: declaration.annotations.map((annotation) => {
-        const args = annotation.args[0];
+        const args = optionsOf(annotation);
 
         if (
           annotation.name !== "Http.Problems" ||
-          !isAnnotationOptions(args) ||
+          args === undefined ||
           args.identifier !== undefined
         )
           return annotation;

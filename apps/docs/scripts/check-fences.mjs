@@ -206,4 +206,4 @@ if (args[0] === '--emit-anchor-fixture') {
   await writeFile(path, '<!doctype html><html lang="en"><meta charset="utf-8"><title>Diagnostic anchor regression</title><body>' + fixtureHtml + '</body></html>');
   console.log(`docs:check: isolated browser fixture: ${path}`);
 }
-console.log('docs:check: 69 compiled diagnostic index targets, explanations, examples, namespaced/punctuation fixtures and dead-link negative control pass');
+console.log(`docs:check: ${bundledDiagnosticEntries.length} compiled diagnostic index targets, explanations, examples, namespaced/punctuation fixtures and dead-link negative control pass`);
