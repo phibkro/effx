@@ -143,7 +143,15 @@ describe("spec 0024 naming config precedence", () => {
             operations,
             source
               .replace("Profile.Read", "profile.read")
-              .replace("Profile.Update", "profile.update"),
+              .replace("Profile.Update", "profile.update")
+              .replace(
+                "headers: ProfileReadHeaders,",
+                'headers: ProfileReadHeaders, metadata: { operationId: "profile.read" },',
+              )
+              .replace(
+                "headers: ProfileWriteHeaders,",
+                'headers: ProfileWriteHeaders, metadata: { operationId: "profile.update" },',
+              ),
           );
 
           const accepted = yield* run(
