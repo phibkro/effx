@@ -2,6 +2,7 @@ import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import {
   Crypto,
+  Cause,
   Deferred,
   Effect,
   Exit,
@@ -717,6 +718,182 @@ describe("normal build result writer and cross-process custody", () => {
           generatedDir: directory + "/" + destination,
           effxDir: project.effxDir,
         });
+      }).pipe(Effect.scoped, Effect.provide(frontend)),
+  );
+
+  it.live(
+    "one-shot admitted native batch keeps custody through interruption and settles in order",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+
+        const receipts: Array<{
+          phase: string;
+          before: boolean;
+          manifest: boolean;
+          complete: boolean;
+          error: string;
+          released: boolean;
+          next: boolean;
+        }> = [];
+
+        for (const phase of ["preadmission", "admitted-success", "admitted-failure"] as const) {
+          const directory = yield* copyUsersFixture();
+          const config = directory + "/tsconfig.writer.json";
+          yield* fs.writeFileString(
+            config,
+            '{ "extends": "./tsconfig.json", "include": ["src/operations.ts"] }',
+          );
+          const project = yield* resolveProject(config);
+          const accepted = yield* failOnErrors(yield* compile(project.config, project.extensions));
+          const files = Option.getOrThrow(accepted.files.value);
+
+          const generatedDir =
+            Option.getOrThrow(accepted.collected.value).project?.outputDir ??
+            project.effxDir + "/generated";
+
+          const firstFile = generatedDir + "/" + files[0]!.path;
+          const manifest = project.effxDir + "/manifest.json";
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const resources = { generatedDir, effxDir: project.effxDir };
+
+          const writeFileString: FileSystem.FileSystem["writeFileString"] = Effect.fnUntraced(
+            function* (file, contents, options) {
+              if (phase !== "preadmission" && file === firstFile) {
+                // Delegate the real native write; delay its completion receipt, not its
+                // contents. This narrow noncancellable IO models a native write already
+                // admitted by the batch. The rest of the writer has no test-side shield.
+                yield* Effect.uninterruptible(
+                  Effect.gen(function* () {
+                    yield* fs.writeFileString(file, contents, options);
+                    yield* Deferred.succeed(entered, undefined);
+                    yield* Deferred.await(release);
+                  }),
+                );
+              } else {
+                yield* fs.writeFileString(file, contents, options);
+              }
+            },
+          );
+
+          const exists: FileSystem.FileSystem["exists"] = Effect.fnUntraced(function* (file) {
+            const value = yield* fs.exists(file);
+
+            if (phase === "preadmission" && file === manifest) {
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+            }
+
+            return value;
+          });
+
+          const observedFs = FileSystem.FileSystem.of({ ...fs, writeFileString, exists });
+
+          yield* Effect.gen(function* () {
+            const fiber = yield* Effect.forkChild(
+              build(project, versions).pipe(
+                Effect.provideService(FileSystem.FileSystem, observedFs),
+              ),
+            );
+
+            yield* Deferred.await(entered);
+
+            if (phase === "preadmission") {
+              yield* Fiber.interrupt(fiber);
+            }
+
+            const interrupt =
+              phase === "preadmission"
+                ? undefined
+                : yield* Effect.forkChild(Fiber.interrupt(fiber), { startImmediately: true });
+
+            const before =
+              phase === "preadmission"
+                ? false
+                : (yield* competingProcess(resources)).text.includes("REFUSED");
+
+            if (phase === "admitted-failure") {
+              // A real directory makes the second native write fail with EISDIR.
+              yield* fs.makeDirectory(generatedDir + "/" + files[1]!.path);
+            }
+
+            yield* Deferred.succeed(release, undefined);
+
+            if (interrupt !== undefined) yield* Fiber.join(interrupt);
+            const exit = yield* Fiber.await(fiber);
+            const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+
+            const released =
+              !(yield* fs.exists(generatedDir + "/" + lockName)) &&
+              !(yield* fs.exists(project.effxDir + "/" + lockName));
+
+            const next = (yield* competingProcess(resources)).text.includes("ADMITTED");
+            const manifestCompleted = yield* fs.exists(manifest);
+            let complete = true;
+
+            for (const file of files) {
+              const location = generatedDir + "/" + file.path;
+              const present = yield* fs.exists(location);
+
+              if (phase === "preadmission") complete = complete && !present;
+              else if (phase === "admitted-success")
+                complete =
+                  complete && present && (yield* fs.readFileString(location)) === file.contents;
+            }
+
+            const receipt = {
+              phase,
+              before,
+              manifest: manifestCompleted,
+              complete,
+              error: Option.isSome(error) ? error.value._tag : "none",
+              released,
+              next,
+            };
+
+            receipts.push(receipt);
+            yield* Effect.log("one-shot-native-writer-receipt", receipt);
+
+            if (phase === "admitted-success" && manifestCompleted) {
+              const artifacts = yield* artifactBytes(directory);
+              assert.strictEqual(
+                artifacts["ir.json"],
+                canonical(Option.getOrThrow(accepted.ir.value)) + "\n",
+              );
+            }
+          }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        }
+
+        assert.deepStrictEqual(receipts, [
+          {
+            phase: "preadmission",
+            before: false,
+            manifest: false,
+            complete: true,
+            error: "none",
+            released: true,
+            next: true,
+          },
+          {
+            phase: "admitted-success",
+            before: true,
+            manifest: true,
+            complete: true,
+            error: "none",
+            released: true,
+            next: true,
+          },
+          {
+            phase: "admitted-failure",
+            before: true,
+            manifest: false,
+            complete: true,
+            error: "PlatformError",
+            released: true,
+            next: true,
+          },
+        ]);
       }).pipe(Effect.scoped, Effect.provide(frontend)),
   );
 });
