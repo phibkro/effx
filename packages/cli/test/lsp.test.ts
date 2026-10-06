@@ -1157,4 +1157,90 @@ describe("maintained LSP client project journeys", () => {
       ),
     30000,
   );
+
+  it.live.each([
+    { phase: "initial", fault: "malformed" },
+    { phase: "initial", fault: "missing" },
+    { phase: "introduced", fault: "malformed" },
+    { phase: "introduced", fault: "missing" },
+  ])(
+    "observes $phase $fault external reference recovery without client hints",
+    ({ phase, fault }) =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+
+          const external = yield* fs.makeTempDirectoryScoped({
+            prefix: "effx-lsp-external-reference-",
+          });
+
+          const referenceConfig = path.join(external, "tsconfig.json");
+          yield* fs.writeFileString(
+            path.join(external, "ref.ts"),
+            "export const referenced = 1;\n",
+          );
+
+          const validReference = yield* encodeTsconfig({
+            compilerOptions: { composite: true },
+            files: ["ref.ts"],
+          });
+
+          if (fault === "malformed") yield* fs.writeFileString(referenceConfig, "{");
+          const selectedConfig = path.join(directory, "tsconfig.json");
+          const originalConfig = yield* decodeTsconfig(yield* fs.readFileString(selectedConfig));
+
+          const withReference = yield* encodeTsconfig({
+            ...originalConfig,
+            references: [{ path: external }],
+          });
+
+          if (phase === "initial") yield* fs.writeFileString(selectedConfig, withReference);
+          const file = path.join(directory, "src", "broken.ts");
+          const source = yield* fs.readFileString(file);
+          const uri = (yield* path.toFileUrl(file)).href;
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+          yield* initializePeer(peer, clientParameters);
+          yield* peer.notification("initialized", {});
+          yield* peer.notification("textDocument/didOpen", {
+            textDocument: { uri, version: 1, languageId: "typescript", text: source },
+          });
+
+          if (phase === "introduced") {
+            assert.isAbove((yield* published(peer, uri, 1)).diagnostics.length, 0);
+            yield* fs.writeFileString(selectedConfig, withReference);
+          }
+
+          assert.deepStrictEqual((yield* published(peer, uri, 1)).diagnostics, []);
+          const isLog = Schema.is(Schema.Struct({ message: Schema.String }));
+          yield* peer.waitNotification(
+            "window/logMessage",
+            (value) => isLog(value) && value.message.includes("Analysis unavailable"),
+          );
+          // Repair only the newly observed external file: no editor hint or unrelated edit.
+          yield* fs.writeFileString(referenceConfig, validReference);
+          const isPublished = Schema.is(Published);
+
+          const repaired = yield* decodePublished(
+            yield* peer.waitNotification(
+              "textDocument/publishDiagnostics",
+              (value) => isPublished(value) && value.uri === uri && value.diagnostics.length > 0,
+            ),
+          );
+
+          assert.strictEqual(repaired.version, 1);
+          assert.strictEqual(yield* fs.readFileString(file), source);
+          assert.strictEqual(yield* peer.request("shutdown"), null);
+          yield* peer.notification("exit");
+          assert.strictEqual((yield* peer.exit).code, 0);
+
+          for (const message of yield* peer.notifications) {
+            if (message.method === "window/logMessage" && isLog(message.params))
+              assert.notInclude(message.params.message, "RestartRequired");
+          }
+        }),
+      ),
+    30000,
+  );
 });
