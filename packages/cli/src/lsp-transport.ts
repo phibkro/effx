@@ -840,7 +840,11 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
       const watermark = yield* ingress.withPermit(
         Effect.gen(function* () {
-          yield* Effect.uninterruptible(pump());
+          yield* Effect.uninterruptible(pump()).pipe(
+            Effect.catchTag("TransportError", (error) =>
+              Effect.sync(() => stop(error)).pipe(Effect.andThen(Effect.fail(error))),
+            ),
+          );
 
           return totalRead;
         }),
