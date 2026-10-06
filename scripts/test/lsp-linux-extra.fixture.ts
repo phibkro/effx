@@ -40,6 +40,48 @@ const isLinuxError = Schema.is(LinuxLspError);
 
 const hasPublicErrno = Schema.is(Schema.Struct({ errno: Schema.Int }));
 
+// Root emits these local static details, not a foreign/raw diagnostic payload.
+// Validate the reason/detail pair before mapping it into the closed receipt.
+const isRootWriterFailure = Schema.is(
+  Schema.Union([
+    Schema.Struct({ reason: Schema.Literal("Closed"), cause: Schema.Literal("closed stdout") }),
+    Schema.Struct({
+      reason: Schema.Literal("Capacity"),
+      cause: Schema.Literals(["one native writer", "native frame bound", "native output span"]),
+    }),
+    Schema.Struct({
+      reason: Schema.Literal("IO"),
+      cause: Schema.Literals([
+        "stdout frame",
+        "stdout write deadline",
+        "invalid output poll result",
+        "output poll",
+        "output poll error",
+        "invalid native write result",
+        "stdout native write",
+        "native write progress",
+        "invalid errno classification",
+      ]),
+    }),
+  ]),
+);
+
+const rootWriterFailures = {
+  "closed stdout": "closed",
+  "one native writer": "writer-capacity",
+  "native frame bound": "frame-capacity",
+  "native output span": "span-capacity",
+  "stdout frame": "frame-construction",
+  "stdout write deadline": "deadline",
+  "invalid output poll result": "invalid-output-poll",
+  "output poll": "output-poll",
+  "output poll error": "output-terminal",
+  "invalid native write result": "invalid-native-result",
+  "stdout native write": "native-write",
+  "native write progress": "invalid-progress",
+  "invalid errno classification": "errno-classification",
+} as const satisfies Record<string, NonNullable<ExtraReceipt["writerFailure"]>>;
+
 let stage: typeof ExtraStage.Type = "setup";
 
 let identityFailure: ExtraReceipt["identityFailure"];
@@ -62,11 +104,44 @@ type FixtureObservations = Pick<
   | "minimumPartialBytes"
   | "wouldBlock"
   | "pollMask"
+  | "writerPending"
+  | "writerOutcome"
+  | "writerReason"
+  | "writerFailure"
+  | "outputPressureFailure"
+  | "outputPressurePollMask"
+  | "outputPressureErrno"
 >;
 
 const fixtureObservations: {
   -readonly [K in keyof FixtureObservations]: FixtureObservations[K];
 } = {};
+
+// Snapshot at the law phase, never in onExit: scope cleanup must not replace a
+// pending writer observation with the interruption caused by a failed assertion.
+const observeWriter = (exit: Exit.Exit<void, TransportError> | undefined) => {
+  fixtureObservations.writerPending = exit === undefined;
+  fixtureObservations.writerOutcome =
+    exit === undefined
+      ? "Pending"
+      : Exit.isSuccess(exit)
+        ? "Success"
+        : Exit.hasInterrupts(exit)
+          ? "Interrupted"
+          : Exit.hasDies(exit)
+            ? "Defect"
+            : "Failure";
+
+  if (exit === undefined || Exit.isSuccess(exit)) return;
+  const error = Cause.findError(exit.cause);
+
+  if (error._tag === "Success" && isRootWriterFailure(error.success)) {
+    fixtureObservations.writerReason = error.success.reason;
+    fixtureObservations.writerFailure = rootWriterFailures[error.success.cause];
+  }
+  // Root intentionally replaces native errno with its static detail; no errno
+  // is inferred here. Only a direct negative output poll can supply one below.
+};
 
 const identityEqual = <A>(
   actual: A,
@@ -437,6 +512,10 @@ const main = Effect.gen(function* () {
         { startImmediately: true },
       );
 
+      observeWriter(writerOutcome);
+
+      if (writerOutcome !== undefined)
+        fixtureObservations.outputPressureFailure = "writer-completed";
       assert.equal(writerOutcome, undefined);
       yield* receipt({ event: "writer-waiting", stage: "prefix", writerPending: true });
       stage = "prefix";
@@ -445,16 +524,39 @@ const main = Effect.gen(function* () {
       let pollMask = 0;
 
       while (true) {
-        assert.equal(writerOutcome, undefined, "writer completed before observed backpressure");
-        pollMask = yield* Effect.sync(() => observer.symbols.output_ready_now(outputFd));
-        assert.ok(pollMask >= 0);
-        assert.equal(
-          pollMask &
-            (observer.symbols.poll_err() |
-              observer.symbols.poll_hup() |
-              observer.symbols.poll_invalid()),
-          0,
-        );
+        // Poll and writer snapshot are one phase observation, before any guard
+        // can replace their evidence. FD4 command masks remain separate.
+        pollMask = yield* Effect.sync(() => {
+          observeWriter(writerOutcome);
+          const ready = observer.symbols.output_ready_now(outputFd);
+
+          if (ready < 0) fixtureObservations.outputPressureErrno = -ready;
+          else fixtureObservations.outputPressurePollMask = ready;
+
+          if (writerOutcome !== undefined)
+            fixtureObservations.outputPressureFailure = "writer-completed";
+          else if (ready < 0) fixtureObservations.outputPressureFailure = "poll";
+          else if (
+            (ready &
+              (observer.symbols.poll_err() |
+                observer.symbols.poll_hup() |
+                observer.symbols.poll_invalid())) !==
+            0
+          )
+            fixtureObservations.outputPressureFailure = "terminal";
+
+          assert.equal(writerOutcome, undefined, "writer completed before observed backpressure");
+          assert.ok(ready >= 0);
+          assert.equal(
+            ready &
+              (observer.symbols.poll_err() |
+                observer.symbols.poll_hup() |
+                observer.symbols.poll_invalid()),
+            0,
+          );
+
+          return ready;
+        });
 
         if ((pollMask & observer.symbols.poll_out()) === 0) break;
         yield* io.turn;
