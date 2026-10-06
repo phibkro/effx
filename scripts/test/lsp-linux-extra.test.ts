@@ -52,7 +52,6 @@ const runExtra = Effect.fnUntraced(function* (
       assert.strictEqual(
         code,
         0,
-        `extra peer exit=${code}; mode=${mode}; form=${form}; reason=${result?.fault?.reason ?? "unobserved"}; stage=${result?.fault?.stage ?? "unobserved"}`,
         `extra peer exit=${code}; mode=${mode}; form=${form}; reason=${result?.fault?.reason ?? "unobserved"}; stage=${result?.fault?.stage ?? "unobserved"}; fixtureExit=${result?.code ?? "unobserved"}; fixtureTag=${fixtureFailure?.failureTag ?? "unobserved"}; fixtureStage=${fixtureFailure?.stage ?? "unobserved"}; prefill=${fixtureFailure?.prefillFailure ?? "unobserved"}; command=${fixtureFailure?.commandFailure ?? "unobserved"}; errno=${fixtureFailure?.fixtureErrno ?? "unobserved"}`,
       );
       assert.isDefined(result, "extra peer produced no safe result");
