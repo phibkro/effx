@@ -1,0 +1,11 @@
+{
+  "extends": "../contract/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  },
+  "include": [
+    "../../src/profile-consumer.effx.ts",
+    "../../src/directory-consumer.effx.ts",
+    "../../src/content-consumer.effx.ts"
+  ]
+}

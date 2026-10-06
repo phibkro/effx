@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "bun ../../../../cli/src/main.ts build --project project/typecheck-contract/tsconfig.effx.json --emit=contract && cmp -- project/typecheck-contract/.effx/generated/profile-contract.ts project/contract/.effx/generated/profile-contract.ts && bun ../../../../cli/src/main.ts build --project project/typecheck-handlers/tsconfig.effx.json --emit=handlers",
+    "generate": "bun ../../../../cli/src/main.ts build --project project/typecheck-contract/tsconfig.effx.json --emit=contract && cmp -- project/typecheck-contract/.effx/generated/profile-contract.ts project/contract/.effx/generated/profile-contract.ts && bun ../../../../cli/src/main.ts build --project project/typecheck-handlers/tsconfig.effx.json --emit=handlers && bun ../../../../cli/src/main.ts build --project project/status-explicit/tsconfig.effx.json --emit=contract && bun ../../../../cli/src/main.ts build --project project/status-consumer/tsconfig.effx.json --emit=contract",
     "typecheck": "bun run generate && tsc --noEmit -p tsconfig.target.json"
   },
   "dependencies": {

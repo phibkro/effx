@@ -10,6 +10,7 @@ import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
+import { canonical, semanticHash, type Node } from "@effx/ir";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { HttpApi, OpenApi } from "effect/http-api";
 import type { HttpApiGroup } from "effect/http-api";
@@ -27,7 +28,7 @@ interface GeneratedContract {
   readonly SharedApi: HttpApiGroup.Top;
 }
 
-const generatedDocument = Effect.fnUntraced(function* () {
+const generatedDocument = Effect.fnUntraced(function* (omitRedundant200 = false) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -79,6 +80,7 @@ export const Root = HttpApi.make("StatusTestRoot").add(HttpApiGroup.make("shared
   HttpApiEndpoint.get("bareInherited", "/bare-inherited", { success: BareBody }),
   HttpApiEndpoint.post("bareCreated", "/bare-created", { success: BareBody.pipe(HttpApiSchema.status(201)) }),
   HttpApiEndpoint.get("bareOverride", "/bare-override", { success: BareBody.pipe(HttpApiSchema.status(200)) }),
+  HttpApiEndpoint.get("bareDefault", "/bare-default", { success: Body }),
 ));
 `,
   );
@@ -89,7 +91,7 @@ import { Http, Operation } from "@effx/runtime";
 import { Root, Input, Body, AlreadyCreated, BareBody, ResponseHeaders } from "./support.ts";
 export const Group = Http.group({ group: "shared", root: Root });
 export const Read = Operation.query({ name: "shared.read", input: Input, success: Body })
-  .in(Group).http.get("/read").http.contract({ status: 200, responseHeaders: ResponseHeaders, conditional: true }).declare();
+  .in(Group).http.get("/read").http.contract({ ${omitRedundant200 ? "" : "status: 200, "}responseHeaders: ResponseHeaders, conditional: true }).declare();
 export const Create = Operation.command({ name: "shared.create", input: Input, success: Body })
   .in(Group).http.post("/create").http.contract({ status: 201, responseHeaders: ResponseHeaders }).declare();
 export const Override = Operation.query({ name: "shared.override", input: Input, success: AlreadyCreated })
@@ -102,6 +104,8 @@ export const BareCreated = Operation.command({ name: "shared.bareCreated", input
   .in(Group).http.post("/bare-created").http.contract({ status: 201 }).declare();
 export const BareOverride = Operation.query({ name: "shared.bareOverride", input: Input, success: BareBody })
   .in(Group).http.get("/bare-override").http.contract({ status: 200 }).declare();
+export const BareDefault = Operation.query({ name: "shared.bareDefault", input: Input, success: Body })
+  .in(Group).http.get("/bare-default").http.contract({ ${omitRedundant200 ? "" : "status: 200"} }).declare();
 `,
   );
 
@@ -126,7 +130,38 @@ export const BareOverride = Operation.query({ name: "shared.bareOverride", input
     () => import(/* @vite-ignore */ path.join(out, "shared-contract.ts")),
   );
 
-  return OpenApi.fromApi(HttpApi.make("StatusTest").add(module.SharedApi));
+  const api = HttpApi.make("StatusTest").add(module.SharedApi);
+
+  const sdk: Array<{
+    group: string;
+    key: string;
+    method: string;
+    path: string;
+    successes: Array<number>;
+    errors: Array<number>;
+  }> = [];
+  // The same native reflection used by HttpApiClient, including effective response statuses.
+
+  HttpApi.reflect(api, {
+    onGroup: () => {},
+    onEndpoint: ({ group, endpoint, successes, errors }) => {
+      sdk.push({
+        group: group.identifier,
+        key: endpoint.identifier,
+        method: endpoint.method,
+        path: endpoint.path,
+        successes: [...successes.keys()].toSorted((a, b) => a - b),
+        errors: [...errors.keys()].toSorted((a, b) => a - b),
+      });
+    },
+  });
+
+  return {
+    doc: OpenApi.fromApi(api),
+    sdk: sdk.toSorted((a, b) => a.key.localeCompare(b.key)),
+    ir: Option.getOrThrow(result.ir.value),
+    files: Option.getOrThrow(result.files.value),
+  };
 });
 
 const expectedBody = {
@@ -143,7 +178,7 @@ const expectedHeaders = {
 describe("generated response status envelopes", () => {
   it.effect("shares one component across header-bearing 200 and 201 responses", () =>
     Effect.gen(function* () {
-      const doc = yield* generatedDocument();
+      const { doc } = yield* generatedDocument();
       assert.deepStrictEqual(
         Object.keys(doc.components.schemas).filter((key) => key.startsWith("SharedBody")),
         ["SharedBody"],
@@ -163,7 +198,7 @@ describe("generated response status envelopes", () => {
 
   it.effect("preserves statuses, response headers, conditional responses and body JSON", () =>
     Effect.gen(function* () {
-      const doc = yield* generatedDocument();
+      const { doc } = yield* generatedDocument();
 
       for (const [route, method, statuses] of [
         ["/read", "get", ["200", "304"]],
@@ -189,7 +224,7 @@ describe("generated response status envelopes", () => {
 
   it.effect("keeps inherited, explicit 201 and overriding 200 statuses on bare responses", () =>
     Effect.gen(function* () {
-      const doc = yield* generatedDocument();
+      const { doc } = yield* generatedDocument();
 
       for (const [route, method, status] of [
         ["/bare-inherited", "get", "202"],
@@ -214,5 +249,83 @@ describe("generated response status envelopes", () => {
         );
       }
     }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "omitting redundant 200 changes only IR status and S5 expressions, not OpenAPI or SDK operations",
+    () =>
+      Effect.gen(function* () {
+        const explicit = yield* generatedDocument();
+        const consumer = yield* generatedDocument(true);
+        assert.deepStrictEqual(consumer.doc, explicit.doc);
+        assert.deepStrictEqual(consumer.sdk, explicit.sdk);
+        assert.lengthOf(consumer.sdk, 8);
+        const decodeData = Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json));
+        const nodes: Array<Node> = [];
+        let removed = 0;
+
+        for (const node of explicit.ir.nodes) {
+          if (
+            node._tag !== "Extension" ||
+            node.tag !== "HttpContract" ||
+            !["ext:http-contract/shared.read", "ext:http-contract/shared.bareDefault"].includes(
+              node.id,
+            )
+          ) {
+            nodes.push(node);
+            continue;
+          }
+
+          const data = yield* decodeData(node.data);
+          assert.strictEqual(data.status, 200);
+          const { status: _status, ...rest } = data;
+          removed++;
+          nodes.push({ ...node, data: rest });
+        }
+
+        const normalized = { ...explicit.ir, nodes };
+        assert.strictEqual(removed, 2);
+        assert.strictEqual(canonical(normalized), canonical(consumer.ir));
+        assert.notStrictEqual(yield* semanticHash(explicit.ir), yield* semanticHash(consumer.ir));
+        assert.lengthOf(explicit.files, 1);
+        assert.deepStrictEqual(
+          explicit.files.map((file) => file.path),
+          consumer.files.map((file) => file.path),
+        );
+        const text = explicit.files[0]!.contents;
+
+        const headered =
+          "HttpApiSchema.WithHeaders(Body, ResponseHeaders).pipe(HttpApiSchema.status(200))";
+
+        const conditional =
+          "((SchemaAST.resolve(Body.ast)?.httpApiStatus ?? 200) === 200 ? Body : HttpApiSchema.status(200)(Body))";
+
+        assert.strictEqual(text.split(headered).length - 1, 1);
+        assert.strictEqual(text.split(conditional).length - 1, 1);
+        assert.include(text, 'import { Schema, SchemaAST } from "effect";');
+        // Normalize just these two expressions and the import required only by S5.
+        assert.strictEqual(
+          text
+            .replace(headered, "HttpApiSchema.WithHeaders(Body, ResponseHeaders)")
+            .replace(conditional, "Body")
+            .replace(
+              'import { Schema, SchemaAST } from "effect";',
+              'import { Schema } from "effect";',
+            ),
+          consumer.files[0]!.contents,
+        );
+        // Negative controls: omission must not erase a real schema override or an explicit 201.
+
+        for (const doc of [explicit.doc, consumer.doc]) {
+          assert.isDefined(doc.paths["/override"]!.get!.responses[200]);
+          assert.isUndefined(doc.paths["/override"]!.get!.responses[201]);
+          assert.isDefined(doc.paths["/create"]!.post!.responses[201]);
+          assert.isUndefined(doc.paths["/create"]!.post!.responses[200]);
+          assert.isDefined(doc.paths["/inherit"]!.get!.responses[201]);
+          assert.isDefined(doc.paths["/bare-override"]!.get!.responses[200]);
+          assert.isUndefined(doc.paths["/bare-override"]!.get!.responses[202]);
+          assert.isDefined(doc.paths["/bare-created"]!.post!.responses[201]);
+        }
+      }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 });

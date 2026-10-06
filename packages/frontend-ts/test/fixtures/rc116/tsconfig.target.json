@@ -1,5 +1,8 @@
 {
   "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "resolveJsonModule": true
+  },
   "include": [
     "src/directory-support.ts",
     "src/directory-root.ts",

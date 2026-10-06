@@ -3,7 +3,8 @@
  *
  * The operation `input` says which request channel it fills; `Http.Contract` only spells what the
  * input cannot imply. The compiler writes the derived channel into the contract before
- * interpretation, so the dense and the spelled-out declaration share IR, hash and generated files.
+ * interpretation, so spelling out just the derived channels preserves IR, hash and generated files.
+ * Omitting an explicit 200 preserves the default wire status, not the IR (spec 0024 §3).
  */
 import { Capability, Operation } from "@effx/runtime";
 import {
@@ -25,7 +26,7 @@ export const searchSettings = Operation.query({
 })
   .in(SettingsGroup)
   .http.get("/api/settings/search")
-  .http.contract({ status: 200 })
+  .http.contract({})
   .http.problems({ codes: ["request.malformed"] })
   .http.access({
     capabilities: Capability.one("settings.search"),
@@ -43,7 +44,7 @@ export const readVersion = Operation.query({
 })
   .in(SettingsGroup)
   .http.get("/api/settings/version")
-  .http.contract({ status: 200 })
+  .http.contract({})
   .http.problems({ codes: ["request.malformed"] })
   .http.access({
     capabilities: Capability.one("settings.read-version"),
@@ -60,7 +61,7 @@ export const readById = Operation.query({
 })
   .in(SettingsGroup)
   .http.get("/api/settings/:settingsId")
-  .http.contract({ status: 200 })
+  .http.contract({})
   .http.problems({ codes: ["settings.not-found"] })
   .http.access({
     capabilities: Capability.one("settings.read"),
@@ -78,7 +79,7 @@ export const renameSettings = Operation.command({
 })
   .in(SettingsGroup)
   .http.patch("/api/settings/:settingsId")
-  .http.contract({ params: SettingsById, status: 200 })
+  .http.contract({ params: SettingsById })
   .http.problems({ codes: ["settings.not-found"] })
   .http.access({
     capabilities: Capability.one("settings.rename"),

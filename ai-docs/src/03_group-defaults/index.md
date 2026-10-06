@@ -16,7 +16,8 @@ Spec: `docs/specs/0013-group-defaults.md`; implementation:
 into each operation's ordinary annotations. They are not a new IR node, are not
 serialized (`defaults` never reaches the IR), and no application function is
 called while compiling. A dense and a fully spelled-out declaration with the
-same meaning have the same canonical IR, semantic hash and generated files.
+same expanded fields have the same canonical IR, semantic hash and generated files.
+Dropping an explicit success status is a separate transformation (see below).
 
 ### Options
 
@@ -49,6 +50,38 @@ Source: `packages/runtime/src/Annotation.ts` (`HttpGroupOptions`).
   channels come from `input` too (next section). Incompatible use of
   `query: true` is a diagnostic, never a guessed route shape.
 - A group never mixes local and external operations (`EFFX2403`).
+
+### Success status: write only an override
+
+Leave `status` out for an unannotated or 200 success schema. Native Effect uses
+200 in both cases. Keep an explicit `status: 201` for a created response, and
+keep `status: 200` when overriding a success schema annotated with another status.
+Omission inherits that schema annotation; it does not force 200. Spec:
+`docs/specs/0024-declaration-density.md` §3; implementation:
+`packages/compiler/src/generate/http.ts` (`contractSuccess`).
+
+Absent status and explicit 200 remain different `HttpContractData.status` values:
+removing the field changes canonical IR and semantic hash, only at that field.
+For schemas whose effective status is already 200, complete OpenAPI documents and
+SDK operation projections stay equal; contract source differs only by the status
+expression and its required imports. Bare explicit 200 uses S5's conditional
+expression to avoid cloning a 200 schema. Header-bearing responses apply the
+override to the `WithHeaders` envelope, not its body schema.
+
+The rc.116 fixtures distinguish two witnesses. `profile.effx.ts` and
+`directory-dense.effx.ts` retain explicit 200 to prove exact canonical IR, hash
+and generated-byte identity with their verbose twins and tracked goldens.
+`profile-consumer.effx.ts` and `directory-consumer.effx.ts` are the actual
+post-0024 item-2 consumer spellings: unnecessary 200 fields are absent, while
+Directory's override of its 201-annotated patch result stays explicit.
+Content's action fixture likewise keeps its original explicit-status witness;
+`content-consumer.effx.ts` is its omitted-status consumer twin.
+`packages/frontend-ts/test/dense-status.test.ts` compares those independent
+spellings without rewriting the identity witnesses or their goldens.
+Both runtime runners use the shared `dense-status-reflection.ts`
+fixture helper, which reports its installed Effect version and resolved HttpApi
+module origin. The tests check rc.116 resolution rather than accepting a stable
+Effect fallback; OpenAPI and operation indexes are compared without normalization.
 
 ### Request channels derived from `input`
 

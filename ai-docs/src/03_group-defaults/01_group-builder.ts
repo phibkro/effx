@@ -56,7 +56,7 @@ export const readSettings = Operation.query({
   .in(SettingsGroup)
   .http.get("/api/settings")
   // `root`, `group` and `success` come from the group and the operation.
-  .http.contract({ headers: ConditionalReadHeaders, status: 200 })
+  .http.contract({ headers: ConditionalReadHeaders })
   // The registry comes from the group default; the codes stay explicit.
   .http.problems({ codes: ["authority.denied", "settings.not-found"] })
   .http.access({
@@ -75,7 +75,7 @@ export const updateSettings = Operation.command({
   .http.patch("/api/settings")
   // `payload` is omitted: the declared `input` is the body of a PATCH, POST or PUT Command unless
   // it is the params or headers schema (request channels are derived from `input`, see below).
-  .http.contract({ headers: WriteHeaders, status: 200 })
+  .http.contract({ headers: WriteHeaders })
   .http.problems({ codes: ["authority.denied", "precondition.failed"] })
   .http.access({
     capabilities: Capability.one("settings.update"),
