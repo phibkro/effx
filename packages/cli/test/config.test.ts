@@ -111,6 +111,11 @@ describe("spec 0024 naming config precedence", () => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
+          const settings = yield* fs.readFileString(project);
+          yield* fs.writeFileString(
+            project,
+            settings.replace("src/operations.ts", "src/operations.access.builder.ts"),
+          );
           yield* fs.writeFileString(
             path.join(dir, "effx.config.ts"),
             `${configImport} export default defineConfig({ naming: { problemIdentifier: "{Group}Problem" } });`,

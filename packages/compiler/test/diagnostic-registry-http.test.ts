@@ -669,7 +669,7 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.code, "EFFX2506");
     assert.strictEqual(diagnostic.severity, "error");
   });
-  it("retains declaration identity and all seventeen entries", () => {
+  it("retains declaration identity and the exact HTTP catalogue order", () => {
     assert.deepStrictEqual(
       httpEntries.map((entry) => entry.code),
       [
@@ -681,6 +681,8 @@ describe("HTTP diagnostic registry", () => {
         "EFFX2406",
         "EFFX2410",
         "EFFX2411",
+        "EFFX2412",
+        "EFFX2413",
         "EFFX2414",
         "EFFX2415",
         "EFFX2500",
