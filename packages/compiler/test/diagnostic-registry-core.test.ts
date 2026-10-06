@@ -1135,7 +1135,7 @@ describe("core diagnostic registry", () => {
     >().toEqualTypeOf<"info" | "warning">();
   });
 
-  it("keeps runtime definition metadata projected to code and message only", () => {
+  it("projects runtime definition diagnostics with only their code and message data", () => {
     const definition = Annotation.define({
       name: "test.UnsupportedSchema",
       target: "operation",
@@ -1145,12 +1145,12 @@ describe("core diagnostic registry", () => {
     assert.isNotEmpty(definition.diagnostics);
 
     for (const diagnostic of definition.diagnostics) {
-      assert.deepStrictEqual(Object.keys(diagnostic), ["code", "message"]);
+      assert.deepStrictEqual(Object.keys(diagnostic).toSorted(), ["code", "message"]);
       assert.strictEqual(diagnostic.code, annotationSchemaLowering.entry.code);
     }
   });
 
-  it("keeps default symbol expectations in runtime plans and preserves authored overrides", () => {
+  it("preserves caller-authored symbol expectation data", () => {
     assert.propertyVal(
       A.symbol({ check: "callable", message: "custom expectation" }).plan,
       "message",
