@@ -17,8 +17,35 @@ effx lsp --project tsconfig.json --trust-config
 ```
 
 From a checkout, use `bun run effx lsp` with the same arguments.
-Do not send terminal commands into this process. Standard output contains only framed JSON-RPC; operational logs use stderr or protocol logs.
+Do not send terminal commands into this process. Effx-owned messages use framed JSON-RPC on stdout and operational logs on stderr.
 There is no HTTP transport or bundled editor extension.
+
+## Qualified platform and stdin ownership
+
+The LSP backend targets declared Linux-x64/glibc systems. Unsupported targets
+fail explicitly before unsafe IO. Other CLI commands and `effx dev` retain
+their existing runtime/platform behavior. This is not portable certification.
+
+The package includes trusted audited POSIX readiness code. The build compiles
+that code against declared headers/toolchain and records the actual source and
+artifact hashes, target ABI, minimum glibc and required libraries. Public Bun
+dlopen loads the asset; no runtime compiler or header discovery is required.
+The prototype was 511 bytes, not a normative source-size limit. Native C has
+process authority and no memory-safety containment.
+
+One root exclusively owns stdin. The qualified forms are standard maintained
+Node-client sockets, FIFO, regular files and PTY. Unusual devices and unsupported
+forms receive explicit limits or failure. Readiness precedes raw reads with at
+most 64KiB of data/backing storage. Regular-file storage latency remains possible.
+A competing stdin reader violates this ownership premise.
+
+Cooperative trusted config neither reads stdin nor bypasses native reporting.
+Effx-owned Console, logger, config-fault, usage/help and error output uses stderr
+or framed protocol messages, before and after initialization. Arbitrary trusted
+code that writes a raw stdout descriptor or uses the global console is outside
+containment. There is no global console monkeypatch or sandbox.
+
+Source: spec 0018 Linux amendment, design §10 and `scripts/lsp-linux.ts`.
 
 ## Project selection and trust
 

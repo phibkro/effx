@@ -430,8 +430,10 @@ until their named tests and the final gate pass. Config coverage remains unresol
 
 **EX-0033 — read-only evaluated physical module inventory (open).**
 
-- Owner: repository root, `AGENTS.md`; `packages/cli`.
-- Scope: `packages/cli/src/config-runtime.ts` only.
+- Owner: repository root, `AGENTS.md`; portable CLI and external root adapter.
+- Scope: `packages/cli/src/config-runtime.ts` exposes the inventory service;
+  `scripts/executable-cache.ts` owns native acquisition. Focused inventory tests
+  exercise this boundary without importing native authority into the package.
 - Rules: FX001 version authority, FX002 native-first, FX004 checked boundary, FX012 lifecycle.
 - Missing capability: installed Effect has no evaluated module-cache inventory.
 - Native alternative: TS host probes cover compiler inputs, not evaluated Bun imports.

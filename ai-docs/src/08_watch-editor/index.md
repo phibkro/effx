@@ -12,6 +12,30 @@ Without authority, initialization fails rather than substituting built-ins. Edit
 Trusted config executes with process privileges; the compiler's zero-write behavior is not a sandbox for plugin side effects.
 Source: spec 0018 §3, `packages/cli/src/lsp.ts`, `lsp-model.ts`, and `commands.ts`.
 
+### Qualified LSP platform
+
+The LSP backend targets declared Linux-x64/glibc systems. Other CLI commands and
+`effx dev` retain their existing runtime/platform behavior. Unsupported LSP
+targets fail explicitly before unsafe IO; no portable certification is implied.
+
+The packaged audited POSIX readiness asset loads through public Bun dlopen.
+Compilation occurs at build time, not at runtime. The source and artifact hashes,
+target ABI, minimum glibc and required libraries derive from the actual build.
+The prototype was 511 bytes; its length is not a source-size requirement.
+Native C has process authority and no memory-safety containment.
+
+The root exclusively owns stdin. Standard maintained-client sockets, FIFO,
+regular files and PTY form the qualified matrix. Unusual devices and unsupported
+forms receive explicit limits or failure. Readiness precedes each raw read, with
+at most 64KiB of data and backing storage. Regular-file storage latency remains
+possible; competing stdin readers violate the ownership premise.
+
+Cooperative trusted config does not read stdin. Effx-owned Console, logger,
+config-fault, help and error output uses stderr or framed protocol messages.
+Arbitrary trusted raw-fd writes and global console output bypass that policy.
+The process does not add a global console monkeypatch or sandbox.
+Source: spec 0018 Linux amendment, design §10 and `scripts/lsp-linux.ts`.
+
 ### Complete executable coverage
 
 Both commands accept repeatable `--exec-file <path>` and `--exec-dir <path>`.
