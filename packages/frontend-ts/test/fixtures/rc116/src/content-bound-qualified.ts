@@ -17,14 +17,14 @@ export const makeQualifiedRawHandlers = <
 >(
   context: C,
   self?: S,
-  label: L = "Effect",
+  label?: L,
 ) =>
   ({
     publishArticle: (_request: unknown, authorize: () => EffectNS.Effect<unknown, never, never>) =>
       EffectNS.gen(function* () {
         yield* authorize();
         void self;
-        return HttpServerResponse.text(`publish:${context.maxBodyBytes}:${label}`);
+        return HttpServerResponse.text(`publish:${context.maxBodyBytes}:${label ?? "Effect"}`);
       }),
     unpublishArticle: (
       _request: unknown,
@@ -33,6 +33,6 @@ export const makeQualifiedRawHandlers = <
       EffectNS.gen(function* () {
         yield* authorize();
         void self;
-        return HttpServerResponse.text(`unpublish:${context.maxBodyBytes}:${label}`);
+        return HttpServerResponse.text(`unpublish:${context.maxBodyBytes}:${label ?? "Effect"}`);
       }),
   }) satisfies ContentRaw;
