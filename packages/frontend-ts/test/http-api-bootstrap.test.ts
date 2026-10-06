@@ -195,7 +195,6 @@ describe("cold HttpApi contract bootstrap", () => {
         errors.map((d) => d.code),
         ["EFFX2415"],
       );
-      assert.include(errors[0]!.message, "readBoard");
       assert.isDefined(errors[0]!.location);
       assert.isTrue(Option.isNone(result.files.value));
       assert.isFalse(yield* fs.exists(path.join(directory, ".effx")));

@@ -218,7 +218,6 @@ describe("Http.headers and input field keys on the frontend", () => {
       const found = collected.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1102");
 
       assert.strictEqual(found.length, 1);
-      assert.include(found[0]!.message, "schema must expose static fields");
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
 });

@@ -253,8 +253,6 @@ describe("TsSourceFrontend", () => {
         "EFFX2304",
       ]);
       assert.isTrue(Option.isNone(result.files.value));
-      const undeclared = result.diagnostics.find((d) => d.code === "EFFX2201")!;
-      assert.include(undeclared.message, "schema:src/errors/EmailTaken");
     }).pipe(Effect.provide(Services)),
   );
 

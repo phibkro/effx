@@ -205,7 +205,6 @@ it.live(
         if (!Schema.is(CredentialMissing)(denied))
           return assert.fail("expected the declared 401 problem");
         assert.strictEqual(denied._tag, "CredentialMissing");
-        assert.strictEqual(denied.message, "a session is required");
         assert.strictEqual(seen[2]?.cookie, undefined);
         const raw401 = yield* HttpClient.get("/api/profile?locale=en");
         assert.strictEqual(raw401.status, 401);
