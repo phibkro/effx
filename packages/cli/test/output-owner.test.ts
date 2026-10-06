@@ -13,8 +13,10 @@ import {
   Path,
   Scope,
   Schema,
+  Result,
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
+import { isPlatformError } from "effect/PlatformError";
 import { expectTypeOf } from "vitest";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical } from "@effx/ir";
@@ -895,5 +897,92 @@ describe("normal build result writer and cross-process custody", () => {
           },
         ]);
       }).pipe(Effect.scoped, Effect.provide(frontend)),
+  );
+
+  it.live(
+    "native lease release faults surface while stale and foreign tokens stay fail-closed",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* testDirectory("owner-release-fault-");
+        const resources = resourcesAt(directory);
+        const scope = yield* Scope.fork(yield* Scope.Scope);
+        yield* acquireOutputOwner(resources).pipe(Scope.provide(scope));
+        const lock = resources.generatedDir + "/" + lockName;
+        const token = yield* fs.readFileString(lock);
+
+        const exit = yield* Effect.exit(
+          Effect.gen(function* () {
+            // The real user-owned directory remains readable/searchable but not
+            // writable. Native unlink must fail; no mocked filesystem error is used.
+            yield* fs.chmod(resources.generatedDir, 0o500);
+            yield* Scope.close(scope, Exit.void);
+          }),
+        ).pipe(Effect.ensuring(fs.chmod(resources.generatedDir, 0o700)));
+
+        const defect = Exit.isFailure(exit) ? Cause.findDefect(exit.cause) : undefined;
+
+        const native =
+          defect !== undefined && Result.isSuccess(defect) && isPlatformError(defect.success)
+            ? defect.success
+            : undefined;
+
+        const code =
+          native === undefined
+            ? "none"
+            : (yield* Schema.decodeUnknownEffect(Schema.Struct({ code: Schema.String }))(
+                native.reason.cause,
+              )).code;
+
+        const staleToken = yield* fs.readFileString(lock);
+        const refused = yield* Effect.flip(Effect.scoped(acquireOutputOwner(resources)));
+
+        const faultReceipt = {
+          scopeExit: exit._tag,
+          nativeError: native?._tag ?? "none",
+          reason: native?.reason._tag ?? "none",
+          code,
+          staleOwnedTokenPreserved: staleToken === token,
+          reacquisition: refused._tag,
+        };
+
+        yield* Effect.log("native-lease-release-fault-receipt", faultReceipt);
+
+        assert.deepStrictEqual(faultReceipt, {
+          scopeExit: "Failure",
+          nativeError: "PlatformError",
+          reason: "PermissionDenied",
+          code: "EACCES",
+          staleOwnedTokenPreserved: true,
+          reacquisition: "OutputBusy",
+        });
+        assert.isFalse(yield* fs.exists(resources.effxDir + "/" + lockName));
+        assert.strictEqual(yield* fs.readFileString(lock), token);
+
+        for (const replacement of ["foreign-token", "missing-token"] as const) {
+          const other = resourcesAt(directory + "/" + replacement);
+          const otherScope = yield* Scope.fork(yield* Scope.Scope);
+          yield* acquireOutputOwner(other).pipe(Scope.provide(otherScope));
+          const otherLock = other.generatedDir + "/" + lockName;
+
+          if (replacement === "foreign-token")
+            yield* fs.writeFileString(otherLock, "belongs-to-someone-else");
+          else yield* fs.remove(otherLock);
+
+          const released = yield* Effect.exit(Scope.close(otherScope, Exit.void));
+          const present = yield* fs.exists(otherLock);
+          const contents = present ? yield* fs.readFileString(otherLock) : undefined;
+          const receipt = { replacement, scopeExit: released._tag, present, contents };
+          yield* Effect.log("native-lease-release-token-receipt", receipt);
+
+          assert.isTrue(Exit.isSuccess(released));
+          assert.strictEqual(present, replacement === "foreign-token");
+          assert.strictEqual(
+            contents,
+            replacement === "foreign-token" ? "belongs-to-someone-else" : undefined,
+          );
+          assert.isFalse(yield* fs.exists(other.effxDir + "/" + lockName));
+        }
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   );
 });

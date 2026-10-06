@@ -112,11 +112,9 @@ const acquireDirectories = Effect.fnUntraced(function* (directories: ReadonlyArr
               .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void));
 
             if (current === token) yield* fs.remove(lock);
-          }).pipe(
-            Effect.catch((error) =>
-              Effect.logError("failed to release effx output custody", error),
-            ),
-          ),
+            // Losing custody cleanup is an unrecoverable scope fault, not a
+            // successful best-effort release. Keep the native IO error as the defect.
+          }).pipe(Effect.orDie),
       ).pipe(Scope.provide(scope));
     }
 
@@ -135,7 +133,8 @@ const acquireDirectories = Effect.fnUntraced(function* (directories: ReadonlyArr
  * Local filesystem exact-directory custody across processes, including canonical
  * output and manifest aliases. No waiting, stale reclamation, or nested exclusion
  * guarantee. Session scope owns each native lease; finalizers remove only its token.
- * Crash/failed token writes fail closed for explicit operator recovery.
+ * Crash/failed token writes fail closed for explicit operator recovery. Native
+ * release IO failures surface as scope defects; missing/changed tokens are not deleted.
  */
 export const acquireOutputOwner = Effect.fnUntraced(function* (
   resources: OutputResources,
