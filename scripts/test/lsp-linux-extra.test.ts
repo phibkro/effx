@@ -26,6 +26,8 @@ const decodeResult = Schema.decodeEffect(Schema.fromJsonString(ExtraPeerResult),
   onExcessProperty: "error",
 });
 
+const encodeResult = Schema.encodeEffect(Schema.fromJsonString(ExtraPeerResult));
+
 const runExtra = Effect.fnUntraced(function* (
   mode: typeof ExtraMode.Type,
   form: typeof ExtraForm.Type,
@@ -48,7 +50,7 @@ const runExtra = Effect.fnUntraced(function* (
       const fixtureFailure = result?.receipts.find((receipt) => receipt.event === "failure");
 
       if (result !== undefined && (code !== 0 || result.code !== 0 || result.fault !== undefined))
-        yield* Effect.logInfo("Safe native-law failure result", result);
+        yield* Effect.logInfo("Safe native-law failure result", yield* encodeResult(result));
       assert.strictEqual(
         code,
         0,
