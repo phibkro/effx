@@ -29,3 +29,5 @@ export { surfaceCheck } from "./surface.ts";
 export { dev, type DevOptions } from "./watch.ts";
 
 export { lsp, type LspOptions } from "./lsp.ts";
+
+export { ExecutableInventory } from "./config-runtime.ts";
