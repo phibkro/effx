@@ -303,15 +303,11 @@ describe("generated response status envelopes", () => {
         assert.strictEqual(text.split(headered).length - 1, 1);
         assert.strictEqual(text.split(conditional).length - 1, 1);
         assert.include(text, 'import { Schema, SchemaAST } from "effect";');
-        // Normalize just these two expressions and the import required only by S5.
+        // Normalize only these expressions. Both forms still need SchemaAST for bareOverride.
         assert.strictEqual(
           text
             .replace(headered, "HttpApiSchema.WithHeaders(Body, ResponseHeaders)")
-            .replace(conditional, "Body")
-            .replace(
-              'import { Schema, SchemaAST } from "effect";',
-              'import { Schema } from "effect";',
-            ),
+            .replace(conditional, "Body"),
           consumer.files[0]!.contents,
         );
         // Negative controls: omission must not erase a real schema override or an explicit 201.

@@ -1,5 +1,6 @@
 import effectPackage from "effect/package.json";
 import { HttpApi, OpenApi } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
 import { ProfileApi as ExplicitProfileApi } from "../project/status-explicit/.effx/generated/profile-contract.js";
 import { DirectoryApi as ExplicitDirectoryApi } from "../project/status-explicit/.effx/generated/directory-contract.js";
 import { ContentApi as ExplicitContentApi } from "../project/status-explicit/.effx/generated/content-contract.js";
@@ -7,7 +8,9 @@ import { ProfileApi as ConsumerProfileApi } from "../project/status-consumer/.ef
 import { DirectoryApi as ConsumerDirectoryApi } from "../project/status-consumer/.effx/generated/directory-contract.js";
 import { ContentApi as ConsumerContentApi } from "../project/status-consumer/.effx/generated/content-contract.js";
 
-const reflect = (api: HttpApi.Top) => {
+const reflect = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  api: HttpApi.HttpApi<Id, Groups>,
+) => {
   const operations: Array<{
     group: string;
     key: string;
