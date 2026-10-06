@@ -91,6 +91,32 @@ export const ExtraReceipt = Schema.Struct({
   ),
   fixtureErrno: Schema.optionalKey(count),
   fixtureScopeCleanupFailed: Schema.optionalKey(Schema.Boolean),
+  writerOutcome: Schema.optionalKey(
+    Schema.Literals(["Pending", "Success", "Failure", "Defect", "Interrupted"]),
+  ),
+  writerReason: Schema.optionalKey(Schema.Literals(["Closed", "IO", "Capacity"])),
+  writerFailure: Schema.optionalKey(
+    Schema.Literals([
+      "closed",
+      "writer-capacity",
+      "frame-capacity",
+      "frame-construction",
+      "deadline",
+      "invalid-output-poll",
+      "output-poll",
+      "output-terminal",
+      "span-capacity",
+      "invalid-native-result",
+      "native-write",
+      "invalid-progress",
+      "errno-classification",
+    ]),
+  ),
+  outputPressureFailure: Schema.optionalKey(
+    Schema.Literals(["writer-completed", "poll", "terminal"]),
+  ),
+  outputPressurePollMask: Schema.optionalKey(count),
+  outputPressureErrno: Schema.optionalKey(count),
   identityFailure: Schema.optionalKey(
     Schema.Literals([
       "fd0-kind",
