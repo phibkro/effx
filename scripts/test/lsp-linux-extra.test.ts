@@ -95,7 +95,7 @@ describe("Linux native extra ownership laws", () => {
         assert.strictEqual(
           result.code,
           0,
-          `fixture exit=${result.code}; tag=${failure?.failureTag ?? "unobserved"}; reason=${failure?.reason ?? "unobserved"}; stage=${failure?.stage ?? "unobserved"}`,
+          `fixture exit=${result.code}; tag=${failure?.failureTag ?? "unobserved"}; reason=${failure?.reason ?? "unobserved"}; stage=${failure?.stage ?? "unobserved"}; identity=${failure?.identityFailure ?? "unobserved"}`,
         );
         assert.strictEqual(result.signal, null);
         assert.isUndefined(

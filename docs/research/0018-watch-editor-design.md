@@ -1212,6 +1212,10 @@ nonblocking output. It does not mutate shared flags or compare incidental stat
 objects. This is a source-supported failure mechanism, not an observed descriptor
 number or a claim that the new laws passed.
 
+Pinned primary source: https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/node/node_fs.zig#L4946-L4958
+opens the listing directory and defers its close before returning. The excerpt
+was read independently; it is not runtime evidence for a particular FD number.
+
 Outer peer failures now have a closed selected stage/reason contract before
 capture. The consumer decodes a safe result before asserting actual outer exit;
 nonzero exit remains a failure, and absent classification remains unobserved.
