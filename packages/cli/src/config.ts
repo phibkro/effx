@@ -7,6 +7,8 @@ export interface EffxConfig {
   readonly emit?: EmitMode;
   readonly target?: TargetProfile;
   readonly strictAccess?: boolean;
+  /** Semantic input: use the same pattern in contract and handlers passes. */
+  readonly naming?: { readonly problemIdentifier?: string };
   /** An array appends to built-ins; a callback replaces the entire ordered list. */
   readonly extensions?:
     | ReadonlyArray<Extension>

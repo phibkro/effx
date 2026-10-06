@@ -1,9 +1,9 @@
 ---
 title: CLI overview
-description: The effx command line. Four compile commands and one wiring check, six shared flags, and an optional effx.config.ts that sits below the flags in the precedence order.
+description: The effx command line, shared compiler flags, and config precedence.
 ---
 
-`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same six shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`). `effx surface check` and `effx cedar` are described in the table below.
+`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same seven shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`, `--naming-problem-identifier`). `effx surface check` and `effx cedar` are described in the table below.
 
 Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
 
@@ -40,8 +40,9 @@ Source for the `surface check` row: `main.ts` description and `packages/cli/src/
 | `--strict-access` / `--no-strict-access` | boolean | all four | Highest. An explicit `--no-strict-access` beats a config or tsconfig `true`. | `false` |
 | `--target` | one of `effect-4.0`, `effect-4.0-rc` | all four | Highest. Beats config `target` and tsconfig `effx.target`. | resolved from the installed Effect version (see below) |
 | `--emit` | one of `contract`, `handlers`, `all` | all four | Highest. Beats config `emit` and tsconfig `effx.emit`. | `all` |
+| `--naming-problem-identifier` | string (declared pattern) | all compile commands | Highest. Beats config `naming.problemIdentifier` and tsconfig `effx.naming.problemIdentifier`. | `<endpointKey>Problem` |
 
-`inspect` and `graph` accept all six flags and resolve them exactly as `check` and `build` do. For example `inspect User.Get --strict-access` and `graph --emit contract` both exit 0 (observed by running `bun packages/cli/src/main.ts` in `examples/users`). `--strict-access` changes diagnostic severity, and `inspect` and `graph` print no diagnostics, so it does not change their output. `check --strict-access` on the same project turns the two `EFFX2504` warnings into errors and exits 1, and `check --no-strict-access` keeps them as warnings and exits 0 (observed).
+`inspect` and `graph` accept all seven flags and resolve them exactly as `check` and `build` do. `--strict-access` changes diagnostic severity; `--naming-problem-identifier` changes problem-contract semantics. See [Problems and access](/docs/authoring/problems-and-access) for the pattern rules.
 
 Positional arguments:
 
@@ -82,10 +83,11 @@ export default defineConfig({
   emit: "contract",
   target: "effect-4.0-rc",
   strictAccess: true,
+  naming: { problemIdentifier: "{Group}{Key}Problem" },
 });
 ```
 
-This shape is the example from spec 0015 without the `extensions` and `generators` lines. `project`, `outDir`, `emit`, `target` and `strictAccess` are optional (`EffxConfig` in `packages/cli/src/config.ts`).
+`project`, `outDir`, `emit`, `target`, `strictAccess` and `naming` are optional (`EffxConfig` in `packages/cli/src/config.ts`). Naming is semantic input, unlike generator toggles: use the same pattern in both emit passes (spec 0024 §5).
 
 ### Discovery
 

@@ -5,8 +5,11 @@ import {
   type ProjectConfig,
   type ProjectResolution,
   EmitMode,
+  Naming,
   TargetProfile,
   CoreDiagnostics,
+  HttpDiagnostics,
+  problemNamingIssue,
 } from "@effx/compiler";
 import { ts, tryTs } from "./ts.ts";
 
@@ -25,6 +28,8 @@ export interface Project {
   readonly diagnostics: ReadonlyArray<Diagnostic>;
 }
 
+type ProjectResolutionDraft = { -readonly [K in keyof ProjectResolution]: ProjectResolution[K] };
+
 const PackageJson = Schema.fromJsonString(
   Schema.Struct({
     dependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
@@ -40,6 +45,7 @@ const TsconfigEffx = Schema.Struct({
       emit: Schema.optionalKey(EmitMode),
       target: Schema.optionalKey(TargetProfile),
       strictAccess: Schema.optionalKey(Schema.Boolean),
+      naming: Schema.optionalKey(Naming),
     }),
   ),
 });
@@ -211,6 +217,20 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
   const diagnostics: Array<Diagnostic> = [...versionSkew(pin)];
   const location = { file: tsconfigPath, line: 1, col: 1 };
 
+  const problemIdentifier =
+    config.naming?.problemIdentifier ?? settingsEffx?.naming?.problemIdentifier;
+
+  const namingIssue =
+    problemIdentifier === undefined ? undefined : problemNamingIssue(problemIdentifier);
+
+  if (problemIdentifier !== undefined && namingIssue !== undefined)
+    diagnostics.push(
+      HttpDiagnostics.EFFX2412.emit(
+        { pattern: problemIdentifier, reason: namingIssue },
+        { location },
+      ),
+    );
+
   if (Option.isNone(effx)) {
     diagnostics.push(CoreDiagnostics.EFFX2701.emit({ _tag: "Settings" }, { location }));
   }
@@ -249,6 +269,22 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
     );
   }
 
+  let resolution: ProjectResolution | undefined;
+
+  if (target !== undefined && Option.isSome(installed)) {
+    const resolved: ProjectResolutionDraft = {
+      target,
+      emit: config.emit ?? settingsEffx?.emit ?? "all",
+      strictAccess: config.strictAccess ?? settingsEffx?.strictAccess ?? false,
+      allowImportingTsExtensions: parsed.options.allowImportingTsExtensions === true,
+      canonicalImportBase: path.join(rootDir, ".effx", "generated"),
+      outputDir: outDir,
+    };
+
+    if (problemIdentifier !== undefined) resolved.naming = { problemIdentifier };
+    resolution = resolved;
+  }
+
   return {
     program,
     checker: program.getTypeChecker(),
@@ -257,17 +293,7 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
     outDir,
     runtimeRoot,
     resolveEffectModule,
-    resolution:
-      target === undefined || Option.isNone(installed)
-        ? undefined
-        : {
-            target,
-            emit: config.emit ?? settingsEffx?.emit ?? "all",
-            strictAccess: config.strictAccess ?? settingsEffx?.strictAccess ?? false,
-            allowImportingTsExtensions: parsed.options.allowImportingTsExtensions === true,
-            canonicalImportBase: path.join(rootDir, ".effx", "generated"),
-            outputDir: outDir,
-          },
+    resolution,
     diagnostics,
   } satisfies Project;
 });

@@ -9,6 +9,7 @@ import { decodeSchemaOf } from "./annotation.ts";
 import { OperationArgs } from "./extensions/core.ts";
 import { defaultDecisionTime } from "./decision-time.ts";
 import { deriveRequestChannels, isAnnotationOptions, mapsInput } from "./request-channels.ts";
+import { nameProblems } from "./problem-naming.ts";
 
 const GroupOptions = decodeSchemaOf(Builtins.HttpGroup);
 
@@ -306,5 +307,13 @@ export const expandGroupDefaults: Expand = (collected) => {
     return defaulted.declaration;
   });
 
-  return { declarations, diagnostics };
+  if (
+    collected.diagnostics.some(
+      (diagnostic) => diagnostic.code === HttpDiagnostics.EFFX2412.entry.code,
+    )
+  )
+    return { declarations, diagnostics };
+  const named = nameProblems(declarations, collected.project?.naming?.problemIdentifier);
+
+  return { declarations: named.declarations, diagnostics: [...diagnostics, ...named.diagnostics] };
 };

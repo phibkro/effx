@@ -91,6 +91,7 @@ export {
   DeclarationKind,
   Declaration,
   ProjectResolution,
+  Naming,
   Collected,
   SpreadSource,
   symbolOf,
@@ -127,3 +128,6 @@ export {
   errorsExpr,
   render as renderGenerated,
 } from "./generate/emit.ts";
+
+/** @internal Shared project-boundary validation for the declared naming policy. */
+export { problemNamingIssue } from "./problem-naming.ts";

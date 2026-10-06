@@ -130,8 +130,16 @@ export const EmitMode = Schema.Literals(["contract", "handlers", "all"]);
 
 export type EmitMode = typeof EmitMode.Type;
 
+/** Declared naming policy; omission preserves legacy problem-contract IR. */
+export const Naming = Schema.Struct({
+  problemIdentifier: Schema.optionalKey(Schema.String),
+});
+
+export type Naming = typeof Naming.Type;
+
 /** @internal */
 export const ProjectResolution = Schema.Struct({
+  naming: Schema.optionalKey(Naming),
   target: TargetProfile,
   emit: EmitMode,
   strictAccess: Schema.optionalKey(Schema.Boolean),
@@ -187,6 +195,7 @@ export interface HttpApiGroupInventory {
 }
 
 export const ProjectConfig = Schema.Struct({
+  naming: Schema.optionalKey(Naming),
   tsconfigPath: Schema.String,
   entry: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Where generated files go; default `<dirname(tsconfigPath)>/.effx/generated`. */

@@ -44,6 +44,34 @@ The generated endpoint calls `Registry("<endpointKey>Problem", [...codes])`, or 
 argument when given. The schemas it returns replace the default direct domain-error list for that
 operation (spec 0005 §Problem responses; spec 0010).
 
+### Problem naming policy
+
+```ts
+import { defineConfig } from "@effx/cli/config";
+
+export default defineConfig({
+  naming: { problemIdentifier: "{Group}{Key}Problem" },
+});
+```
+
+The pattern is data, never a callback. `{Group}` is the PascalCase group name
+(`social-events` becomes `SocialEvents`; `-`, `_`, and `.` mark boundaries).
+`{Key}` uppercases only the endpoint key's first letter. `{group}` and `{key}`
+use the raw values. Only these four placeholders are allowed; a pattern must
+include `{Key}` or `{key}` and expand to a safe identifier (`EFFX2412` otherwise).
+The CLI flag `--naming-problem-identifier` wins over `effx.config.ts`, which wins
+over the tsconfig `effx.naming` block. With no policy the default remains
+`<endpointKey>Problem`; an explicit operation `identifier` always wins.
+
+Two derived names with different code lists cannot share a schema name
+(`EFFX2413`); equal code lists may share one. Explicit overrides remain available
+for deliberately shared unions such as `SchoolAdministrationProblem`.
+
+Naming changes semantics, not just emitted text: the prepass writes the resolved
+identifier into IR, exactly like the explicit spelling. The manifest records
+`naming`. Contract and handlers passes must use the same pattern to keep their
+semantic hashes equal (spec 0024 §5).
+
 | Code       | Condition                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------- |
 | `EFFX2402` | duplicate `Http.Problems`; no HTTP exposure; duplicate codes; unsafe `identifier`              |

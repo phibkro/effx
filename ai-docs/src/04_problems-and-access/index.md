@@ -24,6 +24,19 @@ owns status, body shape and headers; effx keeps no code table. The handler
 stays an ordinary Effect, and its domain-error to problem conversion is
 application code.
 
+Problem schema names can follow a declared `naming.problemIdentifier` pattern in
+`effx.config.ts`, the tsconfig `effx.naming` block, or the
+`--naming-problem-identifier` flag (highest precedence). Only `{Group}`, `{Key}`,
+`{group}` and `{key}` are supported; include `{Key}` or `{key}`. `Group` treats
+`-`, `_` and `.` as PascalCase boundaries, `Key` uppercases the first letter,
+and lowercase placeholders preserve the raw values. Unsafe patterns or expansions
+raise `EFFX2412`; distinct derived unions sharing a name raise `EFFX2413`. Equal
+code lists may share a name. Explicit `identifier` overrides always win. Without
+a pattern, the existing `<endpointKey>Problem` default and IR bytes stay unchanged.
+A configured name is semantic input: it enters the problem contract exactly like
+an explicit identifier, and the manifest records the pattern. Use the same policy
+in contract and handlers passes (spec `docs/specs/0024-declaration-density.md` §5).
+
 | Code       | Condition                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | `EFFX2205` | an operation error has no `map` entry and no HTTP status annotation, or a `map` key is not an operation error |

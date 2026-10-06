@@ -17,6 +17,9 @@ export default defineConfig({
   // Optional; relative paths resolve from the directory of this file.
   project: "tsconfig.json",
 
+  // Semantic input (spec 0024 §5): both emit passes must use the same data pattern.
+  naming: { problemIdentifier: "{Group}{Key}Problem" },
+
   // An array APPENDS to the built-in extensions. Pass a callback instead to see the built-ins
   // and return the complete, ordered list: `(builtin) => [...builtin, auditExtension, appExtension]`.
   extensions: [auditExtension, appExtension],

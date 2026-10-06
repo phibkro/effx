@@ -865,6 +865,19 @@ owns status, body shape and headers; effx keeps no code table. The handler
 stays an ordinary Effect, and its domain-error to problem conversion is
 application code.
 
+Problem schema names can follow a declared `naming.problemIdentifier` pattern in
+`effx.config.ts`, the tsconfig `effx.naming` block, or the
+`--naming-problem-identifier` flag (highest precedence). Only `{Group}`, `{Key}`,
+`{group}` and `{key}` are supported; include `{Key}` or `{key}`. `Group` treats
+`-`, `_` and `.` as PascalCase boundaries, `Key` uppercases the first letter,
+and lowercase placeholders preserve the raw values. Unsafe patterns or expansions
+raise `EFFX2412`; distinct derived unions sharing a name raise `EFFX2413`. Equal
+code lists may share a name. Explicit `identifier` overrides always win. Without
+a pattern, the existing `<endpointKey>Problem` default and IR bytes stay unchanged.
+A configured name is semantic input: it enters the problem contract exactly like
+an explicit identifier, and the manifest records the pattern. Use the same policy
+in contract and handlers passes (spec `docs/specs/0024-declaration-density.md` §5).
+
 | Code       | Condition                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | `EFFX2205` | an operation error has no `map` entry and no HTTP status annotation, or a `map` key is not an operation error |
@@ -1446,6 +1459,9 @@ export default defineConfig({
   // Optional; relative paths resolve from the directory of this file.
   project: "tsconfig.json",
 
+  // Semantic input (spec 0024 §5): both emit passes must use the same data pattern.
+  naming: { problemIdentifier: "{Group}{Key}Problem" },
+
   // An array APPENDS to the built-in extensions. Pass a callback instead to see the built-ins
   // and return the complete, ordered list: `(builtin) => [...builtin, auditExtension, appExtension]`.
   extensions: [auditExtension, appExtension],
@@ -1800,6 +1816,8 @@ export default defineConfig({
 | [EFFX2406](#EFFX2406) | Generated HTTP export collision | error |
 | [EFFX2410](#EFFX2410) | Ambiguous or conflicting request channels | error |
 | [EFFX2411](#EFFX2411) | Unknown request input field keys | error |
+| [EFFX2412](#EFFX2412) | Invalid problem identifier naming pattern | error |
+| [EFFX2413](#EFFX2413) | Derived problem identifiers collide | error |
 | [EFFX2414](#EFFX2414) | Access decision time cannot be inferred | error |
 | [EFFX2415](#EFFX2415) | Concrete HTTP endpoint inventory unavailable | error |
 | [EFFX2500](#EFFX2500) | Malformed or duplicate access contract | error |
@@ -2751,6 +2769,58 @@ After:
 ```
 
 Declare the request channels explicitly rather than relying on inaccessible input keys.
+
+## EFFX2412 — Invalid problem identifier naming pattern [#EFFX2412]
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+naming.problemIdentifier is data, not a function. Only {Group}, {Key}, {group} and {key} are allowed, at least one Key/key placeholder is required, and each expansion must be a safe identifier. Explicit problem identifiers still override a valid naming policy.
+
+### Example 1
+
+Before:
+
+```text
+defineConfig({ naming: { problemIdentifier: "{Group}Problem" } })
+```
+
+After:
+
+```text
+defineConfig({ naming: { problemIdentifier: "{Group}{Key}Problem" } })
+```
+
+Include the endpoint key and use only supported placeholders and identifier characters.
+
+## EFFX2413 — Derived problem identifiers collide [#EFFX2413]
+
+Owner: http
+
+Default severity: error
+
+Severity policy: Fixed
+
+Two operations derive the same problem identifier but declare different problem code lists. Equal code lists may share a name. Explicit identifier overrides are not derived collisions and remain caller-owned.
+
+### Example 1
+
+Before:
+
+```text
+defineConfig({ naming: { problemIdentifier: "{Key}Problem" } })
+```
+
+After:
+
+```text
+defineConfig({ naming: { problemIdentifier: "{Group}{Key}Problem" } })
+```
+
+Disambiguate the pattern or explicitly name a deliberately shared problem union.
 
 ## EFFX2414 — Access decision time cannot be inferred [#EFFX2414]
 

@@ -34,6 +34,7 @@ const root = Command.make("effx").pipe(
     strictAccess: Flag.Boolean("strict-access").pipe(Flag.optional),
     target: Flag.Literals("target", TargetProfile.literals).pipe(Flag.optional),
     emit: Flag.Literals("emit", EmitMode.literals).pipe(Flag.optional),
+    namingProblemIdentifier: Flag.String("naming-problem-identifier").pipe(Flag.optional),
   }),
   Command.withDescription("AOT application compiler for Effect"),
 );
@@ -53,6 +54,7 @@ const selectedProject = Effect.fnUntraced(function* (ownsOutDirAndAccessGate = f
     Option.getOrUndefined(flags.config),
     ownsOutDirAndAccessGate ? undefined : Option.getOrUndefined(flags.outDir),
     Option.isSome(flags.project),
+    Option.getOrUndefined(flags.namingProblemIdentifier),
   );
 });
 
@@ -69,6 +71,7 @@ const explainCli = Command.make(
         ["strict-access", Option.isSome(flags.strictAccess)],
         ["target", Option.isSome(flags.target)],
         ["emit", Option.isSome(flags.emit)],
+        ["naming-problem-identifier", Option.isSome(flags.namingProblemIdentifier)],
       ] as const
     ).find(([, supplied]) => supplied);
 
@@ -175,6 +178,7 @@ BunRuntime.runMain(
           "--out-dir",
           "--target",
           "--emit",
+          "--naming-problem-identifier",
           "--log-level",
           "--completions",
         ].includes(argument)

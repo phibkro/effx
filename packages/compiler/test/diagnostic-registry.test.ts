@@ -13,16 +13,16 @@ import { inspectDiagnosticSource } from "./fixtures/diagnostic-conformance.ts";
 const root = new URL("../../../", import.meta.url).pathname;
 
 describe("diagnostic registry conformance", () => {
-  it.effect("composes all 68 reserved legacy entries plus the bootstrap contract error", () =>
+  it.effect("composes all 68 reserved legacy entries plus bootstrap and naming diagnostics", () =>
     Effect.gen(function* () {
       const registry = yield* composeRegistry(bundledDiagnosticEntries);
-      assert.strictEqual(registry.entries.length, 69);
+      assert.strictEqual(registry.entries.length, 71);
       const keys = Object.keys(DiagnosticDefinitions).toSorted();
       assert.deepStrictEqual(
         keys,
         registry.entries.map((entry) => entry.code),
       );
-      assert.strictEqual(new Set(bundledDiagnosticEntries.map((entry) => entry.code)).size, 69);
+      assert.strictEqual(new Set(bundledDiagnosticEntries.map((entry) => entry.code)).size, 71);
 
       for (const [code, definition] of Object.entries(DiagnosticDefinitions)) {
         assert.strictEqual(definition.entry.code, code);

@@ -484,6 +484,34 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
   });
+  it("pins naming diagnostic messages and caller-owned locations", () => {
+    const location = { file: "effx.config.ts", line: 1, col: 1 };
+
+    const invalid = HttpDiagnostics.EFFX2412.emit(
+      { pattern: "{Group}Problem", reason: "include {Key} or {key}" },
+      { location },
+    );
+
+    assert.strictEqual(
+      invalid.message,
+      "invalid naming.problemIdentifier {Group}Problem: include {Key} or {key}",
+    );
+    assert.strictEqual(invalid.severity, "error");
+    assert.deepStrictEqual(invalid.location, location);
+
+    const collision = HttpDiagnostics.EFFX2413.emit({
+      identifier: "ReadProblem",
+      first: "profile.read",
+      second: "content.read",
+    });
+
+    assert.strictEqual(
+      collision.message,
+      "derived problem identifier ReadProblem collides for profile.read and content.read with different code lists",
+    );
+    assert.strictEqual(collision.severity, "error");
+  });
+
   it("preserves EFFX2500 variant 50", () => {
     const diagnostic = HttpDiagnostics.EFFX2500.emit({
       _tag: "DuplicateAnnotation",

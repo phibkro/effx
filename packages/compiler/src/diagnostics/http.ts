@@ -417,6 +417,51 @@ const d2411 = defineDiagnostic(
     `${subject}: ${verb.toUpperCase()} with path parameters needs an input with static field keys to tell params from query; declare params and query explicitly`,
 );
 
+const d2412 = defineDiagnostic(
+  {
+    code: "EFFX2412",
+    owner: "http",
+    title: "Invalid problem identifier naming pattern",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "naming.problemIdentifier is data, not a function. Only {Group}, {Key}, {group} and {key} are allowed, at least one Key/key placeholder is required, and each expansion must be a safe identifier. Explicit problem identifiers still override a valid naming policy.",
+    examples: [
+      {
+        before: 'defineConfig({ naming: { problemIdentifier: "{Group}Problem" } })',
+        after: 'defineConfig({ naming: { problemIdentifier: "{Group}{Key}Problem" } })',
+        explanation:
+          "Include the endpoint key and use only supported placeholders and identifier characters.",
+      },
+    ],
+  } as const,
+  Schema.Struct({ pattern: Schema.String, reason: Schema.String }),
+  ({ pattern, reason }) => `invalid naming.problemIdentifier ${pattern}: ${reason}`,
+);
+
+const d2413 = defineDiagnostic(
+  {
+    code: "EFFX2413",
+    owner: "http",
+    title: "Derived problem identifiers collide",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "Two operations derive the same problem identifier but declare different problem code lists. Equal code lists may share a name. Explicit identifier overrides are not derived collisions and remain caller-owned.",
+    examples: [
+      {
+        before: 'defineConfig({ naming: { problemIdentifier: "{Key}Problem" } })',
+        after: 'defineConfig({ naming: { problemIdentifier: "{Group}{Key}Problem" } })',
+        explanation:
+          "Disambiguate the pattern or explicitly name a deliberately shared problem union.",
+      },
+    ],
+  } as const,
+  Schema.Struct({ identifier: Schema.String, first: Schema.String, second: Schema.String }),
+  ({ identifier, first, second }) =>
+    `derived problem identifier ${identifier} collides for ${first} and ${second} with different code lists`,
+);
+
 const d2414 = defineDiagnostic(
   {
     code: "EFFX2414",
@@ -655,6 +700,8 @@ export const HttpDiagnostics = {
   [d2406.entry.code]: d2406,
   [d2410.entry.code]: d2410,
   [d2411.entry.code]: d2411,
+  [d2412.entry.code]: d2412,
+  [d2413.entry.code]: d2413,
   [d2414.entry.code]: d2414,
   [d2415.entry.code]: d2415,
   [d2500.entry.code]: d2500,
@@ -676,6 +723,8 @@ export const httpEntries: ReadonlyArray<DiagnosticEntry> = [
   d2406.entry,
   d2410.entry,
   d2411.entry,
+  d2412.entry,
+  d2413.entry,
   d2414.entry,
   d2415.entry,
   d2500.entry,

@@ -6,7 +6,7 @@
  *   bun scripts/identity-snapshot.ts <out.json> [extra-cases.json] [--extras-only]
  *
  * Built-in cases cover the users fixture entries, the rc116 split projects and `examples/users`.
- * `extra-cases.json` is `[{ name, tsconfigPath, entry?, emit?, target?, strictAccess? }]` (the mono-web
+ * `extra-cases.json` is `[{ name, tsconfigPath, entry?, emit?, target?, strictAccess?, naming? }]` (the mono-web
  * baseline declarations are built this way through a throwaway tsconfig).
  */
 import { BunServices } from "@effect/platform-bun";
@@ -16,6 +16,7 @@ import {
   type Diagnostic,
   type ProjectConfig,
   Extensions,
+  Naming,
   compile,
 } from "@effx/compiler";
 import { canonical, semanticHash } from "@effx/ir";
@@ -140,6 +141,7 @@ const ExtraCases = Schema.fromJsonString(
       target: Schema.optionalKey(Schema.Literals(["effect-4.0", "effect-4.0-rc"])),
       strictAccess: Schema.optionalKey(Schema.Boolean),
       projectRoot: Schema.optionalKey(Schema.String),
+      naming: Schema.optionalKey(Naming),
     }),
   ),
 );

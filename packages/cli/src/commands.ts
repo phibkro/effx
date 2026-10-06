@@ -4,6 +4,9 @@ import {
   type Extension,
   CompilerFault,
   EmitMode,
+  Naming,
+  HttpDiagnostics,
+  problemNamingIssue,
   type ProjectConfig,
   Extensions,
   type SourceFrontend,
@@ -20,6 +23,8 @@ import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
 
 type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
+
+type ProjectConfigDraft = { -readonly [K in keyof ProjectConfig]: ProjectConfig[K] };
 
 /*
  * The four commands as portable Effects over FileSystem/Path/Crypto/SourceFrontend and the
@@ -61,6 +66,7 @@ const ConfigFields = Schema.Struct({
   emit: Schema.optionalKey(EmitMode),
   target: Schema.optionalKey(TargetProfile),
   strictAccess: Schema.optionalKey(Schema.Boolean),
+  naming: Schema.optionalKey(Naming),
   extensions: Schema.optionalKey(Schema.Unknown),
   generators: Schema.optionalKey(
     Schema.Struct({
@@ -200,6 +206,7 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   configPath?: string,
   outDir?: string,
   projectSelected = false,
+  namingProblemIdentifier?: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -223,6 +230,23 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   const effx = yield* readTsconfigEffx(tsconfigPath);
   const selectedTarget = target ?? config?.target ?? effx?.target;
 
+  const problemIdentifier =
+    namingProblemIdentifier ?? config?.naming?.problemIdentifier ?? effx?.naming?.problemIdentifier;
+
+  const namingIssue =
+    problemIdentifier === undefined ? undefined : problemNamingIssue(problemIdentifier);
+
+  if (problemIdentifier !== undefined && namingIssue !== undefined) {
+    const diagnostic = HttpDiagnostics.EFFX2412.emit({
+      pattern: problemIdentifier,
+      reason: namingIssue,
+    });
+
+    for (const line of report([diagnostic], (file) => file)) yield* Console.log(line);
+
+    return yield* new CheckFailed({ errors: 1 });
+  }
+
   const base = {
     tsconfigPath,
     projectRoot: path.resolve(rootDir, effx?.projectRoot ?? "."),
@@ -236,8 +260,11 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
     emit: emit ?? config?.emit ?? effx?.emit ?? "all",
   };
 
-  const resolved: ProjectConfig =
-    selectedTarget === undefined ? base : { ...base, target: selectedTarget };
+  const resolved: ProjectConfigDraft = { ...base };
+
+  if (selectedTarget !== undefined) resolved.target = selectedTarget;
+
+  if (problemIdentifier !== undefined) resolved.naming = { problemIdentifier };
 
   return {
     tsconfigPath,
@@ -353,6 +380,8 @@ export const build = Effect.fn("build")(function* (project: Project, versions: V
     compiler: versions,
     semanticHash: yield* semanticHash(ir),
     emit: collected.project?.emit ?? project.config.emit ?? "all",
+    naming: collected.project?.naming ??
+      project.config.naming ?? { problemIdentifier: "{key}Problem" },
     generated,
     diagnostics: result.diagnostics,
     locations: locationsOf(collected, (file) =>

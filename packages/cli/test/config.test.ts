@@ -56,6 +56,98 @@ const runAt = (cwd: string, ...args: ReadonlyArray<string>) =>
 const run = (project: string, ...args: ReadonlyArray<string>) =>
   runAt(repoRoot, ...args, "--project", project);
 
+describe("spec 0024 naming config precedence", () => {
+  it("defineConfig keeps the literal data pattern", () => {
+    const config = defineConfig({ naming: { problemIdentifier: "{Group}{Key}Problem" } });
+    expectTypeOf(config.naming.problemIdentifier).toEqualTypeOf<"{Group}{Key}Problem">();
+  });
+
+  it.effect("resolves CLI over config over tsconfig over the legacy default", () =>
+    fixture((dir, project) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const settings = `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/operations.ts"], "effx": {} }`;
+        yield* fs.writeFileString(project, settings);
+        assert.strictEqual((yield* resolveProject(project)).config.naming, undefined);
+        yield* fs.writeFileString(
+          project,
+          settings.replace(
+            '"effx": {}',
+            '"effx": { "naming": { "problemIdentifier": "Ts{Key}Problem" } }',
+          ),
+        );
+        assert.deepStrictEqual((yield* resolveProject(project)).config.naming, {
+          problemIdentifier: "Ts{Key}Problem",
+        });
+        yield* fs.writeFileString(
+          path.join(dir, "effx.config.ts"),
+          `${configImport} export default defineConfig({ naming: { problemIdentifier: "Config{Key}Problem" } });`,
+        );
+        assert.deepStrictEqual((yield* resolveProject(project)).config.naming, {
+          problemIdentifier: "Config{Key}Problem",
+        });
+
+        const selected = yield* resolveProject(
+          project,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          "Cli{Key}Problem",
+        );
+
+        assert.deepStrictEqual(selected.config.naming, { problemIdentifier: "Cli{Key}Problem" });
+      }),
+    ),
+  );
+
+  it.effect(
+    "the actual CLI rejects malformed patterns and accepts a flag above a malformed fallback",
+    () =>
+      fixture((dir, project) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* fs.writeFileString(
+            path.join(dir, "effx.config.ts"),
+            `${configImport} export default defineConfig({ naming: { problemIdentifier: "{Group}Problem" } });`,
+          );
+          const rejected = yield* run(project, "check");
+          assert.strictEqual(rejected.code, 1);
+          assert.include(rejected.stdout, "EFFX2412");
+
+          const accepted = yield* run(
+            project,
+            "check",
+            "--target",
+            "effect-4.0",
+            "--emit",
+            "contract",
+            "--naming-problem-identifier",
+            "{Group}{Key}Problem",
+          );
+
+          assert.strictEqual(accepted.code, 0, accepted.stdout + accepted.stderr);
+          assert.notInclude(accepted.stdout, "EFFX2412");
+
+          const explaining = yield* runAt(
+            dir,
+            "--naming-problem-identifier",
+            "{Key}Problem",
+            "explain",
+            "EFFX2412",
+          );
+
+          assert.strictEqual(explaining.code, 2);
+          assert.include(explaining.stderr + explaining.stdout, "Unsupported option for explain");
+        }),
+      ),
+  );
+});
+
 describe("spec 0015 config resolution", () => {
   it("defineConfig is a pure identity and preserves inferred fields", () => {
     const value = { generators: { http: false } } as const;
