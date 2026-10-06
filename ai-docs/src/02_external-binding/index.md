@@ -129,6 +129,11 @@ Runnable target witnesses are in
 They keep backend imports out of contract projections and exercise both record
 spread injection styles through `…With`. The fixture's `bun run typecheck`
 includes these generated cycles under its installed rc.116 compiler environment.
+The native HTTP behavior program is shared by `bound-runtime.spec.ts` and the outer
+Vitest bridge. The bridge decodes real observations, verifies the installed
+Effect version and canonical module origin, and forwards its AbortSignal into
+the target program's Scope. Copied fixtures and every HTTP host are scoped;
+no subprocess runner is needed (`bound-behaviors.ts`).
 `EFFX2420` rejects a non-group reference; `2421` rejects an unexported or
 non-callable function; `2422` rejects duplicate canonical group bindings;
 `2423` requires handlers and exactly one guard mode; `2424` requires an

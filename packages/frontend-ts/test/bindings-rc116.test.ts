@@ -1,6 +1,6 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from "effect";
 import { compile, Extensions } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
@@ -14,6 +14,39 @@ const Services = Layer.mergeAll(
   BunServices.layer,
   TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
 );
+
+class BoundBehaviorFailure extends Schema.TaggedError<BoundBehaviorFailure>()(
+  "BoundBehaviorFailure",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
+
+const RuntimeModule = Schema.Struct({
+  observeBoundBehaviors: Schema.declare(
+    (value): value is (signal: AbortSignal) => Promise<BoundBehaviorObservations> =>
+      Predicate.isFunction(value),
+  ),
+});
+
+const Observations = Schema.Struct({
+  packageVersion: Schema.String,
+  moduleOrigin: Schema.String,
+  runtimeIdentityMatches: Schema.Boolean,
+  profile: Schema.Struct({ status: Schema.Int, body: Schema.String, releases: Schema.Int }),
+  content: Schema.Array(
+    Schema.Struct({
+      action: Schema.Literals(["publish", "unpublish"]),
+      status: Schema.Int,
+      body: Schema.String,
+    }),
+  ),
+  cancellation: Schema.Struct({ interrupted: Schema.Boolean, releases: Schema.Int }),
+  guardFailure: Schema.Struct({ status: Schema.Int, reads: Schema.Int }),
+  defect: Schema.Struct({ status: Schema.Int, releases: Schema.Int }),
+});
+
+type BoundBehaviorObservations = typeof Observations.Type;
 
 const typeDiagnostics = Effect.fnUntraced(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
@@ -82,21 +115,58 @@ describe("bound Profile and Content against installed rc.116", () => {
         const directory = yield* generatedFixture();
         assert.deepStrictEqual(yield* typeDiagnostics(directory), []);
 
-        const result = yield* Effect.sync(() => {
-          const child = Bun.spawnSync(["bun", "test", "src/bound-runtime.spec.ts"], {
-            cwd: directory,
-            stdout: "pipe",
-            stderr: "pipe",
-          });
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const modulePath = path.join(directory, "src", "bound-behaviors.ts");
 
-          return {
-            exitCode: child.exitCode,
-            output: new TextDecoder().decode(child.stdout) + new TextDecoder().decode(child.stderr),
-          };
+        const loaded = yield* Effect.tryPromise({
+          try: () => import(modulePath),
+          catch: (cause) => new BoundBehaviorFailure({ cause }),
         });
 
-        assert.strictEqual(result.exitCode, 0, result.output);
-      }).pipe(Effect.provide(Services)),
+        const fixture = yield* Schema.decodeUnknownEffect(RuntimeModule)(loaded);
+
+        const raw = yield* Effect.tryPromise({
+          try: (signal) => fixture.observeBoundBehaviors(signal),
+          catch: (cause) => new BoundBehaviorFailure({ cause }),
+        });
+
+        const observed = yield* Schema.decodeEffect(Observations)(raw);
+
+        const actualOrigin = observed.moduleOrigin.startsWith("file:")
+          ? new URL(observed.moduleOrigin).pathname
+          : observed.moduleOrigin;
+
+        const effectRoot = yield* fs.realPath(path.join(directory, "node_modules", "effect"));
+        assert.strictEqual(observed.packageVersion, "4.0.0-rc.116");
+        assert.strictEqual(observed.runtimeIdentityMatches, true);
+        assert.strictEqual(
+          yield* fs.realPath(actualOrigin),
+          path.join(effectRoot, "dist", "index.js"),
+        );
+        assert.strictEqual(observed.profile.status, 200);
+        assert.strictEqual(
+          observed.profile.body,
+          '{"firstName":"bound:substitute","lastName":"bound"}',
+        );
+        assert.strictEqual(observed.profile.releases, 1);
+        assert.deepStrictEqual(
+          observed.content.map(({ action }) => action),
+          ["publish", "unpublish"],
+        );
+
+        for (const response of observed.content) {
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(response.body, `article-1:${response.action}ed:8192`);
+        }
+
+        assert.strictEqual(observed.cancellation.interrupted, true);
+        assert.strictEqual(observed.cancellation.releases, 1);
+        assert.strictEqual(observed.guardFailure.status, 401);
+        assert.strictEqual(observed.guardFailure.reads, 0);
+        assert.strictEqual(observed.defect.status, 500);
+        assert.strictEqual(observed.defect.releases, 1);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
 
@@ -123,7 +193,7 @@ describe("bound Profile and Content against installed rc.116", () => {
           ),
           diagnostics.map((diagnostic) => `${diagnostic.file}: ${diagnostic.message}`).join("\n"),
         );
-      }).pipe(Effect.provide(Services)),
+      }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
 
@@ -153,7 +223,7 @@ describe("bound Profile and Content against installed rc.116", () => {
           ),
           diagnostics.map((diagnostic) => `${diagnostic.file}: ${diagnostic.message}`).join("\n"),
         );
-      }).pipe(Effect.provide(Services)),
+      }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
 });
