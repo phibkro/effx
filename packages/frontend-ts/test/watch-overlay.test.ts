@@ -105,6 +105,73 @@ describe("analysis source snapshots", () => {
   });
 
   it.effect(
+    "directory probes do not authorize enumeration and later membership upgrades survive dedup",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "tsconfig.json");
+        const text = yield* fs.readFileString(config);
+        const sourceDirectory = path.join(root, "src");
+        const probes: ObservedInput[] = [];
+
+        const host = yield* tryTs("collect", () =>
+          snapshotHost(path, { onObserve: (input) => probes.push(input) }, [config, text]),
+        );
+
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.deepStrictEqual(
+          probes.filter((input) => input.path === sourceDirectory),
+          [{ kind: "directory", path: sourceDirectory }],
+        );
+        const actual = host.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1);
+        const expected = ts.sys.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1);
+
+        assert.deepStrictEqual(actual, expected);
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.deepStrictEqual(
+          probes.filter((input) => input.path === sourceDirectory),
+          [
+            { kind: "directory", path: sourceDirectory },
+            { kind: "directory", path: sourceDirectory, membership: true },
+          ],
+        );
+        assert.deepStrictEqual(
+          host.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1),
+          expected,
+        );
+        assert.strictEqual(probes.filter((input) => input.path === sourceDirectory).length, 2);
+        const lookupOnly = path.join(root, "lookup-only");
+
+        yield* fs.makeDirectory(lookupOnly);
+        assert.isFalse(host.fileExists(path.join(lookupOnly, "missing.ts")));
+        assert.isTrue(
+          probes.some((input) => input.path === lookupOnly && input.kind === "directory"),
+        );
+        assert.isFalse(
+          probes.some((input) => input.path === lookupOnly && input.membership === true),
+        );
+        assert.isTrue(
+          probes.some(
+            (input) =>
+              input.path === path.join(lookupOnly, "missing.ts") && input.kind === "missing",
+          ),
+        );
+
+        const withoutObservation = yield* tryTs("collect", () =>
+          snapshotHost(path, {}, [config, text]),
+        );
+
+        assert.deepStrictEqual(
+          withoutObservation.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1),
+          expected,
+        );
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
     "observes native overlay roots before source reads and preserves explicit files selection",
     () =>
       Effect.gen(function* () {
@@ -490,7 +557,11 @@ describe("analysis source snapshots", () => {
         );
         assert.isTrue(probes.some((input) => input.kind === "symlink"));
         assert.strictEqual(
-          new Set(probes.map((input) => input.kind + ":" + input.path)).size,
+          new Set(
+            probes.map(
+              (input) => input.kind + ":" + input.path + ":" + (input.membership === true),
+            ),
+          ).size,
           probes.length,
         );
         assert.deepStrictEqual(yield* tree(root), before);

@@ -24,7 +24,7 @@ export const snapshotHost = (
   const identities = new Map<string, string>();
   const physicalSources = new Map<string, string | undefined>();
   const entries = new Map<string, { files: string[]; directories: string[] }>();
-  const observed = new Set<string>();
+  const observed = input.onObserve === undefined ? undefined : new Set<string>();
   const virtualDirectories = new Set<string>();
 
   for (const [name, text] of sources) {
@@ -40,12 +40,13 @@ export const snapshotHost = (
     }
   }
 
-  const observe = (kind: ObservedInput["kind"], name: string): void => {
-    const key = kind + ":" + name;
+  const observe = (kind: ObservedInput["kind"], name: string, membership = false): void => {
+    if (observed === undefined) return;
+    const key = kind + ":" + name + ":" + membership;
 
     if (observed.has(key)) return;
     observed.add(key);
-    input.onObserve?.({ kind, path: name });
+    input.onObserve?.(membership ? { kind, path: name, membership: true } : { kind, path: name });
   };
 
   const directoryExists = (name: string): boolean => {
@@ -137,6 +138,8 @@ export const snapshotHost = (
     const children = new Set(
       exists ? ts.sys.getDirectories(dir).map((child) => path.basename(child)) : [],
     );
+
+    if (exists) observe("directory", dir, true);
 
     for (const [file, text] of sources) {
       if (path.dirname(file) === dir) {
