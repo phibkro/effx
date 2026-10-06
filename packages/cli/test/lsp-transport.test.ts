@@ -99,6 +99,22 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     ),
   );
 
+  it.live("checkpoint input failure closes with its original structural reason", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        // Without terminal checkpoint handling this becomes Handler, not Framing.
+        yield* peer.request("checkpoint-read-failure").pipe(Effect.exit);
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+        const log = yield* peer.stderr;
+        assert.include(log, "terminal:Framing");
+        assert.notInclude(log, "terminal:Handler");
+        assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+      }),
+    ),
+  );
+
   it.live("host interruption joins the injected IO release and handler finalizer", () =>
     Effect.scoped(
       Effect.gen(function* () {

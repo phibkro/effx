@@ -17,7 +17,7 @@ import {
   ResponseError,
   type Message,
 } from "vscode-languageserver-protocol/node";
-import { acquireLspTransport, RpcFailure, type LspTransport } from "@effx/cli";
+import { acquireLspTransport, RpcFailure, TransportError, type LspTransport } from "@effx/cli";
 
 export class PeerError extends Schema.TaggedError<PeerError>()("PeerError", {
   cause: Schema.Defect(),
@@ -427,8 +427,18 @@ if (process.argv[2] === "serve") {
       let readCalls = 0;
       let writeCalls = 0;
       let probeCalls = 0;
+      let demandFiberId: number | undefined;
+      let failCheckpointRead = false;
 
       const read = Effect.fnUntraced(function* (max: number) {
+        const caller = yield* Effect.withFiber((fiber) => Effect.succeed(fiber.id));
+
+        if (demandFiberId === undefined) demandFiberId = caller;
+
+        // Substitute only the checkpoint failure channel; native demand stays real.
+        if (failCheckpointRead && caller !== demandFiberId)
+          return yield* new TransportError({ reason: "Framing", cause: "Checkpoint law" });
+
         readCalls++;
         maxRequested = Math.max(maxRequested, max);
 
@@ -475,6 +485,13 @@ if (process.argv[2] === "serve") {
 
           if (message.method === "io-inspect")
             return { maxRequested, maxReturned, maxBacking, runtimeAcquisitions, ioReleases };
+
+          if (message.method === "checkpoint-read-failure") {
+            failCheckpointRead = true;
+            yield* transport.admitPending.pipe(Effect.orDie);
+
+            return null;
+          }
 
           if (message.method === "watch-client") {
             const processId = yield* decodeProcessId(message.params).pipe(
