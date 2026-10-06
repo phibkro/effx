@@ -1,11 +1,15 @@
 import { BunRuntime } from "@effect/platform-bun";
 import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect";
-import { writeSync, readFileSync, fstatSync } from "node:fs";
+import { writeSync, readFileSync, fstatSync, constants as fsConstants } from "node:fs";
+import { constants as osConstants } from "node:os";
+import { dirname, join } from "node:path";
+import { dlopen, ptr } from "bun:ffi";
 import * as process from "node:process";
 import { acquireLinuxLspIO } from "../lsp-linux.ts";
 import { LinuxFixtureReceipt } from "./lsp-linux.contract.ts";
 import assert from "node:assert/strict";
 import type { TransportError } from "@effx/cli";
+import { nativeSymbols } from "../lsp-native-manifest.ts";
 
 const Mode = Schema.Literals([
   "read",
@@ -29,6 +33,90 @@ const receipt = Effect.fnUntraced(function* (value: typeof LinuxFixtureReceipt.T
   const text = yield* encodeReceipt(value);
   yield* Effect.sync(() => {
     writeSync(3, text + "\n");
+  });
+});
+
+const badDescriptor = Schema.is(Schema.Struct({ code: Schema.Literal("EBADF") }));
+
+// Descriptor identity is safe observation data, not an open-file-description claim.
+const snapshotFd0 = () => {
+  const stat = fstatSync(0, { bigint: true });
+
+  const kind: "socket" | "fifo" | "file" | "other" = stat.isSocket()
+    ? "socket"
+    : stat.isFIFO()
+      ? "fifo"
+      : stat.isFile()
+        ? "file"
+        : "other";
+
+  return { kind, device: String(stat.dev), inode: String(stat.ino) };
+};
+
+// EX-0035: test-only real FIFO saturation, using the already qualified asset.
+// One 64 KiB backing is live; at most 8192 real syscalls and 8 MiB accepted
+// bytes are admitted. These caps are refusals, never evidence of saturation.
+const saturateSink = Effect.fnUntraced(function* (manifest: string) {
+  let finiteAcceptedBytes = 0;
+  yield* Effect.scoped(
+    Effect.gen(function* () {
+      const library = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          dlopen(join(dirname(manifest), "lsp-readiness.so"), {
+            fd_write_now: nativeSymbols.fd_write_now,
+            fd_flags: nativeSymbols.fd_flags,
+          }),
+        ),
+        (owned) => Effect.sync(() => owned.close()),
+      );
+
+      return yield* Effect.sync(() => {
+        assert.equal(fstatSync(1).isFIFO(), true);
+        assert.notEqual(library.symbols.fd_flags(1) & fsConstants.O_NONBLOCK, 0);
+        const backing = new Uint8Array(65536);
+        const pointer = ptr(backing);
+        let count = backing.byteLength;
+
+        for (let calls = 0; calls < 8192 && finiteAcceptedBytes < 8 * 1024 * 1024; calls++) {
+          const written = library.symbols.fd_write_now(1, pointer, count);
+
+          if (written === -osConstants.errno.EAGAIN || written === -osConstants.errno.EWOULDBLOCK) {
+            // A large nonblocking write can refuse while a smaller write fits.
+            // Require one-byte refusal, not EINTR or a guessed capacity.
+            if (count === 1) return;
+            count = 1;
+          } else {
+            assert.ok(written > 0 && written <= count);
+            finiteAcceptedBytes += written;
+          }
+        }
+
+        assert.fail("FIFO did not reach observed one-byte would-block within prefill bound");
+      });
+    }),
+  ).pipe(
+    Effect.onExit((exit) =>
+      Exit.hasDies(exit)
+        ? receipt({
+            event: "failure",
+            stage: "sink-prefill",
+            failureCategory: "sink-not-saturated",
+            sinkKind: "fifo",
+            finiteAcceptedBytes,
+            wouldBlock: false,
+          }).pipe(Effect.orDie)
+        : Effect.void,
+    ),
+  );
+
+  // The extra dlopen reference is gone before any Root writer/close law starts.
+  yield* receipt({
+    event: "result",
+    stage: "sink-prefill",
+    sinkKind: "fifo",
+    finiteAcceptedBytes,
+    wouldBlock: true,
+    checks: ["sink-saturated"],
   });
 });
 
@@ -70,7 +158,7 @@ const program = Effect.gen(function* () {
   yield* Effect.scoped(
     Effect.gen(function* () {
       const io = yield* acquireLinuxLspIO(launch.manifest);
-      yield* receipt({ event: "acquired" });
+      yield* receipt({ event: "acquired", fixturePid: process.pid });
       const checks: Array<NonNullable<typeof LinuxFixtureReceipt.Type.checks>[number]> = [];
 
       if (launch.mode === "signal") return yield* Effect.never;
@@ -82,8 +170,22 @@ const program = Effect.gen(function* () {
           return yield* Effect.die("exclusive owner was not refused");
         checks.push("exclusive-owner");
       } else if (launch.mode === "closed") {
+        const fd0Before = yield* Effect.sync(snapshotFd0);
         yield* io.close;
         yield* io.close;
+
+        const after = yield* Effect.sync(() => {
+          try {
+            return { fd0After: snapshotFd0(), fd0AfterStatus: "present" as const };
+          } catch (cause) {
+            return {
+              fd0After: null,
+              fd0AfterStatus: badDescriptor(cause) ? ("EBADF" as const) : ("other-error" as const),
+            };
+          }
+        });
+
+        yield* receipt({ event: "result", stage: "fd0-close", fd0Before, ...after });
         yield* Effect.sync(() => {
           assert.throws(() => fstatSync(0), { code: "EBADF" });
         }).pipe(
@@ -156,7 +258,9 @@ const program = Effect.gen(function* () {
         if (value !== 17) return yield* Effect.die("callback success channel changed");
         checks.push("callback-cancellation", "callback-finalizer-once", "promise-channel");
       } else if (launch.mode === "blocked-write") {
-        const error = yield* io.write(new Uint8Array(8 * 1024 * 1024)).pipe(
+        yield* saturateSink(launch.manifest);
+
+        const error = yield* io.write(new Uint8Array(1)).pipe(
           Effect.onExit((exit) => observeWrite("blocked-write", exit)),
           Effect.flip,
         );

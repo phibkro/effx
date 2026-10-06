@@ -1,6 +1,7 @@
 // EX-0035: actual Node-created stdin socket / FIFO / file / PTY test topology.
 import { spawn, execFileSync } from "node:child_process";
 import {
+  constants,
   closeSync,
   mkdtempSync,
   openSync,
@@ -38,6 +39,8 @@ const decodeLaunch = Schema.decodeUnknownEffect(
     form: Schema.Literals(["socket", "fifo", "file", "pty", "device", "procfs"]),
   }),
 );
+
+const goneProcess = Schema.is(Schema.Struct({ code: Schema.Literal("ESRCH") }));
 
 const parseReceipt = Schema.decodeUnknownSync(Schema.fromJsonString(LinuxFixtureReceipt));
 
@@ -77,6 +80,36 @@ const main = Effect.gen(function* () {
   );
 
   const args = [fixture, launch.mode, launch.manifest];
+  const sinkPath = join(directory, "undrained-output.fifo");
+
+  if (launch.mode === "blocked-write") execFileSync("mkfifo", [sinkPath]);
+
+  // A raw read descriptor has no Readable/Socket/libuv read registration. It is
+  // held until the fixture joins and is never read, even by flushStdio on exit.
+  const sinkReader = yield* Effect.acquireRelease(
+    Effect.sync(() =>
+      launch.mode === "blocked-write"
+        ? openSync(sinkPath, constants.O_RDONLY | constants.O_NONBLOCK)
+        : undefined,
+    ),
+    (owned) =>
+      Effect.sync(() => {
+        if (owned !== undefined) closeSync(owned);
+      }),
+  );
+
+  const sinkWriter = yield* Effect.acquireRelease(
+    Effect.sync(() =>
+      sinkReader !== undefined
+        ? openSync(sinkPath, constants.O_WRONLY | constants.O_NONBLOCK)
+        : undefined,
+    ),
+    (owned) =>
+      Effect.sync(() => {
+        if (owned !== undefined) closeSync(owned);
+      }),
+  );
+
   let command = launch.bun;
   let childArgs = args;
 
@@ -100,15 +133,27 @@ const main = Effect.gen(function* () {
     childArgs = ["-qefc", "exec " + [launch.bun, ...args].map(quote).join(" "), "/dev/null"];
   }
 
+  let fixturePid: number | undefined;
+  let controllerClosed = false;
+
   const child = yield* Effect.acquireRelease(
     Effect.try({
-      try: () =>
-        spawn(command, childArgs, { stdio: [descriptor ?? "pipe", "pipe", "pipe", "pipe"] }),
+      try: () => {
+        const owned = spawn(command, childArgs, {
+          stdio: [descriptor ?? "pipe", sinkWriter ?? "pipe", "pipe", "pipe"],
+        });
+
+        owned.once("close", () => {
+          controllerClosed = true;
+        });
+
+        return owned;
+      },
       catch: () => new PeerFault({ reason: "Spawn", stage: "spawn" }),
     }),
     (owned) =>
       Effect.callback<void>((resume) => {
-        if (owned.exitCode !== null || owned.signalCode !== null) {
+        if (controllerClosed) {
           resume(Effect.void);
 
           return;
@@ -116,8 +161,18 @@ const main = Effect.gen(function* () {
 
         const done = () => resume(Effect.void);
         owned.once("close", done);
-        // script owns the PTY child session; SIGKILL would bypass forwarding.
-        owned.kill(launch.form === "pty" ? "SIGTERM" : "SIGKILL");
+
+        if (owned.exitCode === null && owned.signalCode === null) {
+          if (launch.form === "pty" && fixturePid !== undefined) {
+            // Terminate the actual fixture, not script: normal script shutdown
+            // waits/reaps its child (util-linux 2.42.3 script.c:1096-1097).
+            try {
+              process.kill(fixturePid, "SIGTERM");
+            } catch (cause) {
+              if (!goneProcess(cause)) throw cause;
+            }
+          } else owned.kill(launch.form === "pty" ? "SIGTERM" : "SIGKILL");
+        }
 
         return Effect.sync(() => owned.off("close", done));
       }),
@@ -126,7 +181,7 @@ const main = Effect.gen(function* () {
   const receipts: Array<typeof LinuxFixtureReceipt.Type> = [];
   let stdoutBytes = 0;
 
-  const result = yield* Effect.callback<typeof LinuxPeerResult.Type, PeerFault>((resume) => {
+  const result = yield* Effect.callback<LinuxPeerResult, PeerFault>((resume) => {
     let pending = "";
     let received = 0;
     let active = true;
@@ -240,8 +295,10 @@ const main = Effect.gen(function* () {
           }
 
           acquired = true;
+          fixturePid = event.fixturePid;
 
-          if (launch.mode === "signal") child.kill("SIGINT");
+          if (launch.mode === "signal" && fixturePid !== undefined)
+            process.kill(fixturePid, "SIGINT");
           else offer();
         }
       }
@@ -267,8 +324,9 @@ const main = Effect.gen(function* () {
 
       if (pending.length > 0) receiptError();
 
-      const result: Omit<typeof LinuxPeerResult.Type, "peerFault"> & {
+      const result: Omit<LinuxPeerResult, "peerFault" | "ptyChildJoined"> & {
         peerFault?: LinuxPeerFault;
+        ptyChildJoined?: boolean;
       } = {
         code,
         signal,
@@ -277,6 +335,20 @@ const main = Effect.gen(function* () {
       };
 
       if (peerFault !== undefined) result.peerFault = peerFault;
+
+      if (launch.form === "pty") {
+        // A controller PID alone is not child-join evidence. Require its normal
+        // close (waitpid path) and disappearance of the acquired fixture PID.
+        result.ptyChildJoined = false;
+
+        if (signal === null && fixturePid !== undefined) {
+          try {
+            process.kill(fixturePid, 0);
+          } catch (cause) {
+            result.ptyChildJoined = goneProcess(cause);
+          }
+        }
+      }
 
       cleanup();
       resume(Effect.succeed(result));
@@ -287,8 +359,8 @@ const main = Effect.gen(function* () {
     child.once("error", fail);
     child.once("close", done);
     child.stderr?.on("data", discardError);
-    // A stalled reader deliberately never consumes stdout; the fixture's real
-    // callback writer and release must terminate without the peer draining it.
+    // blocked-write uses a raw FIFO fd, not a paused child.stdout Socket. Node
+    // may prefetch into a paused Socket and flushStdio resumes it at child exit.
 
     if (launch.mode !== "blocked-write") child.stdout?.on("data", out);
 
