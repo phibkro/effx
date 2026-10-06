@@ -44,9 +44,15 @@ const runExtra = Effect.fnUntraced(function* (
 
       const text = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString);
       const code = Number(yield* child.exitCode);
-      assert.strictEqual(code, 0, `extra peer exit=${code}; mode=${mode}; form=${form}`);
+      const result = text.trim() === "" ? undefined : yield* decodeResult(text.trim());
+      assert.strictEqual(
+        code,
+        0,
+        `extra peer exit=${code}; mode=${mode}; form=${form}; reason=${result?.fault?.reason ?? "unobserved"}; stage=${result?.fault?.stage ?? "unobserved"}`,
+      );
+      assert.isDefined(result, "extra peer produced no safe result");
 
-      return yield* decodeResult(text.trim());
+      return result!;
     }),
   ).pipe(Effect.timeout("15 seconds"));
 });
@@ -115,8 +121,19 @@ describe("Linux native extra ownership laws", () => {
         // Falsifier: mutating shared O_NONBLOCK, dup/replacing either original,
         // or forgetting the separately opened FIFO/PTY output descriptor.
         const identity = requireReceipt(result.receipts, "identity");
-        assert.deepStrictEqual(identity.fd0After, identity.fd0Before);
-        assert.deepStrictEqual(identity.fd1After, identity.fd1Before);
+
+        for (const [before, after] of [
+          [identity.fd0Before, identity.fd0After],
+          [identity.fd1Before, identity.fd1After],
+        ]) {
+          assert.isDefined(before);
+          assert.isDefined(after);
+          assert.strictEqual(after?.kind, before?.kind);
+          assert.strictEqual(after?.device, before?.device);
+          assert.strictEqual(after?.inode, before?.inode);
+          assert.strictEqual(after?.flags, before?.flags);
+        }
+
         assert.strictEqual(identity.fd1Before?.kind, form);
         assert.strictEqual(identity.fd0Before?.kind, form === "pty" ? "pty" : "socket");
         assert.isDefined(identity.fd0Before?.flags);
