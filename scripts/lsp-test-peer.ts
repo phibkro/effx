@@ -1,9 +1,11 @@
 // EX-0030: real subprocess/client composition root; no vendor or native handles
 // escape into the behavior suite. Microsoft maintained client is the wire oracle.
-// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
+// EX-0030: the real subprocess/client composition root is outside packages.
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { Cause, Deferred, Effect, Exit, Fiber, Predicate, Schema } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { acquireLinuxLspIO } from "./lsp-linux.js";
 import {
   createMessageConnection,
   StreamMessageReader,
@@ -18,9 +20,8 @@ import {
 import {
   acquireLspTransport,
   RpcFailure,
-  stdioLspIO,
   type LspTransport,
-} from "../src/lsp-transport.js";
+} from "../packages/cli/src/lsp-transport.js";
 
 export class PeerError extends Schema.TaggedError<PeerError>()("PeerError", {
   cause: Schema.Defect(),
@@ -126,7 +127,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
       spawn(
         process.execPath,
         launch
-          ? [launch.main ?? new URL("../src/main.ts", import.meta.url).pathname, ...launch.args]
+          ? [launch.main ?? new URL("./effx.ts", import.meta.url).pathname, ...launch.args]
           : [new URL(import.meta.url).pathname, "serve"],
         {
           stdio: ["pipe", "pipe", "pipe"],
@@ -417,10 +418,57 @@ if (process.argv[2] === "serve") {
       const edits: Schema.Json[] = [];
       let active = 0;
       let released = 0;
+      const native = yield* acquireLinuxLspIO(
+        new URL("../packages/cli/native/lsp-readiness.json", import.meta.url).pathname,
+      );
+      let maxRequested = 0;
+      let maxReturned = 0;
+      let maxBacking = 0;
+      let runtimeAcquisitions = 0;
+      let ioReleases = 0;
+      let readCalls = 0;
+      let writeCalls = 0;
+      let probeCalls = 0;
+      const read = Effect.fnUntraced(function* (max: number) {
+        readCalls++;
+        maxRequested = Math.max(maxRequested, max);
+        const bytes = yield* native.read(max);
+        if (bytes !== null) {
+          maxReturned = Math.max(maxReturned, bytes.byteLength);
+          maxBacking = Math.max(maxBacking, bytes.buffer.byteLength);
+        }
+        return bytes;
+      });
+      const acquireIO = Effect.succeed({
+        ...native,
+        read,
+        write: Effect.fnUntraced(function* (data: Uint8Array | string) {
+          writeCalls++;
+          yield* native.write(data);
+        }),
+        probePid: Effect.fnUntraced(function* (pid: number) {
+          probeCalls++;
+          yield* native.probePid(pid);
+        }),
+        makeCallbackRuntime: Effect.fnUntraced(function* <R>() {
+          runtimeAcquisitions++;
+          return yield* native.makeCallbackRuntime<R>();
+        }),
+        close: Effect.gen(function* () {
+          ioReleases++;
+          yield* native.close;
+          if (ioReleases === 1) process.stderr.write("native-io-released-once\n");
+          else process.stderr.write("native-io-release-duplicated\n");
+        }),
+      });
       const gate = yield* Deferred.make<void>();
-      transport = yield* acquireLspTransport(stdioLspIO, {
+      transport = yield* acquireLspTransport(
+        acquireIO,
+        {
         request: Effect.fnUntraced(function* (message) {
           if (message.method === "identify") return { receivedId: message.id };
+          if (message.method === "io-inspect")
+            return { maxRequested, maxReturned, maxBacking, runtimeAcquisitions, ioReleases };
 
           if (message.method === "watch-client") {
             const processId = yield* decodeProcessId(message.params).pipe(
@@ -593,16 +641,32 @@ if (process.argv[2] === "serve") {
           }),
         ),
       );
+      yield* transport.close;
+      yield* transport.close;
+      const before = readCalls + writeCalls + probeCalls;
+      const sent = yield* Effect.exit(transport.sendNotification("must-not-write", null));
+      const admitted = yield* Effect.exit(transport.admitPending);
+      const watched = yield* Effect.exit(transport.watchClient(1));
+      if (Exit.isFailure(sent) && Exit.isFailure(admitted) && Exit.isFailure(watched) &&
+        before === readCalls + writeCalls + probeCalls)
+        process.stderr.write("native-io-closed-fence\n");
+      else process.stderr.write("native-io-closed-fence-failed\n");
     }),
   );
 
-  Effect.runPromise(program).then(
-    () => {
+  BunRuntime.runMain(
+    program.pipe(Effect.ensuring(Effect.sync(() => {
       process.stderr.write("root-released\n");
-    },
-    () => {
-      process.stderr.write("root-failed\n");
-      process.exitCode = 1;
+    }))),
+    {
+      // This test root reports only classified receipts, never private causes.
+      disableErrorReporting: true,
+      teardown: (exit, done) => {
+        if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) {
+          process.stderr.write("root-failed\n");
+          done(1);
+        } else done(0);
+      },
     },
   );
 }

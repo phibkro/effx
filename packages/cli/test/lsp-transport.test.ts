@@ -3,11 +3,13 @@ import { Context, Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { expectTypeOf } from "vitest";
 import {
   acquireLspTransport,
+  LspPlatform,
+  type LspCallbackRuntime,
   type LspIO,
   type LspTransport,
   TransportError,
 } from "../src/lsp-transport.js";
-import { acquirePeer, frames, maintainedBufferLaw } from "./lsp-transport-peer.js";
+import { acquirePeer, frames, maintainedBufferLaw } from "../../../scripts/lsp-test-peer.js";
 
 const Inspect = Schema.Struct({
   edits: Schema.Array(Schema.Json),
@@ -45,21 +47,66 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     }),
   );
 
-  it.effect("an IO handle cannot forge native authority", () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        Effect.scoped(
-          acquireLspTransport(Effect.succeed({ _tag: "LspIO" } satisfies LspIO), {
-            request: () => Effect.succeed(null),
-            notification: () => Effect.void,
-          }),
-        ),
-      );
-
-      assert.strictEqual(error._tag, "TransportError");
-      assert.strictEqual(error.reason, "IO");
-    }),
+  it.live("injected native demand keeps exact byte bounds, one bridge and one release", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const peer = yield* acquirePeer();
+      yield* peer.waitNotification("ready");
+      yield* peer.notification("edit", { text: "é".repeat(96 * 1024) });
+      yield* peer.request("inspect");
+      const stats = yield* Schema.decodeUnknownEffect(Schema.Struct({
+        maxRequested: Schema.Int,
+        maxReturned: Schema.Int,
+        maxBacking: Schema.Int,
+        runtimeAcquisitions: Schema.Int,
+        ioReleases: Schema.Int,
+      }))(yield* peer.request("io-inspect"));
+      assert.isAbove(stats.maxRequested, 0);
+      assert.isAtMost(stats.maxRequested, 65536);
+      assert.isAbove(stats.maxReturned, 0);
+      assert.isAtMost(stats.maxReturned, 65536);
+      assert.isAtMost(stats.maxBacking, 65536);
+      assert.strictEqual(stats.runtimeAcquisitions, 1);
+      assert.strictEqual(stats.ioReleases, 0);
+      yield* peer.eof;
+      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      const log = yield* peer.stderr;
+      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+      assert.notInclude(log, "native-io-release-duplicated");
+      assert.include(log, "native-io-closed-fence\n");
+      assert.notInclude(log, "native-io-closed-fence-failed");
+    })),
   );
+
+  it.live("framing failure releases the injected native owner exactly once", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const peer = yield* acquirePeer();
+      yield* peer.waitNotification("ready");
+      yield* peer.write(new TextEncoder().encode("Content-Length: -1\r\n\r\n"));
+      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      const log = yield* peer.stderr;
+      assert.include(log, "terminal:Framing");
+      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+      assert.notInclude(log, "native-io-release-duplicated");
+      assert.include(log, "native-io-closed-fence\n");
+    })),
+  );
+
+  it.live("host interruption joins the injected IO release and handler finalizer", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const peer = yield* acquirePeer();
+      yield* peer.waitNotification("ready");
+      const held = yield* Effect.forkChild(peer.request("hold").pipe(Effect.exit));
+      yield* peer.waitNotification("started");
+      yield* peer.interrupt;
+      assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      yield* Fiber.join(held);
+      const log = yield* peer.stderr;
+      assert.strictEqual(log.split("handler-released").length - 1, 1);
+      assert.strictEqual(log.split("native-io-released-once").length - 1, 1);
+      assert.notInclude(log, "native-io-release-duplicated");
+    })),
+  );
+
   it.live("stateful maintained client applies UTF-8 chunked and coalesced edits in order", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -627,7 +674,7 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       Effect.gen(function* () {
         const peer = yield* acquirePeer(true, {
           cwd: new URL("../../../", import.meta.url).pathname,
-          main: new URL("./lsp-transport-peer.ts", import.meta.url).pathname,
+          main: new URL("../../../scripts/lsp-test-peer.ts", import.meta.url).pathname,
           args: ["parent-client"],
         });
 
@@ -682,5 +729,22 @@ it("preserves acquisition failures, handler requirements and scoped ownership in
   >();
   expectTypeOf(acquired).not.toEqualTypeOf<
     Effect.Effect<LspTransport, AcquisitionFailure | TransportError, Scope.Scope>
+  >();
+});
+
+it("platform and callback bridge keep their acquisition and handler channels", () => {
+  const platform = Effect.andThen(LspPlatform, (service) => service.acquireIO);
+  expectTypeOf(platform).toEqualTypeOf<
+    Effect.Effect<LspIO, TransportError, LspPlatform | Scope.Scope>
+  >();
+  const bridge = Effect.andThen(AcquisitionDependency, (service) =>
+    service.io.makeCallbackRuntime<HandlerDependency>(),
+  );
+  expectTypeOf(bridge).toEqualTypeOf<
+    Effect.Effect<LspCallbackRuntime<HandlerDependency>, never,
+      AcquisitionDependency | HandlerDependency | Scope.Scope>
+  >();
+  expectTypeOf(bridge).not.toEqualTypeOf<
+    Effect.Effect<LspCallbackRuntime<HandlerDependency>, never, Scope.Scope>
   >();
 });
