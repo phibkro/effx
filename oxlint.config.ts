@@ -90,6 +90,13 @@ export const effectConfig = {
       },
     },
     {
+      files: ["scripts/test/lsp-linux-extra.peer.ts"],
+      // EX-0035: the independent native-law peer is actually launched with Node.
+      role: "composition-root",
+      platform: "node",
+      strictness: "strict",
+    },
+    {
       files: ["packages/cli/src/lsp-transport.ts"],
       // EX-0030: maintained protocol ABI consumes root-injected capabilities only.
       role: "runtime-adapter",

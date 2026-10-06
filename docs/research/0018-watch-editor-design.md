@@ -1015,6 +1015,11 @@ Main landing, complete feature acceptance and the final code/docs gate stay held
   condition/observation helper tools/native/lsp-sigpipe-test.c and test-assets
   never replace production write functions or compile at runtime. The packed
   refusal boundary scripts/packed-lsp-stdout.ts projects observable fields only.
+  The independent extra-law peer scripts/test/lsp-linux-extra.peer.ts is launched
+  with Node and has an exact Node composition-root lint profile. Its public
+  Readable/Writable guards describe the host stream ABI, not the kernel FD kind;
+  the Root/fixture separately establish socket/FIFO/PTY identity. This grants no
+  Node authority to portable packages or the product session.
 - Rules: FX002 native-first, FX003 runtime boundary, FX004 decoded boundaries,
   FX006 resource ownership, FX009 finite admission and FX012 retirement.
 - Missing capability: installed Stdio/Bun stdin does not establish bounded raw
