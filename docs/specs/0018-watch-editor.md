@@ -620,3 +620,53 @@ design before this amendment. Normative §§3–4 now incorporate this approved 
     state caller completeness; canonical cache files alone do not prove it. An
     omitted unobservable route is an explicit limitation, not silently claimed
     detected coverage. No global hook, sandbox, syntax restriction or hidden import.
+
+### Operator Linux platform amendment — 2026-10-06
+
+The operator wrote, verbatim: **"Linux"**. This selects the qualified native LSP
+backend proposed in design §10 at commit `13e815e`, not portable certification,
+credentials, publication or main landing. The four original defaults and coverage
+amendment A, including additional §8 item 10, remain binding.
+
+`effx lsp` is qualified for declared Linux-x64/glibc targets with standard
+maintained-client socket, FIFO, regular-file and PTY stdin. The external Bun root
+MUST exclusively own fd0; cooperative trusted config MUST neither consume stdin
+nor bypass native stderr/framed-output reporting. Arbitrary trusted code remains
+outside sandbox containment. Unusual devices, procfs and unsupported stdin forms
+MUST receive explicit classified limits/failure, not silent supported assumptions.
+Other CLI commands and `effx dev` retain their existing runtime/platform behavior.
+
+The trusted fixed 511-byte POSIX readiness C source MUST be compiled at build
+time against declared target headers/toolchain and loaded through public Bun
+1.3.13 dlopen. No runtime experimental cc/compiler/header discovery, guessed ABI
+or constants, shared descriptor-flag mutation, private handles, per-read helper
+process, fake backend or stub is permitted. After actual readiness, raw reads
+MUST use at most 65,536 bytes, under the explicit exclusive-reader premise.
+Accepted kernel bytes cannot be retracted; Closed admits no new native calls.
+
+Shipping MUST declare artifact-derived ELF target ABI, minimum glibc and needed
+libraries with actual compatibility evidence. The local glibc 2.44 probe does not
+establish a lower minimum or Ubuntu 24 compatibility. Build determinism, trusted
+source provenance, symbol signatures/data bounds and manifest byte integrity MUST
+be established. The packaged asset MUST contain no raw Nix-store path, stale Nix
+RPATH or runtime build dependency. Unsupported OS/architecture/libc MUST fail
+explicitly at startup before unsafe IO. Native C process authority and lack of
+memory-safety containment MUST be documented.
+
+The single common scripts/effx.ts root, portable main.ts/caller/build/pack cutover
+is owned first by approved 0019. 0018 MAY implement independent Linux capability,
+asset/build helper and tests, but MUST NOT duplicate the common root or broad
+caller migration. Adoption/rebase/injection follows director integration order.
+Own Node imports/types/globals remain forbidden in packages; main.ts remains the
+only effect/cli binding. No obsolete executable shim survives the final cutover.
+
+The complete §8 and amendment-A journeys remain required. Additional native
+acceptance MUST exercise actual packed maintained Node-client socket plus FIFO,
+file and PTY; unsupported startup; integrity/ABI failures; exclusive fd ownership;
+library close and root shutdown; writer two-second bound; EOF/SIGINT/client death
+and PID probe; no calls after Closed; and effx-owned stdout purity before/after
+initialize, cooperative config logging/fault and usage/help/error paths. No global
+console monkeypatch or sandbox is permitted. Artifact/provenance evidence MUST
+use closed safe projections and never serialize runtime environment, raw args,
+config/credential/private payloads or raw causes. Final complete committed-clone
+verification and director review/order precede any feature acceptance or landing.
