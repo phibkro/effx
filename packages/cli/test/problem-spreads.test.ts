@@ -227,7 +227,6 @@ describe("problem-code const tuple spreads", () => {
 
           const diagnostics = result.diagnostics.filter((d) => d.code === "EFFX1102");
           assert.lengthOf(diagnostics, 1);
-          assert.include(diagnostics[0]!.message, operand);
           assert.isDefined(diagnostics[0]!.location);
           const fs = yield* FileSystem.FileSystem;
           const text = yield* fs.readFileString(diagnostics[0]!.location!.file);

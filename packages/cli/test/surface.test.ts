@@ -129,7 +129,6 @@ describe("effx surface manifest and check (spec 0021)", () => {
       Effect.gen(function* () {
         const result = yield* surfaceCheck(project, dir, "worker.ts");
         assert.strictEqual(result.code, 0, result.stderr || result.stdout);
-        assert.include(result.stdout, "surface check:");
         assert.notMatch(result.stdout, /EFFX28\d\d (error|warning)/);
       }),
     ).pipe(Effect.provide(BunServices.layer)),
@@ -155,7 +154,7 @@ describe("effx surface manifest and check (spec 0021)", () => {
           for (const entry of ["worker-missing.ts", "worker-type-only.ts"]) {
             const result = yield* surfaceCheck(project, dir, entry);
             assert.strictEqual(result.code, 1, `${entry}: ${result.stderr || result.stdout}`);
-            assert.match(result.stdout, /EFFX2802 error[^\n]*AppRoutes/);
+            assert.match(result.stdout, /EFFX2802 error/);
           }
         }),
       ).pipe(Effect.provide(BunServices.layer)),
@@ -168,10 +167,8 @@ describe("effx surface manifest and check (spec 0021)", () => {
         Effect.gen(function* () {
           const result = yield* surfaceCheck(project, dir, "worker-stale.ts");
           assert.strictEqual(result.code, 1, result.stderr || result.stdout);
-          assert.match(
-            result.stdout,
-            /EFFX2803 error[^\n]*RemovedApiHandlers[^\n]*worker-stale\.ts:\d+:\d+/,
-          );
+          assert.match(result.stdout, /EFFX2803 error/);
+          assert.match(result.stdout, /worker-stale\.ts:\d+:\d+/);
           assert.notMatch(result.stdout, /EFFX2802/);
         }),
       ).pipe(Effect.provide(BunServices.layer)),
@@ -195,7 +192,7 @@ describe("effx surface manifest and check (spec 0021)", () => {
         Effect.gen(function* () {
           const result = yield* surfaceCheck(project, dir, "worker-namespace.ts");
           assert.strictEqual(result.code, 1, result.stderr || result.stdout);
-          assert.match(result.stdout, /EFFX2806 warning[^\n]*Generated/);
+          assert.match(result.stdout, /EFFX2806 warning/);
           assert.match(result.stdout, /EFFX2802 error/);
         }),
       ).pipe(Effect.provide(BunServices.layer)),

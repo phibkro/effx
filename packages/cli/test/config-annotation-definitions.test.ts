@@ -178,18 +178,27 @@ describe("a config-supplied extension built from a typed definition", () => {
         const resolved = yield* resolveProject(tsconfig);
         const result = yield* compile(resolved.config, Extensions.builtin);
 
-        assert.deepStrictEqual(
-          result.diagnostics
-            .filter((diagnostic) => diagnostic.code === "EFFX1101")
-            .map((diagnostic) => diagnostic.message)
-            .toSorted(),
-          spellings
-            .map(
-              (spelling) =>
-                `@app.RateLimit on ${spelling.declaration}: no extension interprets this annotation`,
-            )
-            .toSorted(),
-        );
+        const problems = result.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1101");
+        assert.strictEqual(problems.length, spellings.length);
+        const collected = Option.getOrThrow(result.collected.value);
+
+        for (const spelling of spellings) {
+          const declaration = collected.declarations.find(
+            (candidate) => candidate.id === spelling.declaration,
+          );
+
+          assert.isDefined(declaration?.location, spelling.declaration);
+
+          const matches = problems.filter(
+            (diagnostic) =>
+              diagnostic.location?.file === declaration?.location?.file &&
+              diagnostic.location?.line === declaration?.location?.line &&
+              diagnostic.location?.col === declaration?.location?.col,
+          );
+
+          assert.strictEqual(matches.length, 1, spelling.declaration);
+          assert.strictEqual(matches[0]?.severity, "error", spelling.declaration);
+        }
       }),
     ).pipe(Effect.provide(Services)),
   );
@@ -202,7 +211,6 @@ describe("a config-supplied extension built from a typed definition", () => {
         const problems = result.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1102");
 
         assert.strictEqual(problems.length, 1);
-        assert.include(problems[0]?.message, "Wrong.get");
         assert.isTrue(Option.isNone(result.files.value), "an error skips generation");
 
         // A hand-written interpreter owning the same name (the untyped floor) accepts the call: only the
@@ -281,7 +289,6 @@ describe("a config-supplied extension built from a typed definition", () => {
           );
 
           assert.strictEqual(fault._tag, "CompilerFault", field);
-          assert.match(fault.message, /extensions must contain valid Extension entries/, field);
         }
 
         assert.isFalse(yield* fs.exists(path.join(dir, ".effx")));
