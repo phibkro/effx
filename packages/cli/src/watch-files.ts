@@ -18,6 +18,7 @@ export interface WatchInput {
   readonly path: string;
   /** Source dependencies retain owned-output alias routes; selected-root/config rejection belongs to the caller. */
   readonly kind: "source" | "executable";
+  /** Immediate membership authority, not a directory-existence probe. Members are metadata-only unless recursive. */
   readonly directory?: boolean;
   readonly recursive?: boolean;
 }
@@ -87,6 +88,12 @@ export interface WatchFiles {
   readonly stop: Effect.Effect<void>;
 }
 
+const sameInput = (a: WatchInput, b: WatchInput) =>
+  a.path === b.path &&
+  a.kind === b.kind &&
+  (a.directory === true) === (b.directory === true) &&
+  (a.recursive === true) === (b.recursive === true);
+
 export const sameFingerprint = (a: WatchFingerprint, b: WatchFingerprint): boolean =>
   a.entries.length === b.entries.length &&
   a.entries.every((entry, index) => {
@@ -110,11 +117,14 @@ const notDirectory = Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }
  * Construction is lazy. The caller scope owns one polling fiber; start is idempotent.
  * One pass is active, zero passes wait, and one dirty state coalesces notifications.
  * Executable intent is OR-retained until takeChanges, including coverage replacement.
- * Defaults admit 8192 paths (including routes/parents), 64 MiB/pass and 16 MiB/file.
+ * Defaults admit 8192 unique logical/expanded paths, 64 MiB/pass and 16 MiB/file.
  * Explicit logical routes expand successive raw link targets under the same path
  * and unresolved-component budgets; repeated route states fail with WatchLimit "cycle".
  * replaceInputs may atomically replace resolved exclusions; every pass captures
  * its coverage and exclusion policy, retaining unchanged fingerprints on cutover.
+ * Native metadata, membership and physical-file digests are cached within one
+ * pass only. Shared ancestors do not consume admission again; aliases stay distinct.
+ * Nonrecursive membership observes names/kinds/identity/links, not child bytes.
  * Directory listing IO returns a whole native array; these are retained/admitted
  * coverage bounds, not a constant-memory claim about arbitrarily large listings.
  * Polling starts immediately then sleeps 250 ms after completion. Typed faults are
@@ -198,17 +208,26 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
     selectedExclusions: ReadonlyArray<string>,
   ) {
     let bytes = 0;
-    let admitted = 0;
+    const admitted = new Set<string>();
+    const links = new Map<string, Option.Option<string>>();
+    const infos = new Map<string, Option.Option<FileSystem.File.Info>>();
+    const physicalPaths = new Map<string, string>();
+    const digests = new Map<string, string>();
+    const memberships = new Map<string, ReadonlyArray<string>>();
 
     const count = Effect.fnUntraced(function* (name: string) {
-      admitted++;
+      admitted.add(name);
 
-      if (admitted > maxPaths)
+      if (admitted.size > maxPaths)
         return yield* new WatchLimit({ resource: "paths", path: name, limit: maxPaths });
     });
 
     const link = Effect.fnUntraced(function* (name: string) {
-      return yield* fs.readLink(name).pipe(
+      const cached = links.get(name);
+
+      if (cached !== undefined) return cached;
+
+      const value = yield* fs.readLink(name).pipe(
         Effect.asSome,
         Effect.catchIf(
           (error) =>
@@ -218,10 +237,19 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           () => Effect.succeed(Option.none<string>()),
         ),
       );
+
+      links.set(name, value);
+
+      return value;
     });
 
     const info = Effect.fnUntraced(function* (name: string) {
-      return yield* fs.stat(name).pipe(
+      const physical = physicalPaths.get(name);
+      const cached = infos.get(name) ?? (physical === undefined ? undefined : infos.get(physical));
+
+      if (cached !== undefined) return cached;
+
+      const value = yield* fs.stat(name).pipe(
         Effect.asSome,
         Effect.catchReason("PlatformError", "NotFound", () =>
           Effect.succeed(Option.none<FileSystem.File.Info>()),
@@ -231,6 +259,74 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           () => Effect.succeed(Option.none<FileSystem.File.Info>()),
         ),
       );
+
+      infos.set(name, value);
+
+      return value;
+    });
+
+    const physicalPath = Effect.fnUntraced(function* (name: string) {
+      const cached = physicalPaths.get(name);
+
+      if (cached !== undefined) return cached;
+
+      const real = yield* fs.realPath(name);
+      yield* count(real);
+      physicalPaths.set(name, real);
+      const metadata = infos.get(name);
+
+      if (metadata !== undefined && !infos.has(real)) infos.set(real, metadata);
+
+      return real;
+    });
+
+    const readDigest = Effect.fnUntraced(function* (name: string, real: string) {
+      const cached = digests.get(real);
+
+      if (cached !== undefined) return cached;
+
+      const digest = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const file = yield* fs.open(name);
+          const chunks: Array<Uint8Array> = [];
+          let length = 0;
+
+          while (true) {
+            const chunk = yield* file.readAlloc(
+              Math.min(64 * 1024, maxFileBytes - length + 1, maxBytes - bytes + 1),
+            );
+
+            if (Option.isNone(chunk)) break;
+            length += chunk.value.length;
+            bytes += chunk.value.length;
+
+            if (length > maxFileBytes)
+              return yield* new WatchLimit({
+                resource: "fileBytes",
+                path: name,
+                limit: maxFileBytes,
+              });
+
+            if (bytes > maxBytes)
+              return yield* new WatchLimit({ resource: "bytes", path: name, limit: maxBytes });
+            chunks.push(chunk.value);
+          }
+
+          const content = new Uint8Array(length);
+          let offset = 0;
+
+          for (const chunk of chunks) {
+            content.set(chunk, offset);
+            offset += chunk.length;
+          }
+
+          return Hex.encode(yield* crypto.digest("SHA-256", content));
+        }),
+      );
+
+      digests.set(real, digest);
+
+      return digest;
     });
 
     const identity = (stat: FileSystem.File.Info, real: string) =>
@@ -282,7 +378,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           yield* count(parent);
 
           const parentIdentity = Option.isSome(parentInfo)
-            ? identity(parentInfo.value, yield* fs.realPath(parent))
+            ? identity(parentInfo.value, yield* physicalPath(parent))
             : "";
 
           entries.set(name, {
@@ -296,7 +392,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           return;
         }
 
-        const real = yield* fs.realPath(name);
+        const real = yield* physicalPath(name);
 
         if (explicit) declaredDependencyRoot ||= real.split(path.sep).includes("node_modules");
 
@@ -328,46 +424,8 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 
         let digest = "";
 
-        if (stat.value.type === "File" && (explicit || Option.isNone(destination))) {
-          digest = yield* Effect.scoped(
-            Effect.gen(function* () {
-              const file = yield* fs.open(name);
-              const chunks: Array<Uint8Array> = [];
-              let length = 0;
-
-              while (true) {
-                const chunk = yield* file.readAlloc(
-                  Math.min(64 * 1024, maxFileBytes - length + 1, maxBytes - bytes + 1),
-                );
-
-                if (Option.isNone(chunk)) break;
-                length += chunk.value.length;
-                bytes += chunk.value.length;
-
-                if (length > maxFileBytes)
-                  return yield* new WatchLimit({
-                    resource: "fileBytes",
-                    path: name,
-                    limit: maxFileBytes,
-                  });
-
-                if (bytes > maxBytes)
-                  return yield* new WatchLimit({ resource: "bytes", path: name, limit: maxBytes });
-                chunks.push(chunk.value);
-              }
-
-              const content = new Uint8Array(length);
-              let offset = 0;
-
-              for (const chunk of chunks) {
-                content.set(chunk, offset);
-                offset += chunk.length;
-              }
-
-              return Hex.encode(yield* crypto.digest("SHA-256", content));
-            }),
-          );
-        }
+        if (stat.value.type === "File" && (explicit || recurse))
+          digest = yield* readDigest(name, real);
 
         entries.set(name, {
           path: name,
@@ -385,7 +443,12 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
         )
           return;
         visited.add(real);
-        const names = (yield* fs.readDirectory(name, { recursive: false })).sort();
+        const cachedMembership = memberships.get(real);
+
+        const names =
+          cachedMembership ?? (yield* fs.readDirectory(name, { recursive: false })).sort();
+
+        if (cachedMembership === undefined) memberships.set(real, names);
 
         for (const child of names) {
           const childPath = path.join(name, child);
@@ -481,7 +544,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           const ancestor = yield* info(routeRoot);
 
           const ancestorIdentity = Option.isSome(ancestor)
-            ? identity(ancestor.value, yield* fs.realPath(routeRoot))
+            ? identity(ancestor.value, yield* physicalPath(routeRoot))
             : "";
 
           const unresolved =
@@ -512,7 +575,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
           break;
         }
 
-        const real = yield* fs.realPath(name);
+        const real = yield* physicalPath(name);
 
         if (excluded(real, selectedExclusions)) {
           if (input.kind === "executable")
@@ -567,9 +630,8 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 
     if (result.fingerprints !== undefined) {
       for (const fingerprint of result.fingerprints) {
-        const previous = snapshot.fingerprints.find(
-          (old) =>
-            old.input.path === fingerprint.input.path && old.input.kind === fingerprint.input.kind,
+        const previous = snapshot.fingerprints.find((old) =>
+          sameInput(old.input, fingerprint.input),
         );
 
         if (previous !== undefined && !sameFingerprint(previous, fingerprint)) {
@@ -654,12 +716,6 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
       owner,
     );
   }, Effect.uninterruptible);
-
-  const sameInput = (a: WatchInput, b: WatchInput) =>
-    a.path === b.path &&
-    a.kind === b.kind &&
-    (a.directory === true) === (b.directory === true) &&
-    (a.recursive === true) === (b.recursive === true);
 
   const replaceInputs = Effect.fnUntraced(function* (
     values: ReadonlyArray<WatchInput>,

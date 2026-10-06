@@ -682,9 +682,9 @@ describe("explicit native project observation (EX-0031)", () => {
           yield* fs.remove(bridge);
           yield* fs.writeFileString(path.join(dir, "terminal.mjs"), "a");
 
-          for (let index = 0; index < 12; index++)
+          for (let index = 0; index < 20; index++)
             yield* fs.symlink(
-              path.join(dir, index === 11 ? "terminal.mjs" : "chain-" + (index + 1)),
+              path.join(dir, index === 19 ? "terminal.mjs" : "chain-" + (index + 1)),
               path.join(dir, "chain-" + index),
             );
 
@@ -1072,6 +1072,218 @@ describe("explicit native project observation (EX-0031)", () => {
 
             if (failure._tag === "WatchLimit") assert.strictEqual(failure.resource, "selection");
           }
+        }),
+      ),
+  );
+
+  it.effect(
+    "deduplicates shared ancestors for exact missing probes under the unchanged default path budget",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const dependencyDirectory = path.join(dir, "node_modules", "effect", "dist");
+          const consulted = path.join(dependencyDirectory, "consulted.d.ts");
+          const unused = path.join(dependencyDirectory, "unused.js");
+
+          const probes = Array.from({ length: 1000 }, (_, index) => ({
+            path: path.join(dependencyDirectory, "Missing" + index + ".tsx"),
+            kind: "source" as const,
+          }));
+
+          yield* fs.makeDirectory(dependencyDirectory, { recursive: true });
+          yield* fs.writeFileString(consulted, "a");
+          yield* fs.writeFileString(unused, "unobserved".repeat(128));
+
+          const stats = new Map<string, number>();
+          const links = new Map<string, number>();
+          const physical = new Map<string, number>();
+          let listings = 0;
+
+          const controlled = {
+            ...fs,
+            stat: Effect.fnUntraced(function* (name: string) {
+              stats.set(name, (stats.get(name) ?? 0) + 1);
+
+              return yield* fs.stat(name);
+            }),
+            readLink: Effect.fnUntraced(function* (name: string) {
+              links.set(name, (links.get(name) ?? 0) + 1);
+
+              return yield* fs.readLink(name);
+            }),
+            realPath: Effect.fnUntraced(function* (name: string) {
+              physical.set(name, (physical.get(name) ?? 0) + 1);
+
+              return yield* fs.realPath(name);
+            }),
+            readDirectory: Effect.fnUntraced(function* (
+              ...args: Parameters<typeof fs.readDirectory>
+            ) {
+              listings++;
+
+              return yield* fs.readDirectory(...args);
+            }),
+          };
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: dependencyDirectory, kind: "source" },
+              { path: consulted, kind: "source" },
+              ...probes,
+            ],
+            maxFileBytes: 16,
+          }).pipe(Effect.provideService(FileSystem.FileSystem, controlled));
+
+          const initial = yield* observe(watch);
+          assert.strictEqual(initial.fingerprints.length, probes.length + 2);
+          assert.strictEqual(stats.get(dependencyDirectory), 1);
+          assert.strictEqual(links.get(dependencyDirectory), 1);
+          assert.strictEqual(physical.get(dependencyDirectory), 1);
+          assert.strictEqual(listings, 0);
+          yield* fs.writeFileString(unused, "still-unobserved".repeat(128));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          yield* fs.writeFileString(probes[0]!.path, "created");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [probes[0]!.path]);
+          yield* watch.takeChanges;
+          yield* fs.writeFileString(consulted, "b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [consulted]);
+          assert.strictEqual(listings, 0);
+        }),
+      ),
+  );
+
+  it.effect(
+    "observes immediate membership metadata without hashing unconsulted sibling bytes",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const consulted = path.join(dir, "consulted.ts");
+          const unused = path.join(dir, "unconsulted.js");
+          const created = path.join(dir, "new.ts");
+          yield* fs.writeFileString(consulted, "a");
+          yield* fs.writeFileString(unused, "unused".repeat(1024));
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: dir, kind: "source", directory: true },
+              { path: consulted, kind: "source" },
+            ],
+            maxFileBytes: 4,
+          });
+
+          const initial = yield* observe(watch);
+          assert.strictEqual(
+            initial.fingerprints[0]?.entries.find((entry) => entry.path === unused)?.digest,
+            "",
+          );
+          assert.isTrue(
+            initial.fingerprints[1]?.entries.some(
+              (entry) => entry.path === consulted && entry.digest.length > 0,
+            ),
+          );
+          yield* fs.writeFileString(unused, "changed".repeat(1024));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          yield* fs.writeFileString(consulted, "b");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [consulted]);
+          yield* watch.takeChanges;
+          yield* fs.writeFileString(created, "a");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+          yield* fs.rename(created, path.join(dir, "renamed.ts"));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+          yield* fs.remove(path.join(dir, "renamed.ts"));
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [dir]);
+        }),
+      ),
+  );
+
+  it.effect(
+    "reads a shared physical file once per pass while preserving its logical aliases and byte admission",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const file = path.join(dir, "dependency.ts");
+          const alias = path.join(dir, "dependency-alias.ts");
+          let opens = 0;
+          yield* fs.writeFileString(file, "12345678");
+          yield* fs.symlink(file, alias);
+
+          const original = fs.open;
+
+          const controlled = {
+            ...fs,
+            open: Effect.fnUntraced(function* (...args: Parameters<typeof original>) {
+              opens++;
+
+              return yield* original(...args);
+            }),
+          };
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: file, kind: "source" },
+              { path: alias, kind: "source" },
+            ],
+            maxBytes: 8,
+            maxFileBytes: 8,
+          }).pipe(Effect.provideService(FileSystem.FileSystem, controlled));
+
+          const initial = yield* observe(watch);
+          assert.strictEqual(initial.fingerprints.length, 2);
+          assert.strictEqual(initial.fingerprints[0]?.input.path, file);
+          assert.strictEqual(initial.fingerprints[1]?.input.path, alias);
+          assert.strictEqual(opens, 1);
+          yield* fs.writeFileString(file, "87654321");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [file, alias]);
+          assert.strictEqual(opens, 2);
+        }),
+      ),
+  );
+
+  it.effect(
+    "keeps existence and membership roles quiet and shares canonical directory enumeration",
+    () =>
+      fixture((fs, path, dir) =>
+        Effect.gen(function* () {
+          const root = path.join(dir, "members");
+          const alias = path.join(dir, "members-alias");
+          yield* fs.makeDirectory(root);
+          yield* fs.writeFileString(path.join(root, "unconsulted.js"), "large".repeat(128));
+          yield* fs.symlink(root, alias);
+
+          let listings = 0;
+
+          const controlled = {
+            ...fs,
+            readDirectory: Effect.fnUntraced(function* (
+              ...args: Parameters<typeof fs.readDirectory>
+            ) {
+              listings++;
+
+              return yield* fs.readDirectory(...args);
+            }),
+          };
+
+          const watch = yield* makeWatchFiles({
+            inputs: [
+              { path: root, kind: "source" },
+              { path: root, kind: "source", directory: true },
+              { path: alias, kind: "source", directory: true },
+            ],
+            maxFileBytes: 1,
+          }).pipe(Effect.provideService(FileSystem.FileSystem, controlled));
+
+          const initial = yield* observe(watch);
+          assert.strictEqual(initial.fingerprints.length, 3);
+          assert.strictEqual(listings, 1);
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, []);
+          assert.deepStrictEqual(yield* watch.takeChanges, {
+            dirty: false,
+            executableDirty: false,
+          });
+          assert.strictEqual(listings, 2);
+          yield* fs.writeFileString(path.join(root, "new.ts"), "a");
+          assert.deepStrictEqual((yield* observe(watch)).changedPaths, [root, alias]);
+          assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
         }),
       ),
   );
