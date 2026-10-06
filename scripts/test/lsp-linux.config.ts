@@ -8,7 +8,11 @@ export default defineConfig({
   test: {
     ...base.test,
     projects: undefined,
-    include: ["scripts/test/lsp-linux.test.ts"],
+    include: [
+      "scripts/test/lsp-linux.test.ts",
+      "scripts/test/lsp-linux-extra.test.ts",
+      "scripts/test/lsp-linux-sigpipe.test.ts",
+    ],
     fileParallelism: false,
     testTimeout: 20_000,
   },
