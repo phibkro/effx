@@ -93,7 +93,13 @@ describe("binding generation admission", () => {
         {
           ...collected,
           bindings: [{ ...binding, group: { module: "./none", export: "Missing" } }],
-          project: { target: "effect-4.0", emit: "contract", allowImportingTsExtensions: false },
+          project: {
+            target: "effect-4.0",
+            emit: "contract",
+            allowImportingTsExtensions: false,
+            canonicalImportBase: "/source/.effx/generated",
+            outputDir: "/artifacts/contract",
+          },
           resolveHttpApiInventory: () => Effect.die("contract mode cannot need endpoint inventory"),
         },
         builtin,
