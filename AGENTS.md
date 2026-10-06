@@ -36,8 +36,9 @@ EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent ins
 consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
 stdin and forced-stop deadlines stay scoped; the script is a composition root.
 The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
-EX-0023 also owns scripts/test/lsp-linux.test.ts for scoped native-host peer
-invocation. This does not grant process APIs to portable product/session code.
+EX-0023 also owns scripts/test/lsp-linux.test.ts, lsp-linux-extra.test.ts and
+lsp-linux-sigpipe.test.ts for scoped native-host peer invocation. This does not
+grant process APIs to portable product/session code.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
 EX-0030 records the pinned maintained `vscode-jsonrpc` ABI, not permission to
@@ -61,7 +62,10 @@ keys supplement complete caller-declared logical coverage; they are neither full
 provenance nor a sandbox. The legacy package acquisition remains unaccepted.
 EX-0035 owns the approved qualified Linux LSP root boundary in scripts/lsp-linux.ts
 and its trusted build-time readiness asset, not package-owned native imports.
-EX-0036 owns unstable Effect ChildProcess only in scripts/build-lsp-native.ts.
+Its test-only scope includes scripts/packed-lsp-stdout.ts, scripts/test/lsp-linux-extra.*
+and lsp-linux-sigpipe.* plus tools/native/lsp-sigpipe-test.c and its test-assets.
+EX-0036 owns unstable Effect ChildProcess only in scripts/build-lsp-native.ts
+and scripts/build-lsp-sigpipe-test.ts for trusted build-time artifacts.
 Both open records, examined versions, verification and retirement triggers live
 in docs/research/0018-watch-editor-design.md §10. No implementation gate is claimed.
 EX-0034 remains reserved for the separate 0019 lift reflection boundary.

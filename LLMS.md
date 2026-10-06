@@ -1767,27 +1767,38 @@ Source: spec 0018 §3, `packages/cli/src/lsp.ts`, `lsp-model.ts`, and `commands.
 
 ### Qualified LSP platform
 
-The LSP backend targets declared Linux-x64/glibc systems. Other CLI commands and
-`effx dev` retain their existing runtime/platform behavior. Unsupported LSP
-targets fail explicitly before unsafe IO; no portable certification is implied.
+The frozen LSP contract targets declared Linux-x64/glibc systems with Bun 1.3.13.
+Unsupported targets must fail explicitly before unsafe IO.
+Other CLI commands and `effx dev` retain their existing runtime/platform behavior.
+The original four defaults and executable-coverage amendment A remain unchanged.
+This qualification does not certify Ubuntu or an unexercised runtime.
+The native root exists; CLI adoption and packed-client acceptance remain pending.
 
-The packaged audited POSIX readiness asset loads through public Bun dlopen.
-Compilation occurs at build time, not at runtime. The source and artifact hashes,
-target ABI, minimum glibc and required libraries derive from the actual build.
-The prototype was 511 bytes; its length is not a source-size requirement.
+The native root loads trusted POSIX readiness code through public Bun dlopen.
+The build compiles `tools/native/lsp-readiness.c`; runtime compilation is unsupported.
+`scripts/lsp-native-manifest.ts` defines the actual ABI 2 contract.
+Source and artifact hashes, minimum glibc, and required libraries derive from each actual build.
+An ELF symbol floor is not distribution certification.
+The 511-byte prototype does not limit the current source size.
 Native C has process authority and no memory-safety containment.
 
-The root exclusively owns stdin. Standard maintained-client sockets, FIFO,
-regular files and PTY form the qualified matrix. Unusual devices and unsupported
-forms receive explicit limits or failure. Readiness precedes each raw read, with
-at most 64KiB of data and backing storage. Regular-file storage latency remains
-possible; competing stdin readers violate the ownership premise.
+The root exclusively owns stdin. The qualified input forms remain maintained Node-client sockets, FIFO, regular files, and PTY.
+Readiness precedes each raw read, with at most 64 KiB of data and backing storage.
+Regular-input storage latency remains possible; competing stdin readers violate the ownership premise.
+Unusual devices and unsupported forms require explicit limits or failure.
+
+Amendment B requires classified startup refusal for **regular-file stdout**, before protocol writes or native writer acquisition.
+Thus `effx lsp > protocol.log` is unsupported; the target receives no protocol bytes.
+There is no regular-output writer, fallback, or storage-latency exception.
+Maintained Node-client sockets, FIFO, and PTY remain the qualified output forms, with the existing two-second stalled-writer/close budget.
+This output restriction does not remove regular-file stdin support.
 
 Cooperative trusted config does not read stdin. Effx-owned Console, logger,
 config-fault, help and error output uses stderr or framed protocol messages.
 Arbitrary trusted raw-fd writes and global console output bypass that policy.
 The process does not add a global console monkeypatch or sandbox.
-Source: spec 0018 Linux amendment, design §10 and `scripts/lsp-linux.ts`.
+Source: `docs/specs/0018-watch-editor.md`, amendment B (frozen `B3cffc85`, lines 678–712), Linux amendment, design §10, `scripts/lsp-linux.ts`, and `tools/native/lsp-readiness.c`.
+Native smoke evidence alone does not establish full §8, packed-client, or final committed-reference acceptance.
 
 ### Complete executable coverage
 
