@@ -7,6 +7,11 @@ export const ExtraForm = Schema.Literals(["socket", "fifo", "pty"]);
 
 export const ExtraStage = Schema.Literals([
   "setup",
+  "launch",
+  "receipt-stream",
+  "control-stream",
+  "output-stream",
+  "projection",
   "acquire",
   "identity",
   "prefill",
@@ -114,7 +119,17 @@ export const ExtraReceipt = Schema.Struct({
 export type ExtraReceipt = typeof ExtraReceipt.Type;
 
 export const ExtraPeerFault = Schema.Struct({
-  reason: Schema.Literals(["Spawn", "Receipt", "Control", "Drain", "Bytes", "Join", "Topology"]),
+  reason: Schema.Literals([
+    "Spawn",
+    "Receipt",
+    "Control",
+    "Drain",
+    "Bytes",
+    "Join",
+    "Topology",
+    "Setup",
+    "Projection",
+  ]),
   stage: ExtraStage,
 });
 
