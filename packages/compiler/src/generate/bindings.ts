@@ -32,22 +32,28 @@ export const boundHandlersLines = (
   const typeParameters = binding.handlersTypeParameters;
 
   const clause = typeParameters.map((parameter) => {
-    const print = (text: string): string => {
+    // Every resolved reference is replaced over its whole recorded span, never by word matching, so
+    // qualified names and literal defaults keep their other occurrences untouched.
+    const print = (text: string, where: "constraint" | "default"): string => {
       let printed = text;
 
-      for (const reference of parameter.references) {
-        const head = reference.name.split(".")[0]!;
-        const local = imports.addTypeAliased(reference.ref.module, reference.ref.export, head);
-        const escaped = head.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const spans = parameter.references
+        .filter((reference) => reference.where === where)
+        .toSorted((left, right) => right.start - left.start);
 
-        printed = printed.replace(new RegExp(`\\b${escaped}\\b`, "g"), local);
+      for (const span of spans) {
+        const local = imports.addTypeAliased(span.ref.module, span.ref.export, span.ref.export);
+
+        printed = printed.slice(0, span.start) + local + printed.slice(span.end);
       }
 
       return printed;
     };
 
-    const constraint = parameter.constraint === "" ? "" : ` extends ${print(parameter.constraint)}`;
-    const fallback = parameter.default === "" ? "" : ` = ${print(parameter.default)}`;
+    const constraint =
+      parameter.constraint === "" ? "" : ` extends ${print(parameter.constraint, "constraint")}`;
+
+    const fallback = parameter.default === "" ? "" : ` = ${print(parameter.default, "default")}`;
 
     return `${parameter.name}${constraint}${fallback}`;
   });
@@ -58,12 +64,10 @@ export const boundHandlersLines = (
 
   const guardsTypeParameters = binding.guardsTypeParameters;
 
+  // The guard factory's parameters correspond to the handler factory's by position, not by name, so
+  // an alpha-renamed pair instantiates consistently; differing arity stays uninstantiated.
   const guardsTypeArguments =
-    names.length > 0 &&
-    guardsTypeParameters.length === names.length &&
-    guardsTypeParameters.every((name, index) => name === names[index])
-      ? typeArguments
-      : "";
+    names.length > 0 && guardsTypeParameters.length === names.length ? typeArguments : "";
 
   const context = `Parameters<typeof ${handlers}${typeArguments}>`;
 

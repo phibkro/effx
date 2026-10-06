@@ -10,7 +10,7 @@ import {
 } from "@effx/compiler";
 import { lowerExpression } from "./lower.ts";
 import { exportedSymbol, type Resolver } from "./resolve.ts";
-import { isExported, positionOf, ts } from "./ts.ts";
+import { aliased, declarationOf, isExported, positionOf, ts } from "./ts.ts";
 
 const isSymbol = Schema.is(SymbolArg);
 
@@ -23,32 +23,39 @@ const isFactoryHolder = (holder: ts.Node | undefined): holder is FactoryHolder =
     ts.isFunctionDeclaration(holder));
 
 /**
- * A type reference written in a mirrored type parameter must be importable under the same written
- * name, so the generated clause can keep its source syntax. Type parameters of the same declaration
- * need no import and are skipped.
+ * A type reference written in a mirrored type parameter resolves to the exported declaration it
+ * names, following import aliases, so the generated clause can import that declaration and address
+ * the written span exactly. Type parameters of the same declaration need no import.
  */
 const typeReferenceOf = (
   resolver: Resolver,
   name: ts.EntityName,
+  where: "constraint" | "default",
+  base: number,
 ): GroupBindingReference | undefined => {
   const symbol = resolver.project.checker.getSymbolAtLocation(name);
-  const declaration = symbol?.declarations?.[0];
 
-  if (symbol === undefined || declaration === undefined) return undefined;
+  if (symbol === undefined) return undefined;
+  const canonical = aliased(resolver.project.checker, symbol);
+  const declaration = declarationOf(canonical) ?? canonical.declarations?.[0];
+
+  if (declaration === undefined) return undefined;
 
   if (ts.isTypeParameterDeclaration(declaration)) return undefined;
 
   const ref =
-    exportedSymbol(resolver, symbol)?.ref ??
-    ((ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) &&
+    (ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) &&
+    declaration.name !== undefined &&
     isExported(declaration)
       ? {
           module: resolver.moduleOf(declaration.getSourceFile().fileName),
           export: declaration.name.text,
         }
-      : undefined);
+      : exportedSymbol(resolver, canonical)?.ref;
 
-  return ref === undefined ? undefined : { ref, name: name.getText() };
+  if (ref === undefined) return undefined;
+
+  return { ref, where, start: name.getStart() - base, end: name.getEnd() - base };
 };
 
 const typeParameterOf = (
@@ -57,20 +64,26 @@ const typeParameterOf = (
 ): GroupBindingTypeParameter => {
   const references = new Map<string, GroupBindingReference>();
 
-  const collect = (node: ts.Node): void => {
-    if (ts.isTypeReferenceNode(node)) {
-      const reference = typeReferenceOf(resolver, node.typeName);
+  const collect = (node: ts.Node, where: "constraint" | "default"): void => {
+    const base = node.getStart();
 
-      if (reference !== undefined)
-        references.set(`${reference.ref.module}\0${reference.name}`, reference);
-    }
+    const visit = (child: ts.Node): void => {
+      if (ts.isTypeReferenceNode(child)) {
+        const reference = typeReferenceOf(resolver, child.typeName, where, base);
 
-    ts.forEachChild(node, collect);
+        if (reference !== undefined)
+          references.set(`${where}\0${reference.ref.module}\0${reference.start}`, reference);
+      }
+
+      ts.forEachChild(child, visit);
+    };
+
+    visit(node);
   };
 
-  if (parameter.constraint !== undefined) collect(parameter.constraint);
+  if (parameter.constraint !== undefined) collect(parameter.constraint, "constraint");
 
-  if (parameter.default !== undefined) collect(parameter.default);
+  if (parameter.default !== undefined) collect(parameter.default, "default");
 
   return {
     name: parameter.name.text,

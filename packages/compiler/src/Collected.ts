@@ -163,10 +163,13 @@ export const SpreadSource = Schema.Struct({
 /** @internal */
 export type SpreadSource = typeof SpreadSource.Type;
 
-/** A symbol referenced by a mirrored type parameter, with the source-local name to print. */
+/** A type reference inside a mirrored constraint/default, addressed by its source span. */
 export const GroupBindingReference = Schema.Struct({
   ref: SymbolRef,
-  name: Schema.String,
+  where: Schema.Literals(["constraint", "default"]),
+  /** Offsets of the whole resolved type-reference name inside its text, so printing replaces it exactly. */
+  start: Schema.Finite,
+  end: Schema.Finite,
 });
 
 export type GroupBindingReference = typeof GroupBindingReference.Type;

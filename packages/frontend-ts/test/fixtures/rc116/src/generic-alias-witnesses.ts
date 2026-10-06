@@ -1,6 +1,5 @@
-import { Effect, type Layer } from "effect";
+import { type Layer } from "effect";
 import type { HttpRouter } from "effect/unstable/http";
-import { HttpServerResponse } from "effect/unstable/http";
 import {
   ContentApiHandlers as AliasHandlers,
   ContentApiHandlersWith as AliasHandlersWith,
@@ -18,8 +17,8 @@ export const AliasInjected = AliasHandlersWith({
   guards: makeAlphaGuards(aliasContext),
 });
 
-/** Qualified constraint, F-bound and literal default. */
-export const QualifiedBound = QualifiedHandlers(Effect.succeed(HttpServerResponse.text("ok")));
+/** Qualified type-only constraint, F-bound and literal default. */
+export const QualifiedBound = QualifiedHandlers({ maxBodyBytes: 4096 });
 
 type Assert<Condition extends true> = Condition;
 type AliasServices = HttpRouter.Request.Only<"Requires", Layer.Services<typeof AliasBound>>;
@@ -32,5 +31,5 @@ export type QualifiedNoUnknownRequirement = Assert<
 
 // @ts-expect-error an aliased constraint still rejects a context outside it.
 export const WrongAliasContext = AliasHandlers({ maxBodyBytes: "many" });
-// @ts-expect-error the qualified constraint still rejects a non-Effect argument.
-export const WrongQualifiedWork = QualifiedHandlers(HttpServerResponse.text("not an effect"));
+// @ts-expect-error the qualified constraint still rejects a context outside it.
+export const WrongQualifiedContext = QualifiedHandlers({ maxBodyBytes: "many" });

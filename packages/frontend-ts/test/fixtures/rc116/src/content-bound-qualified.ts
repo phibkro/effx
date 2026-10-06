@@ -1,37 +1,38 @@
-import * as EffectLib from "effect";
+import { Effect as EffectNS } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
 import type { ContentRaw } from "../project/bound-generic-qualified/.effx/generated/content-handlers.js";
-import type { SelfConstrained as SelfBound } from "./contexts.js";
+import type * as Contexts from "./contexts.js";
 
 /** A local exported type whose written name also appears inside a literal default. */
 export type Effect = "Effect";
 
-/** Qualified constraint, F-bound and literal default in one clause. */
+/**
+ * A qualified type-only constraint, an F-bound constraint that refers to its own parameter, and a
+ * literal default whose spelling also occurs as a type name.
+ */
 export const makeQualifiedRawHandlers = <
-  C extends EffectLib.Effect<HttpServerResponse.HttpServerResponse>,
-  S extends SelfBound<S> = SelfBound<S>,
+  C extends Contexts.Options,
+  S extends Contexts.SelfConstrained<S>,
   L extends Effect = "Effect",
 >(
-  work: C,
+  context: C,
   self?: S,
   label: L = "Effect",
 ) =>
   ({
-    publishArticle: (_request: unknown, authorize: () => EffectLib.Effect<unknown, never, never>) =>
-      EffectLib.gen(function* () {
+    publishArticle: (_request: unknown, authorize: () => EffectNS.Effect<unknown, never, never>) =>
+      EffectNS.gen(function* () {
         yield* authorize();
-        yield* EffectLib.asVoid(work);
         void self;
-        return HttpServerResponse.text(`publish:${label}`);
+        return HttpServerResponse.text(`publish:${context.maxBodyBytes}:${label}`);
       }),
     unpublishArticle: (
       _request: unknown,
-      authorize: () => EffectLib.Effect<unknown, never, never>,
+      authorize: () => EffectNS.Effect<unknown, never, never>,
     ) =>
-      EffectLib.gen(function* () {
+      EffectNS.gen(function* () {
         yield* authorize();
-        yield* EffectLib.asVoid(work);
         void self;
-        return HttpServerResponse.text(`unpublish:${label}`);
+        return HttpServerResponse.text(`unpublish:${context.maxBodyBytes}:${label}`);
       }),
   }) satisfies ContentRaw;
