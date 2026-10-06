@@ -274,7 +274,7 @@ const main = Effect.scoped(
         }),
     );
 
-    // The fixture owns both inherited descriptors now; parent copies hide EOF.
+    // The fixture owns the inherited output writer now; our copy would hide EOF.
     yield* Effect.try({
       try: () => {
         if (parentWriter !== undefined) {
@@ -284,15 +284,7 @@ const main = Effect.scoped(
       },
       catch: () => new ExtraPeerError({ reason: "Setup", stage: "output-stream" }),
     });
-    yield* Effect.try({
-      try: () => {
-        if (controlReader !== undefined) {
-          closeSync(controlReader);
-          controlReader = undefined;
-        }
-      },
-      catch: () => new ExtraPeerError({ reason: "Setup", stage: "control-stream" }),
-    });
+
     const receipts = observed.receipts;
     let fifoDrain: (() => void) | undefined;
     let finished = false;
