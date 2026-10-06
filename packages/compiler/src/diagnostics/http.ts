@@ -690,6 +690,109 @@ const d2506 = defineDiagnostic(
     `${subject}: snapshotDecisionForCommand is invalid — ${violations.join("; ")}`,
 );
 
+const d2420 = defineDiagnostic(
+  {
+    code: "EFFX2420",
+    owner: "http",
+    title: "Invalid binding group",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "The first argument must resolve to an exported Http.group value or @Http.Group class.",
+    examples: [
+      {
+        before: "Binding.group(value, options)",
+        after: "Binding.group(Group, { handlers, guards })",
+        explanation: "Bind an exported group declaration.",
+      },
+    ],
+  } as const,
+  subject,
+  ({ subject }) => "Invalid binding group: " + subject,
+);
+
+const d2421 = defineDiagnostic(
+  {
+    code: "EFFX2421",
+    owner: "http",
+    title: "Invalid binding function",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "Handlers, guards and guardFor must resolve to exported functions. Inline callbacks and unexported values cannot be imported by generated code.",
+    examples: [
+      {
+        before: "Binding.group(value, options)",
+        after: "Binding.group(Group, { handlers, guards })",
+        explanation: "Export the function and reference its symbol.",
+      },
+    ],
+  } as const,
+  subject,
+  ({ subject }) => "Invalid binding function: " + subject,
+);
+
+const d2422 = defineDiagnostic(
+  {
+    code: "EFFX2422",
+    owner: "http",
+    title: "Duplicate group binding",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation: "A canonical group symbol may have only one backend binding.",
+    examples: [
+      {
+        before: "Binding.group(value, options)",
+        after: "Binding.group(Group, { handlers, guards })",
+        explanation: "Keep one binding for this group.",
+      },
+    ],
+  } as const,
+  subject,
+  ({ subject }) => "Duplicate group binding: " + subject,
+);
+
+const d2423 = defineDiagnostic(
+  {
+    code: "EFFX2423",
+    owner: "http",
+    title: "Invalid binding choices",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation: "A binding requires handlers and exactly one of guards or guardFor.",
+    examples: [
+      {
+        before: "Binding.group(value, options)",
+        after: "Binding.group(Group, { handlers, guards })",
+        explanation: "Supply handlers and one guard factory.",
+      },
+    ],
+  } as const,
+  subject,
+  ({ subject }) => "Invalid binding choices: " + subject,
+);
+
+const d2424 = defineDiagnostic(
+  {
+    code: "EFFX2424",
+    owner: "http",
+    title: "Invalid binding ownership",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "A bound group must own at least one external operation and no locally implemented operation. Native endpoints outside effx remain supported by native mixed completion.",
+    examples: [
+      {
+        before: "Binding.group(value, options)",
+        after: "Binding.group(Group, { handlers, guards })",
+        explanation: "Bind a wholly external effx group.",
+      },
+    ],
+  } as const,
+  subject,
+  ({ subject }) => "Invalid binding ownership: " + subject,
+);
+
 /** Typed factories; occurrence locations and related diagnostics remain caller-owned. */
 export const HttpDiagnostics = {
   [d2401.entry.code]: d2401,
@@ -704,6 +807,11 @@ export const HttpDiagnostics = {
   [d2413.entry.code]: d2413,
   [d2414.entry.code]: d2414,
   [d2415.entry.code]: d2415,
+  [d2420.entry.code]: d2420,
+  [d2421.entry.code]: d2421,
+  [d2422.entry.code]: d2422,
+  [d2423.entry.code]: d2423,
+  [d2424.entry.code]: d2424,
   [d2500.entry.code]: d2500,
   [d2501.entry.code]: d2501,
   [d2502.entry.code]: d2502,
@@ -727,6 +835,11 @@ export const httpEntries: ReadonlyArray<DiagnosticEntry> = [
   d2413.entry,
   d2414.entry,
   d2415.entry,
+  d2420.entry,
+  d2421.entry,
+  d2422.entry,
+  d2423.entry,
+  d2424.entry,
   d2500.entry,
   d2501.entry,
   d2502.entry,

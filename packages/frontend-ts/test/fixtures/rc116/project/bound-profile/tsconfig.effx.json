@@ -1,0 +1,7 @@
+{
+  "extends": "../handlers/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  },
+  "include": ["../../src/profile.effx.ts", "../../src/profile.bind.ts"]
+}

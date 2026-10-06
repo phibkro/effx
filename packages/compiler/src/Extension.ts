@@ -2,6 +2,7 @@ import type { Effect, Option } from "effect";
 import type { DefinitionData } from "@effx/runtime";
 import type { ApplicationIR, Edge, GraphIndex, Node, OperationNode, StableId } from "@effx/ir";
 import type { Annotation, Collected, Declaration, HttpApiGroupInventory } from "./Collected.ts";
+import type { HttpGroupBinding } from "./bindings.ts";
 import type { EmitMode, TargetProfile } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
@@ -104,6 +105,7 @@ export interface GenerationContext {
   readonly resolveEffectModule?: (specifier: string) => boolean;
   /** Checker-proven concrete root groups, outside the IR and semantic hash. */
   readonly httpApiGroups?: ReadonlyArray<HttpApiGroupInventory>;
+  readonly bindings?: ReadonlyArray<HttpGroupBinding>;
   /** The extensions' endpoint fragments in extension-list order; `generate` fills it from the extensions. */
   readonly fragments?: ReadonlyArray<EndpointFragment>;
 }

@@ -27,6 +27,7 @@ import {
 import { inferSignature } from "./signature.ts";
 import { isExported, positionOf, ts } from "./ts.ts";
 import { type HttpApiRootCandidate, makeHttpApiInventoryResolver } from "./http-api-inventory.ts";
+import { collectGroupBinding } from "./bindings.ts";
 
 const annotationArgRecord = Schema.Record(Schema.String, AnnotationArgSchema);
 
@@ -44,6 +45,7 @@ const isAnnotationArgRecord = (
 interface Sink {
   readonly declarations: Array<Declaration>;
   readonly diagnostics: Array<Diagnostic>;
+  readonly bindings: Array<NonNullable<Collected["bindings"]>[number]>;
 }
 
 type CollectedDraft = { -readonly [K in keyof Collected]: Collected[K] };
@@ -466,6 +468,23 @@ const collectBuilder = (
 
   if (chain === undefined) return;
 
+  if (chain.root === "Binding") {
+    if (
+      collectOperations &&
+      chain.steps.length === 1 &&
+      chain.steps[0]?.names.join(".") === "group"
+    )
+      collectGroupBinding(
+        resolver,
+        declarator,
+        declarator.initializer,
+        sink.bindings,
+        sink.diagnostics,
+      );
+
+    return;
+  }
+
   // `Http.headers(schema)` marks a Schema value (spec 0024 §2.2); it is no builder chain and declares nothing.
   if (chain.root === "Http" && chain.steps[0]?.names.join(".") === "headers") return;
 
@@ -718,7 +737,7 @@ export const collect = (
       ? { ...baseResolver, appliedUses, spreads, httpApiRoots }
       : { ...baseResolver, definitions, appliedUses, spreads, httpApiRoots };
 
-  const sink: Sink = { declarations: [], diagnostics: [] };
+  const sink: Sink = { declarations: [], diagnostics: [], bindings: [] };
   const rootDir = resolver.project.rootDir;
   const rootPrefix = rootDir.endsWith("/") ? rootDir : `${rootDir}/`;
   const rootNames = new Set(resolver.project.rootNames);
@@ -753,9 +772,12 @@ export const collect = (
   // Cache root lowering so each root is visited once, while retaining program-file order.
   for (const file of files) {
     if (!rootNames.has(file.fileName)) continue;
-    const collected: Sink = { declarations: [], diagnostics: [] };
+    const collected: Sink = { declarations: [], diagnostics: [], bindings: [] };
     collectFile(file, collected, true);
     roots.set(file.fileName, collected);
+
+    for (const binding of collected.bindings)
+      groups.add(`${binding.group.module}\0${binding.group.export}`);
 
     for (const declaration of collected.declarations) {
       for (const annotation of declaration.annotations) {
@@ -773,6 +795,7 @@ export const collect = (
     if (root !== undefined) {
       sink.declarations.push(...root.declarations);
       sink.diagnostics.push(...root.diagnostics);
+      sink.bindings.push(...root.bindings);
     } else {
       collectFile(file, sink, false);
     }
@@ -792,6 +815,8 @@ export const collect = (
   };
 
   if (spreads.length > 0) result.spreads = spreads;
+
+  if (sink.bindings.length > 0) result.bindings = sink.bindings;
 
   if (httpApiRoots.size > 0)
     result.resolveHttpApiInventory = makeHttpApiInventoryResolver(resolver.project, httpApiRoots);

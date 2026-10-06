@@ -90,6 +90,10 @@ export const exportedSymbol = (resolver: Resolver, symbol: ts.Symbol): Exported 
 
   if (!isExported(declaration)) return undefined;
 
+  if (ts.isFunctionDeclaration(declaration) && declaration.name !== undefined) {
+    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+  }
+
   if (ts.isClassDeclaration(declaration) && declaration.name !== undefined) {
     return { ref: { module, export: declaration.name.text }, idPath, declaration };
   }

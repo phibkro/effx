@@ -8,6 +8,7 @@ import {
   type Generator,
 } from "../Extension.ts";
 import { findHttpApiGroupInventory } from "../http-api-inventory.ts";
+import { boundHandlersLines } from "./bindings.ts";
 import {
   type Exposed,
   type RpcTransport,
@@ -660,19 +661,26 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
           continue;
 
         const imports = new Imports(context);
+
+        const binding = context.bindings?.find(
+          (entry) => entry.root === group.root && entry.group === group.group,
+        )?.binding;
+
+        const unbound = externalHandlersLines(
+          imports,
+          group,
+          inventory.endpoints.some((key) => !group.items.some((item) => endpointKey(item) === key)),
+        );
+
         files.push(
           generated(
             filename(group, "handlers"),
             render(
               header(group.items),
               imports,
-              externalHandlersLines(
-                imports,
-                group,
-                inventory.endpoints.some(
-                  (key) => !group.items.some((item) => endpointKey(item) === key),
-                ),
-              ),
+              binding === undefined
+                ? unbound
+                : boundHandlersLines(imports, group, binding, unbound),
             ),
           ),
         );

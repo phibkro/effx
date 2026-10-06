@@ -56,6 +56,8 @@ export { A, Annotation, rest } from "./define/index.js";
 
 export * as Builtins from "./builtins.js";
 
+export { Binding } from "./Binding.js";
+
 export type {
   Applied,
   Arg,

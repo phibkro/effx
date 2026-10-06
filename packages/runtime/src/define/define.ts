@@ -9,8 +9,8 @@ import type { ArgsPlan, Plan } from "./plan.js";
 /** Where an annotation may be attached. User definitions: `"operation"` only in v1 (spec 0020 §0.4). */
 export type PublicTarget = "operation";
 
-/** Built-ins also attach to classes, groups and models; the public `define` type rejects these. */
-export type InternalTarget = "class" | "group" | "model";
+/** Internal source targets include backend bindings; public annotation definitions remain operation-only. */
+export type InternalTarget = "class" | "group" | "model" | "binding";
 
 export type Target = PublicTarget | InternalTarget;
 

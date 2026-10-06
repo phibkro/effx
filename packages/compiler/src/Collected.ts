@@ -163,9 +163,20 @@ export const SpreadSource = Schema.Struct({
 /** @internal */
 export type SpreadSource = typeof SpreadSource.Type;
 
+/** Backend-owned static references, deliberately outside the semantic IR. @internal */
+export const GroupBinding = Schema.Struct({
+  group: SymbolRef,
+  handlers: SymbolRef,
+  guards: Schema.optionalKey(SymbolRef),
+  guardFor: Schema.optionalKey(SymbolRef),
+});
+
+export type GroupBinding = typeof GroupBinding.Type;
+
 /** @internal */
 export const Collected = Schema.Struct({
   declarations: Schema.Array(Declaration),
+  bindings: Schema.optionalKey(Schema.Array(GroupBinding)),
   /** Frontend diagnostics travel as data (spec 0002); the pipeline merges them. */
   diagnostics: Schema.Array(Diagnostic),
   /** Resolved source spreads are provenance, never semantic IR data. */

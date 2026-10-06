@@ -28,6 +28,7 @@ import {
   httpApiRootKey,
   httpApiInventoryDiagnostics,
 } from "./http-api-inventory.ts";
+import { resolveBindings } from "./bindings.ts";
 
 /** @internal */
 export interface CompileResult {
@@ -253,6 +254,13 @@ const compileRegistered = Effect.fnUntraced(function* (
 
   const generationContext: GenerationContextDraft = { ...base };
 
+  const bound =
+    generationContext.emit === "contract"
+      ? { bindings: [], diagnostics: [] }
+      : resolveBindings(collected, ir);
+
+  if (bound.bindings.length > 0) generationContext.bindings = bound.bindings;
+
   if (collected.resolveEffectModule !== undefined)
     generationContext.resolveEffectModule = collected.resolveEffectModule;
 
@@ -272,6 +280,7 @@ const compileRegistered = Effect.fnUntraced(function* (
     ...irStage.diagnostics,
     ...analysis,
     ...importDiagnostics,
+    ...validateDiagnostics(bound.diagnostics, registry, "HTTP bindings", context),
   ];
 
   // Inventory is a generation precondition; avoid cascades when emission is already blocked.

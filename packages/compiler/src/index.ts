@@ -99,7 +99,7 @@ export {
 
 export { DiagnosticCode, StageResult } from "./Diagnostic.ts";
 
-export type { HttpApiGroupInventory } from "./Collected.ts";
+export type { GroupBinding, HttpApiGroupInventory } from "./Collected.ts";
 
 export { defaultGenerationContext } from "./Extension.ts";
 
