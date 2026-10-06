@@ -51,7 +51,7 @@ class ReportReceipts extends Context.Service<
       const actual = yield* Console.Console;
       const wake = yield* Queue.dropping<void>(1);
       let exit: Option.Option<DevExit> = Option.none();
-      yield* Effect.addFinalizer(() => Queue.shutdown(wake));
+      yield* Effect.addFinalizer(() => Queue.shutdown(wake).pipe(Effect.asVoid));
 
       return ReportReceipts.of({
         // Forward every real Console method. Only native log completion wakes the
