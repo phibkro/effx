@@ -877,3 +877,94 @@ zero-write guarantee. No global console/resolver monkeypatch or sandbox is added
 Synthetic native-logger/config-throw/help/error host cases remain required before
 claiming effx-owned stdout purity. This is the director clarification, not a silent
 exception or an assertion that arbitrary trusted code can be isolated.
+
+## 10. Bounded public native readiness bridge — 2026-10-06
+
+This dated research result supersedes §9’s missing-readiness prerequisite only for
+the exercised Linux-x64 target. It does not amend the frozen contract, grant an OS
+waiver, accept the feature, or authorize a shipped root stub. The director allowed
+one synthetic capability probe, then repair of its failed compiler prerequisite.
+No package, application, config or credential was loaded by the probe.
+
+### Maintained public API and actual toolchain
+
+The pinned Bun 1.3.13 public `bun:ffi` API exposes `dlopen` at
+`packages/bun-types/ffi.d.ts:603-606` and experimental `cc` at :642-668.
+Exact primary source: https://github.com/oven-sh/bun/blob/bun-v1.3.13/packages/bun-types/ffi.d.ts .
+The runtime implementation is `src/bun.js/api/ffi.zig` at that same tag:
+:410-432 supports C_INCLUDE_PATH/LIBRARY_PATH, :440-501 compiles and relocates.
+The initial cc attempts failed on actual libc linkage, not on POSIX readiness:
+default library c not found, explicit libc.so.6 unrecognized, then undefined poll
+and errno/fcntl symbols with nostdlib. Those failed receipts remain historical.
+
+The existing Nix GCC fallback resolved that prerequisite. Actual GCC 16.2.0
+compiled a 511-byte static C wrapper using the actual glibc 2.44 poll.h, unistd.h,
+fcntl.h and errno.h headers; the header trace and ldd output were retained.
+The command was `nix shell nixpkgs#gcc -c sh -c` with ordinary GCC
+`-shared -fPIC -O2` compilation, not a new installer framework.
+The resulting shared wrapper was loaded through public `dlopen`; its SHA256 was
+`bdedfd0eacee68d8a7019e87ed6aa630308048e97cbd384beda1b8d9abe27bfc`.
+The wrapper derives struct pollfd, flags and constants from target headers; JS
+receives only integer fd/result functions. It calls poll with timeout zero and
+fcntl only with GETFL. No guessed layout, private handle, descriptor mutation,
+native reader framework or helper process per read was used.
+
+### Actual synthetic results, not product acceptance
+
+The maintained vscode-jsonrpc 9.0.3 StreamMessageWriter under Node 24.21.0 supplied
+the standard client socket to the pinned Bun child. The same bounded protocol
+also exercised a named FIFO, regular file and PTY. The root-only synthetic child
+used public Bun-compatible fs.readSync after readiness, with one 65,536-byte
+Uint8Array and backing buffer. It never initialized a stdin stream wrapper.
+
+| Form | Initial readiness | Offered/read bytes | Maximum read | Flags before/after | EOF |
+| --- | --- | --- | --- | --- | --- |
+| Standard maintained-client socket | none | 261948 / 261948 | 65536 | 2 / 2 | yes |
+| Regular file | input | 65487 / 65487 | 65487 | 32768 / 32768 | yes |
+| Named FIFO | none | 65487 / 65487 | 65487 | 32768 / 32768 | yes |
+| PTY | none | 5 / 4, including terminal EOF control | 4 | 2 / 2 | yes |
+
+The repaired synthetic command exited zero; all four cases completed without
+errors or deadline kills. The socket had four writer acknowledgments. Buffered
+data was drained before EOF; HUP-alone supplied FIFO EOF. Synthetic completion
+called lib.close. The original procfd/socket ENXIO and blocked raw-empty-read
+results remain valid: procfd alone still cannot implement this backend.
+The separate FileReader flood’s measured 131011/262144-byte chunks prove
+unbounded growth in that path; this readiness probe does not erase that result.
+Full protocol, raw JSON, source, build/header trace and runtime log are preserved
+outside the repo in `/srv/share/projects/effx-watch-editor-0018-evidence/` as
+`native-readiness-*`. These are synthetic receipts, not an implementation gate.
+
+### Exact assumptions and shipping costs
+
+The demonstrated option is qualified Linux-x64/glibc on this target, under an
+exclusive fd0 reader premise. Readiness followed by blocking read is not a proof
+against a competing reader, unusual devices or platform-specific races. Regular
+file storage latency remains possible. Trusted config must not independently
+consume stdin; no sandbox is implied. Cancellation can interrupt a scoped wait
+between bounded reads, but product shutdown, timer joins, stdout callback drain,
+PID liveness and library-release behavior were not exercised by this prototype.
+
+Shipping dlopen avoids runtime compiler/header discovery but adds OS/architecture
+binary build, libc compatibility, integrity, pack-entry and owned-library-release
+obligations. Native C has process authority and no memory-safety containment.
+Runtime cc remains experimental and its target libc linkage was not repaired.
+macOS SDK/toolchain and Windows handle/readiness support were not established.
+No portability, latency, performance or cleanup guarantee follows from this table.
+
+### Operator-owned boundary choice
+
+The smallest now-executable choice is the qualified Linux public dlopen wrapper
+in the external scripts root, retaining Bun config semantics and requiring the
+explicit exclusive-reader premise and actual target artifact packaging. Choosing
+it does not silently waive any required platform acceptance. If that qualification
+is insufficient, the maintained portable alternative remains Node 24.21.0 public
+paused/readable stdio plus vscode-jsonrpc 9.0.3 in the same external composition
+root. It requires preserving Bun config loader/module-cache semantics with actual
+loader and installed-consumer verification, not claiming Node alone is a drop-in
+Bun config replacement. No future upstream feature is asserted.
+
+The native-capability investigation is closed at this evidence boundary. No root
+implementation or broad cutover resumes before the contract/backend choice is
+settled. Reachable portable/session/output-custody work remains intact; main
+landing, complete feature acceptance and the final code/docs gate remain held.
