@@ -17,11 +17,7 @@ import {
   ResponseError,
   type Message,
 } from "vscode-languageserver-protocol/node";
-import {
-  acquireLspTransport,
-  RpcFailure,
-  type LspTransport,
-} from "../packages/cli/src/lsp-transport.js";
+import { acquireLspTransport, RpcFailure, type LspTransport } from "@effx/cli";
 
 export class PeerError extends Schema.TaggedError<PeerError>()("PeerError", {
   cause: Schema.Defect(),
@@ -418,9 +414,11 @@ if (process.argv[2] === "serve") {
       const edits: Schema.Json[] = [];
       let active = 0;
       let released = 0;
+
       const native = yield* acquireLinuxLspIO(
         new URL("../packages/cli/native/lsp-readiness.json", import.meta.url).pathname,
       );
+
       let maxRequested = 0;
       let maxReturned = 0;
       let maxBacking = 0;
@@ -429,16 +427,21 @@ if (process.argv[2] === "serve") {
       let readCalls = 0;
       let writeCalls = 0;
       let probeCalls = 0;
+
       const read = Effect.fnUntraced(function* (max: number) {
         readCalls++;
         maxRequested = Math.max(maxRequested, max);
+
         const bytes = yield* native.read(max);
+
         if (bytes !== null) {
           maxReturned = Math.max(maxReturned, bytes.byteLength);
           maxBacking = Math.max(maxBacking, bytes.buffer.byteLength);
         }
+
         return bytes;
       });
+
       const acquireIO = Effect.succeed({
         ...native,
         read,
@@ -452,21 +455,24 @@ if (process.argv[2] === "serve") {
         }),
         makeCallbackRuntime: Effect.fnUntraced(function* <R>() {
           runtimeAcquisitions++;
+
           return yield* native.makeCallbackRuntime<R>();
         }),
         close: Effect.gen(function* () {
           ioReleases++;
           yield* native.close;
+
           if (ioReleases === 1) process.stderr.write("native-io-released-once\n");
           else process.stderr.write("native-io-release-duplicated\n");
         }),
       });
+
       const gate = yield* Deferred.make<void>();
-      transport = yield* acquireLspTransport(
-        acquireIO,
-        {
+
+      transport = yield* acquireLspTransport(acquireIO, {
         request: Effect.fnUntraced(function* (message) {
           if (message.method === "identify") return { receivedId: message.id };
+
           if (message.method === "io-inspect")
             return { maxRequested, maxReturned, maxBacking, runtimeAcquisitions, ioReleases };
 
@@ -647,17 +653,26 @@ if (process.argv[2] === "serve") {
       const sent = yield* Effect.exit(transport.sendNotification("must-not-write", null));
       const admitted = yield* Effect.exit(transport.admitPending);
       const watched = yield* Effect.exit(transport.watchClient(1));
-      if (Exit.isFailure(sent) && Exit.isFailure(admitted) && Exit.isFailure(watched) &&
-        before === readCalls + writeCalls + probeCalls)
+
+      if (
+        Exit.isFailure(sent) &&
+        Exit.isFailure(admitted) &&
+        Exit.isFailure(watched) &&
+        before === readCalls + writeCalls + probeCalls
+      )
         process.stderr.write("native-io-closed-fence\n");
       else process.stderr.write("native-io-closed-fence-failed\n");
     }),
   );
 
   BunRuntime.runMain(
-    program.pipe(Effect.ensuring(Effect.sync(() => {
-      process.stderr.write("root-released\n");
-    }))),
+    program.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          process.stderr.write("root-released\n");
+        }),
+      ),
+    ),
     {
       // This test root reports only classified receipts, never private causes.
       disableErrorReporting: true,
