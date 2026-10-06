@@ -1,11 +1,11 @@
 // EX-0035: standalone Node host owns real socket/FIFO/util-linux PTY topology.
 import { spawn, execFileSync } from "node:child_process";
-import { constants, closeSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
+import { constants, closeSync, mkdtempSync, openSync, readSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { Readable, Writable } from "node:stream";
+import { Readable } from "node:stream";
 import { Effect, Schema } from "effect";
 import {
   ExtraMode,
@@ -88,7 +88,7 @@ const projectFailure = (fault: ExtraPeerFault): ExtraPeerResult => {
     ptyChildJoined:
       observedControllerClosed &&
       (observedForm !== "pty" || (observed.signal === null && fixtureGone)),
-    fault: { reason: fault.reason, stage: fault.stage },
+    fault: observed.fault ?? { reason: fault.reason, stage: fault.stage },
   };
 };
 
@@ -112,12 +112,48 @@ const main = Effect.scoped(
     );
 
     const sinkPath = join(directory, "output.fifo");
+    const controlPath = join(directory, "control.fifo");
 
-    if (launch.form === "fifo")
-      yield* Effect.try({
-        try: () => execFileSync("mkfifo", [sinkPath]),
-        catch: () => new ExtraPeerError({ reason: "Setup", stage: "setup" }),
-      });
+    yield* Effect.try({
+      try: () =>
+        execFileSync("mkfifo", launch.form === "fifo" ? [controlPath, sinkPath] : [controlPath]),
+      catch: () => new ExtraPeerError({ reason: "Setup", stage: "setup" }),
+    });
+
+    // EX-0035: Node v24.21.0 maps every extra pipe to child-writable /
+    // parent-readable native authority, even when the JS stream is Writable.
+    // https://github.com/nodejs/node/blob/v24.21.0/lib/internal/child_process.js#L1056-L1065
+    // https://github.com/nodejs/node/blob/v24.21.0/deps/uv/src/unix/process.c#L253-L259
+    // FD4 instead inherits this real FIFO reader; the peer owns an independent
+    // nonblocking writer, at most two single-byte ACKs and no waiting queue.
+    // Both descriptors belong to this scope and release after the child joins.
+    let controlReader: number | undefined;
+
+    const inheritedControlReader = yield* Effect.acquireRelease(
+      Effect.try({
+        try: () => {
+          controlReader = openSync(controlPath, constants.O_RDONLY | constants.O_NONBLOCK);
+
+          return controlReader;
+        },
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "control-stream" }),
+      }),
+      () =>
+        Effect.sync(() => {
+          if (controlReader !== undefined) {
+            closeSync(controlReader);
+            controlReader = undefined;
+          }
+        }),
+    );
+
+    const controlWriter = yield* Effect.acquireRelease(
+      Effect.try({
+        try: () => openSync(controlPath, constants.O_WRONLY | constants.O_NONBLOCK),
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "control-stream" }),
+      }),
+      (fd) => Effect.sync(() => closeSync(fd)),
+    );
 
     const reader = yield* Effect.acquireRelease(
       Effect.try({
@@ -169,7 +205,11 @@ const main = Effect.scoped(
       Effect.try({
         try: () => {
           const owned = spawn(command, childArgs, {
-            stdio: ["pipe", parentWriter ?? "pipe", "pipe", "pipe", "pipe"],
+            // libuv dup2 clears CLOEXEC for numeric stdio; script init_slave
+            // only replaces 0/1/2 and closes its own PTY/signal descriptors.
+            // https://github.com/nodejs/node/blob/v24.21.0/deps/uv/src/unix/process.c#L342-L379
+            // https://github.com/util-linux/util-linux/blob/v2.42.3/lib/pty-session.c#L287-L309
+            stdio: ["pipe", parentWriter ?? "pipe", "pipe", "pipe", inheritedControlReader],
           });
 
           owned.once("close", (code, signal) => {
@@ -234,7 +274,7 @@ const main = Effect.scoped(
         }),
     );
 
-    // The fixture owns the inherited original writer now; our copy would hide EOF.
+    // The fixture owns both inherited descriptors now; parent copies hide EOF.
     yield* Effect.try({
       try: () => {
         if (parentWriter !== undefined) {
@@ -243,6 +283,15 @@ const main = Effect.scoped(
         }
       },
       catch: () => new ExtraPeerError({ reason: "Setup", stage: "output-stream" }),
+    });
+    yield* Effect.try({
+      try: () => {
+        if (controlReader !== undefined) {
+          closeSync(controlReader);
+          controlReader = undefined;
+        }
+      },
+      catch: () => new ExtraPeerError({ reason: "Setup", stage: "control-stream" }),
     });
     const receipts = observed.receipts;
     let fifoDrain: (() => void) | undefined;
@@ -263,7 +312,6 @@ const main = Effect.scoped(
       // Node v24.21.0 doc/api/child_process.md: stdio[fd] is a pipe stream;
       // stdout is Readable. Native kinds are checked by the fixture's FD receipts.
       const receiptStream = child.stdio[3] instanceof Readable ? child.stdio[3] : undefined;
-      const control = child.stdio[4] instanceof Writable ? child.stdio[4] : undefined;
       const output = child.stdout;
 
       // No flowing reader until the writer-waiting receipt. Raw FIFO reads have
@@ -278,37 +326,55 @@ const main = Effect.scoped(
       let header: Uint8Array | undefined;
       let prefillBytesRead = 0;
       let frameBytesRead = 0;
-      let frameVerified = true;
+      let frameVerified = false;
       let prefixVerified = false;
       let prefixAck = false;
       let fullAck = false;
       let released = false;
-      let drainBudget = 0;
-      let reading = false;
+      let producerExited = child.exitCode !== null || child.signalCode !== null;
+      let fixtureFailed = false;
+      let drainBudget = producerExited ? Infinity : 0;
       let outputEnded = false;
+      let receiptsEnded = receiptStream?.readableEnded ?? false;
       let childExit: { code: number | null; signal: string | null } | undefined;
-      let fault: ExtraPeerFault | undefined;
+      let fault: ExtraPeerFault | undefined = observed.fault;
       const backing = new Uint8Array(65536);
 
       const recordFault = (reason: ExtraPeerFault["reason"], stage: ExtraPeerFault["stage"]) => {
         if (active) {
-          fault ??= { reason, stage };
+          fault ??= observed.fault ?? { reason, stage };
           observed.fault = fault;
         }
       };
 
       const acknowledge = (byte: number) => {
-        control?.write(new Uint8Array([byte]), (error) => {
-          if (error) recordFault("Control", "prefix");
-        });
+        if (
+          !active ||
+          producerExited ||
+          fixtureFailed ||
+          child.exitCode !== null ||
+          child.signalCode !== null
+        )
+          return;
+
+        try {
+          if (writeSync(controlWriter, new Uint8Array([byte])) !== 1)
+            recordFault("Control", "prefix");
+        } catch {
+          recordFault("Control", "prefix");
+        }
       };
 
       const consume = (bytes: Uint8Array) => {
-        if (prefillBytes === undefined || frameBytes === undefined || header === undefined) {
-          recordFault("Receipt", "prefill");
-
+        // Terminal output can arrive before its FD3 metadata/failure receipt.
+        // Without metadata, discard it only to join; it proves no frame law.
+        if (
+          fixtureFailed ||
+          prefillBytes === undefined ||
+          frameBytes === undefined ||
+          header === undefined
+        )
           return;
-        }
 
         for (const byte of bytes) {
           if (prefillBytesRead < prefillBytes) {
@@ -330,6 +396,8 @@ const main = Effect.scoped(
 
         if (
           !prefixAck &&
+          !producerExited &&
+          !fixtureFailed &&
           prefillBytesRead === prefillBytes &&
           frameBytesRead === extraPrefixBytes
         ) {
@@ -338,7 +406,13 @@ const main = Effect.scoped(
           acknowledge(112);
         }
 
-        if (launch.mode === "progress" && frameBytesRead === frameBytes && !fullAck) {
+        if (
+          !producerExited &&
+          !fixtureFailed &&
+          launch.mode === "progress" &&
+          frameBytesRead === frameBytes &&
+          !fullAck
+        ) {
           fullAck = true;
           acknowledge(100);
         }
@@ -357,7 +431,6 @@ const main = Effect.scoped(
         if (controllerClosed) detachReceipts?.();
         output?.off("readable", drain);
         output?.off("end", end);
-        output?.off("data", consumeOnExit);
 
         // On peer interruption, discard controller output while its owned
         // finalizer stops/joins the actual fixture. A blocked script copy must
@@ -366,13 +439,12 @@ const main = Effect.scoped(
         child.off("close", close);
         child.off("exit", exited);
         child.off("error", spawnError);
-        // Keep error handlers through stream destruction; late writes are inert.
+        // Keep error handlers through stream destruction; late events are inert.
         child.stdin?.destroy();
-        control?.destroy();
       };
 
       const finish = () => {
-        if (!active || childExit === undefined || !outputEnded) return;
+        if (!active || childExit === undefined || !outputEnded || !receiptsEnded) return;
 
         if (pending.length > 0) recordFault("Receipt", "receipt");
         let fixtureGone = false;
@@ -389,16 +461,21 @@ const main = Effect.scoped(
 
         if (!fixtureGone || !ptyChildJoined) recordFault("Join", "join");
 
-        if (!released || prefillBytesRead !== prefillBytes || !prefixVerified)
-          recordFault("Drain", "drain");
+        // Preserve an observed fixture failure and every genuine earlier peer
+        // fault separately. A failed producer cannot establish the normal laws;
+        // do not relabel missing metadata/release as an incidental drain fault.
+        if (!fixtureFailed && childExit.code === 0 && childExit.signal === null) {
+          if (!released || prefillBytesRead !== prefillBytes || !prefixVerified)
+            recordFault("Drain", "drain");
 
-        if (
-          frameBytes === undefined ||
-          (launch.mode === "progress"
-            ? frameBytesRead !== frameBytes
-            : frameBytesRead >= frameBytes)
-        )
-          recordFault("Drain", "drain");
+          if (
+            frameBytes === undefined ||
+            (launch.mode === "progress"
+              ? frameBytesRead !== frameBytes
+              : frameBytesRead >= frameBytes)
+          )
+            recordFault("Drain", "drain");
+        }
 
         const result: Omit<ExtraPeerResult, "fault"> & { fault?: ExtraPeerFault } = {
           code: childExit.code,
@@ -451,13 +528,9 @@ const main = Effect.scoped(
                 break;
               }
 
-              reading = true;
-
               const chunk: unknown = output.read(
                 Math.min(65536, output.readableLength, drainBudget),
               );
-
-              reading = false;
 
               if (!(chunk instanceof Uint8Array)) {
                 recordFault("Drain", "drain");
@@ -471,21 +544,17 @@ const main = Effect.scoped(
             consume(bytes);
           }
         } catch (cause) {
-          reading = false;
-
           if (!wouldBlock(cause)) recordFault("Drain", "drain");
         }
       };
 
-      const consumeOnExit = (bytes: Uint8Array) => {
-        // read() itself emits data, so count it only in drain. Node flushStdio
-        // can also resume after process exit; count that real buffered drain
-        // once, without assuming cross-FD receipt delivery order.
-        if (active && !reading) consume(bytes);
-      };
-
       const end = () => {
         outputEnded = true;
+        finish();
+      };
+
+      const receiptEnd = () => {
+        receiptsEnded = true;
         finish();
       };
 
@@ -496,6 +565,7 @@ const main = Effect.scoped(
 
       const close = (code: number | null, signal: string | null) => {
         childExit = { code, signal };
+        producerExited = true;
 
         if (signal !== null && !knownSignal(signal)) recordFault("Join", "join");
         drainBudget = Infinity;
@@ -507,6 +577,7 @@ const main = Effect.scoped(
         // Exit is the producer milestone; close also waits for stdio. Granting
         // the terminal drain only on close makes stdout and close wait on each other.
         // v24.21.0 lib/internal/child_process.js:318-333,1137-1143.
+        producerExited = true;
         drainBudget = Infinity;
         drain();
       };
@@ -555,7 +626,13 @@ const main = Effect.scoped(
 
           if (!active) continue;
 
-          if (event.event === "saturated") {
+          if (event.event === "failure") {
+            fixtureFailed = true;
+            frameVerified = false;
+            observed.frameVerified = false;
+            drainBudget = Infinity;
+            drain();
+          } else if (event.event === "saturated") {
             prefillBytes = event.prefillBytes;
             frameBytes = event.frameBytes;
 
@@ -572,10 +649,15 @@ const main = Effect.scoped(
 
               if (frameBytes !== header.byteLength + event.bodyBytes)
                 recordFault("Receipt", "prefill");
+              else
+                frameVerified =
+                  prefillBytes !== undefined &&
+                  event.bodyBytes === extraBodyForPrefill(prefillBytes) &&
+                  event.wouldBlock === true;
             }
           } else if (event.event === "writer-waiting") {
             if (prefillBytes === undefined) recordFault("Receipt", "prefix");
-            else {
+            else if (!producerExited && !fixtureFailed) {
               drainBudget = prefillBytes + extraPrefixBytes;
               drain();
             }
@@ -593,11 +675,12 @@ const main = Effect.scoped(
       detachReceipts = () => {
         receiptStream?.off("data", receive);
         receiptStream?.off("error", receiptError);
+        receiptStream?.off("end", receiptEnd);
       };
 
       receiptStream?.on("data", receive);
       receiptStream?.on("error", receiptError);
-      control?.on("error", streamError);
+      receiptStream?.on("end", receiptEnd);
       child.stdin?.on("error", streamError);
       child.stderr?.on("data", () => {}); // raw foreign stderr is never acquired into a receipt
       child.on("error", spawnError);
@@ -606,12 +689,13 @@ const main = Effect.scoped(
       output?.on("readable", drain);
       output?.on("error", outputError);
       output?.on("end", end);
-      output?.on("data", consumeOnExit);
+      // readable-listening mode stays nonflowing even when flushStdio resumes:
+      // https://github.com/nodejs/node/blob/v24.21.0/lib/internal/streams/readable.js#L1243-L1260
       output?.pause();
       fifoDrain = drain;
+      drain();
 
       if (receiptStream === undefined) recordFault("Topology", "receipt-stream");
-      else if (control === undefined) recordFault("Topology", "control-stream");
       else if (reader === undefined && !(output instanceof Readable))
         recordFault("Topology", "output-stream");
 
@@ -661,7 +745,14 @@ void Effect.runPromiseExit(projected, { signal: abort.signal }).then((exit) => {
     return;
   }
 
-  if (outerFailed || observed.fault !== undefined) process.exitCode = 1;
+  if (
+    outerFailed ||
+    observed.fault !== undefined ||
+    observed.code !== 0 ||
+    observed.signal !== null ||
+    observed.receipts.some((receipt) => receipt.event === "failure")
+  )
+    process.exitCode = 1;
   process.stdout.write(exit.value + "\n", (error) => {
     if (error) process.exitCode = 1;
   });
