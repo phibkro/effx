@@ -1116,3 +1116,71 @@ acceptance at spec line 670. An explicit regular-output latency amendment or a
 proved storage/cancel-and-join bound is required before claiming that guarantee.
 No approval, storage waiver, common-root adoption, full acceptance or landing is
 inferred here; reachable Linux writer and lifecycle work continues.
+
+## 12. Operator B integration and observed native smoke subset — 2026-10-06
+
+The operator wrote **"B"** for the most recent regular-stdout fork. Frozen
+amendment `3cffc850da1d34775217b8164ece682889ea7a9c`, spec lines 678–712,
+rejects regular-file stdout before writer acquisition. It approves no storage
+latency exception. `effx lsp > protocol.log` is unsupported. Regular-file stdin
+and qualified socket/FIFO/PTY output remain supported; other CLI/dev behavior
+and the four defaults plus A remain unchanged. Earlier proposals stay historical.
+
+### Source-confirmed adopted-stdio close defect
+
+Pinned Bun closeSync skips stdio descriptors, independently of descriptor reuse:
+
+- https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/js/node/fs.ts#L538 binds closeSync.
+- https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/node/node_fs.zig#L3391-L3395 invokes closeAllowingBadFileDescriptor.
+- https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/fd.zig#L245-L251 returns success without closing stdio.
+- https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/fd.zig#L422-L427 classifies 0/1/2 as stdio.
+
+Source-only excerpts are retained in the external evidence root as
+`close-source-fs.ts.txt`, `close-source-node_fs.zig.txt`, `close-source-fd.zig.txt`
+and `close-source-fd-stdioTag.zig.txt`. They contain no runtime environment, args
+or raw causes. `ba1da62` replaces all owned closes with public libc close’s
+target-header i32-to-i32 ABI. Each close runs once; nonzero results remain
+classified release faults. All reachable releases run; every close caller joins
+the same actual Deferred Exit. There is no close-on-EINTR retry.
+
+### Exact failed and successful gates
+
+| Reference | Actual outcome | Interpretation |
+| --- | --- | --- |
+| `3d40e67` | exit 1; 13/21 passed | eight observed failures; no kill attribution |
+| `12b25bf` | exit 1; 19/21 passed | real fd0-not-closed and finite-write unexpected-success categories |
+| `9d0fc04` | exit 1; 21/22 passed | B receipt model mistook fixture Scope exit for native release; file assertions not reached |
+| `a4f2ecc` | exit 0; 22/22 passed | corrected fixture-scope-exited model and semantic B/native smoke subset only |
+
+`a4f2ecc` ran `bun --bun vitest run --config scripts/test/lsp-linux.config.ts`,
+supervised as `proc://spec0018-linux-native-a4f2ecc`. A post-gate PID check found
+no matching owned fixture/peer. The safe selected receipt is
+`native-smoke-a4f2ecc.json`; each failed gate has its own `native-gate-<ref>.json`.
+None of those receipts contains raw causes, stderr, args, environment or private
+payloads. The native asset was rebuilt twice after B source qualification.
+Current source SHA256 is
+`8fad9c4eb545bb136b3ef655c61b693ee9a0da0833b76a4913f5d75e764a1b67`;
+the independently re-derived asset SHA256 is
+`db8843396d90597318a5eacdfb7a11cdee22df912dae1e2ee2c7eb99f0e49d3c`.
+ABI 2 derives GLIBC_2.32 and libc.so.6; this is no Ubuntu or runtime certification.
+
+### Covered and still-unexercised criteria
+
+The 22-case smoke covers actual regular FD1 refusal before a missing manifest,
+unchanged output sentinel/zero protocol bytes, socket/FIFO/file/PTY stdin and EOF,
+raw read/backing bounds, original fd0 EBADF, library unmapping, sequential close,
+Closed refusal, broken pipe, SIGINT/PID probes, callback finalization, six corrupt
+asset startup cases, and observed PTY fixture disappearance after controller wait.
+The blocked-writer case now uses a raw never-read FIFO, actual one-byte EAGAIN
+and bounded prefill. A finite write fitting in kernel buffers is not saturation.
+
+It does not prove FD1 identity/flags, partial output progress for every qualified
+form, pending SIGPIPE preservation/mask restoration, mutable caller isolation,
+concurrent refusal, cancellation after accepted bytes, or concurrent close/fault
+Exit equivalence. Independent real native laws for those criteria are underway.
+The unconditional fixture-scope-exited event is not native-release evidence.
+Kernel descriptor/library/deadline/actual Exit laws remain separate proof points.
+
+Packed maintained-client compiler journeys, final 172-case identity/full-ref gate
+and common-root injection still depend on the director’s 0019 reference/order.
+The observed smoke subset is accepted; full 0018/packed CLI/main landing is not.
