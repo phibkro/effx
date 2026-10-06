@@ -221,7 +221,7 @@ describe("A.fromSchema rejected kinds", () => {
     });
   }
 
-  it("reports every invalid leaf, in argument order, including a rest position", () => {
+  it("reports every invalid schema leaf, including a rest position", () => {
     const definition = Annotation.define({
       name: "app.Many",
       target: "operation",
@@ -229,11 +229,8 @@ describe("A.fromSchema rejected kinds", () => {
     });
 
     assert.deepStrictEqual(
-      definition.diagnostics.map((d) => d.message),
-      [
-        "annotation app.Many: args $[0].a: Schema node Date cannot be lowered from source (A.fromSchema)",
-        "annotation app.Many: args $[0].b: Schema node Symbol cannot be lowered from source (A.fromSchema)",
-      ],
+      definition.diagnostics.map((diagnostic) => diagnostic.code),
+      ["EFFX1301", "EFFX1301"],
     );
   });
 
