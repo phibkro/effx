@@ -163,12 +163,34 @@ export const SpreadSource = Schema.Struct({
 /** @internal */
 export type SpreadSource = typeof SpreadSource.Type;
 
+/** A symbol referenced by a mirrored type parameter, with the source-local name to print. */
+export const GroupBindingReference = Schema.Struct({
+  ref: SymbolRef,
+  name: Schema.String,
+});
+
+export type GroupBindingReference = typeof GroupBindingReference.Type;
+
+/** One mirrored type parameter of a handler factory; `constraint`/`default` keep their source syntax. */
+export const GroupBindingTypeParameter = Schema.Struct({
+  name: Schema.String,
+  /** Source syntax of the constraint; empty when the parameter declares none. */
+  constraint: Schema.String,
+  /** Source syntax of the default; empty when the parameter declares none. */
+  default: Schema.String,
+  references: Schema.Array(GroupBindingReference),
+});
+
+export type GroupBindingTypeParameter = typeof GroupBindingTypeParameter.Type;
+
 /** Backend-owned static references, deliberately outside the semantic IR. @internal */
 export const GroupBinding = Schema.Struct({
   group: SymbolRef,
   handlers: SymbolRef,
-  /** Type-parameter names of the handler factory, in declaration order; empty when it is not generic. */
-  handlersTypeParameters: Schema.Array(Schema.String),
+  /** Type parameters the bound wrapper must mirror; empty when the factory is not generic. */
+  handlersTypeParameters: Schema.Array(GroupBindingTypeParameter),
+  /** Type-parameter names of the guard factory, so the tuple check can instantiate it consistently. */
+  guardsTypeParameters: Schema.Array(Schema.String),
   guards: Schema.optionalKey(SymbolRef),
   guardFor: Schema.optionalKey(SymbolRef),
 });

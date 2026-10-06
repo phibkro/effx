@@ -11,6 +11,7 @@ const binding: GroupBinding = {
   group: { module: "./contract", export: "ProfileGroup" },
   handlers: { module: "./backend", export: "makeRaw" },
   handlersTypeParameters: [],
+  guardsTypeParameters: [],
   guards: { module: "./backend", export: "makeGuards" },
 };
 

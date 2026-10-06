@@ -55,6 +55,9 @@ export class Imports {
   private aliases:
     | Array<{ readonly module: string; readonly exported: string; readonly local: string }>
     | undefined;
+  private typeAliases:
+    | Array<{ readonly module: string; readonly exported: string; readonly local: string }>
+    | undefined;
   private reserved: Set<string> | undefined;
   constructor(private readonly context: GenerationContext = defaultGenerationContext) {}
 
@@ -92,7 +95,11 @@ export class Imports {
   }
 
   private occupied(local: string): boolean {
-    if (this.reserved?.has(local) || this.aliases?.some((alias) => alias.local === local))
+    if (
+      this.reserved?.has(local) ||
+      this.aliases?.some((alias) => alias.local === local) ||
+      this.typeAliases?.some((alias) => alias.local === local)
+    )
       return true;
 
     for (const names of this.modules.values()) {
@@ -126,6 +133,29 @@ export class Imports {
     return local;
   }
 
+  /** Reserve a collision-free type-only local; the projected source prints this name in a type. */
+  addTypeAliased(module: string, exported: string, preferredLocal: string): string {
+    const specifier = moduleSpecifier(this.context, module);
+
+    const existing = this.typeAliases?.find(
+      (alias) => alias.module === specifier && alias.exported === exported,
+    );
+
+    if (existing !== undefined) return existing.local;
+
+    let local = preferredLocal;
+
+    for (let suffix = 2; ; suffix++) {
+      if (!this.occupied(local)) break;
+
+      local = `${preferredLocal}_${suffix}`;
+    }
+
+    (this.typeAliases ??= []).push({ module: specifier, exported, local });
+
+    return local;
+  }
+
   /** `effect` first, then `effect/*`, then everything else; modules and names alphabetical. */
   render(): ReadonlyArray<string> {
     const byModule = Order.combine(
@@ -133,7 +163,7 @@ export class Imports {
       Order.mapInput(Order.String, ([module]: readonly [string, Set<string>]) => module),
     );
 
-    return Array.from(this.modules, ([module, names]) => [module, names] as const)
+    const valueLines = Array.from(this.modules, ([module, names]) => [module, names] as const)
       .toSorted(byModule)
       .map(([module, names]) => {
         const bindings = Array.from(names);
@@ -148,6 +178,32 @@ export class Imports {
 
         return `import { ${bindings.join(", ")} } from "${module}";`;
       });
+
+    const typesByModule = new Map<string, Array<string>>();
+
+    for (const alias of this.typeAliases ?? []) {
+      const bindings = typesByModule.get(alias.module) ?? [];
+      bindings.push(
+        alias.local === alias.exported ? alias.exported : `${alias.exported} as ${alias.local}`,
+      );
+      typesByModule.set(alias.module, bindings);
+    }
+
+    const byTypeModule = Order.combine(
+      Order.mapInput(Order.Number, ([module]: readonly [string, ReadonlyArray<string>]) =>
+        rank(module),
+      ),
+      Order.mapInput(Order.String, ([module]: readonly [string, ReadonlyArray<string>]) => module),
+    );
+
+    const typeLines = Array.from(typesByModule, ([module, bindings]) => [module, bindings] as const)
+      .toSorted(byTypeModule)
+      .map(
+        ([module, bindings]) =>
+          `import type { ${bindings.toSorted(Order.String).join(", ")} } from "${module}";`,
+      );
+
+    return [...valueLines, ...typeLines];
   }
 }
 
