@@ -121,9 +121,26 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
   const coverage = new Map<string, WatchInput>();
 
   const add = (input: WatchInput) => {
-    const key = routeKey(input);
+    const key = input.kind === "source" ? "source:" + input.path : routeKey(input);
     const previous = coverage.get(key);
-    coverage.set(key, previous?.recursive === true ? previous : input);
+
+    if (
+      previous !== undefined &&
+      (previous.directory === true || input.directory !== true) &&
+      (previous.recursive === true || input.recursive !== true)
+    )
+      return;
+
+    coverage.set(
+      key,
+      previous === undefined
+        ? input
+        : {
+            ...input,
+            directory: previous.directory === true || input.directory === true,
+            recursive: previous.recursive === true || input.recursive === true,
+          },
+    );
   };
 
   for (const input of initial.executableCoverage ?? []) add(input);
@@ -205,19 +222,24 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
         onObserve: (input) => {
           if (excluded(input.path)) return;
 
+          const previous = observed.get(input.path);
+
+          if (previous !== undefined && (previous.directory === true || input.membership !== true))
+            return;
+
           const value: WatchInput = {
             path: input.path,
             kind: "source",
-            directory: input.kind === "directory",
+            directory: previous?.directory === true || input.membership === true,
           };
 
-          if (observed.size >= 8192 && !observed.has(routeKey(value))) {
+          if (observed.size >= 8192 && !observed.has(input.path)) {
             overflow = true;
 
             return;
           }
 
-          observed.set(routeKey(value), value);
+          observed.set(input.path, value);
         },
         onReadSource: (file, text) => {
           if (excluded(file)) return;
