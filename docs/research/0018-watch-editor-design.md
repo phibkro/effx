@@ -1259,3 +1259,23 @@ and https://github.com/nodejs/node/blob/v24.21.0/deps/uv/src/unix/process.c#L253
 These establish source semantics, not an observed timeout, forced kill, or runtime
 origin for the old gate. The fixture’s observer library is explicitly closed
 before Root release, so its reference cannot conceal actual library unmapping.
+
+The committed `f540042` gate again exited 1, 24/36 passed and 12 failed; its
+selected receipt is `native-gate-f540042.json`. All four FIFO fixtures now retain
+the actual inner `FixtureDefect/identity/reopened-shared-flags` category: the
+original FD1 already has O_NONBLOCK before Root acquisition. Assuming an
+initial blocking value is not the law of preserving that original value. All
+socket/PTY cases reached real prefill partial results, actual one-byte EAGAIN and
+the peer-verified 4096-byte frame prefix, then failed inside `backpressure`.
+Those partial observations do not establish completed mutation, cancellation or
+joined-close laws. The retained `pollMask: 1` is from earlier command polling,
+not an observed output-pressure poll; actual writer Exit is not yet classified.
+
+Pressure observations are taken before assertions, independently of Scope
+cleanup. They distinguish Pending/Success/Failure/Defect/Interrupted and only
+whitelist the Root’s known local static error details into closed categories.
+Erased native writer errno is not reconstructed or invented. Descriptor
+observations use the existing closed Schema JSON encoder so nested kind,
+device, inode and flags are retained rather than rendered as opaque objects.
+Neither this instrumentation nor source inspection establishes a product
+writer defect or grants any Root/C/assets/common-root/main change authority.
