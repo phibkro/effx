@@ -36,6 +36,8 @@ EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent ins
 consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
 stdin and forced-stop deadlines stay scoped; the script is a composition root.
 The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
+EX-0023 also owns scripts/test/lsp-linux.test.ts for scoped native-host peer
+invocation. This does not grant process APIs to portable product/session code.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
 EX-0030 records the pinned maintained `vscode-jsonrpc` ABI, not permission to

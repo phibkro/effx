@@ -31,6 +31,8 @@ import { dev } from "../src/watch.ts";
 import type { WatchClosed, WatchLimit } from "../src/watch-files.ts";
 import { acquireOutputOwner } from "../src/output-owner.ts";
 import type { SessionClosed } from "../src/project-session.ts";
+import type { ExecutableInventory } from "../src/config-runtime.ts";
+import { executableInventoryLayer } from "../../../scripts/executable-cache.ts";
 
 type DevExit = Exit.Exit<
   Effect.Success<ReturnType<typeof dev>>,
@@ -83,6 +85,7 @@ const consoleReceipts = Layer.effect(
 const platform = TsSourceFrontend.layer.pipe(
   Layer.provideMerge(BunServices.layer),
   Layer.provideMerge(consoleReceipts),
+  Layer.provideMerge(executableInventoryLayer),
 );
 
 const observeDev = Effect.fnUntraced(function* (...args: Parameters<typeof dev>) {
@@ -157,7 +160,7 @@ describe("actual scoped effx dev journey", () => {
       | PlatformError.BadArgument
     >();
     expectTypeOf<Effect.Services<typeof value>>().toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend
+      FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend | ExecutableInventory
     >();
     expectTypeOf<Effect.Error<typeof value>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Services<typeof value>>().not.toEqualTypeOf<never>();

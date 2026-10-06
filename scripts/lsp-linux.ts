@@ -35,7 +35,9 @@ export class LinuxLspError extends Schema.TaggedError<LinuxLspError>()("LinuxLsp
   ]),
 }) {}
 
-const decodeManifest = Schema.decodeUnknownEffect(Schema.fromJsonString(NativeAssetManifest));
+const decodeManifest = Schema.decodeEffect(Schema.fromJsonString(NativeAssetManifest), {
+  onExcessProperty: "error",
+});
 
 const gone = Schema.is(Schema.Struct({ code: Schema.Literal("ESRCH") }));
 
@@ -319,29 +321,38 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
     if (!readBound(maxBytes)) return yield* ioFailure("Capacity", "raw read bound 1..65536");
 
-    const ready = yield* Effect.try({
-      try: () => lib.symbols.ready_now(0),
-      catch: () => ioFailure("IO", "poll"),
-    });
-
-    if (!int32(ready) || ready < 0 || (ready & ~knownMask) !== 0 || (ready & flags.invalid) !== 0)
-      return yield* ioFailure("IO", "invalid poll result");
-
-    if (ready === 0) return empty;
-
-    if ((ready & (flags.input | flags.hup)) === 0) return yield* ioFailure("IO", "poll error");
-    // No async boundary between readiness and read: the exclusive owner keeps
-    // the witnessed readiness valid. No retained native push/read-ahead buffer.
-
     return yield* Effect.try({
       try: () => {
+        // The scheduler can yield between Effects. Fence and perform readiness
+        // plus read in one synchronous boundary, not separate Effect operations.
+        if (phase !== "Open") throw ioFailure("Closed", "closed fd0");
+        const ready = lib.symbols.ready_now(0);
+
+        if (
+          !int32(ready) ||
+          ready < 0 ||
+          (ready & ~knownMask) !== 0 ||
+          (ready & flags.invalid) !== 0
+        )
+          throw ioFailure("IO", "invalid poll result");
+
+        if (ready === 0) return empty;
+
+        if ((ready & (flags.input | flags.hup)) === 0) throw ioFailure("IO", "poll error");
+
+        // Each returned view owns fresh backing storage; parser retention never
+        // aliases storage that a later native read can mutate.
         const buffer = new Uint8Array(maxBytes);
         const length = readSync(0, buffer, 0, maxBytes, null);
 
         return length === 0 ? null : buffer.subarray(0, length);
       },
       catch: (cause) =>
-        transientRead(cause) ? ioFailure("IO", "retryable raw read") : ioFailure("IO", "raw read"),
+        Schema.is(TransportError)(cause)
+          ? cause
+          : transientRead(cause)
+            ? ioFailure("IO", "retryable raw read")
+            : ioFailure("IO", "raw read"),
     }).pipe(
       Effect.catchIf(
         (fault) => fault.cause === "retryable raw read",
@@ -356,6 +367,12 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
     if (writeBusy) return yield* ioFailure("Capacity", "one native writer");
     writeBusy = true;
     yield* Effect.callback<void, TransportError>((resume) => {
+      if (phase !== "Open") {
+        resume(Effect.fail(ioFailure("Closed", "closed stdout")));
+
+        return;
+      }
+
       let active = true;
       let callbackDone = false;
       let drainDone = false;
@@ -451,6 +468,8 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
       return yield* new ClientProbeError({ reason: "IO", cause: "invalid PID" });
     yield* Effect.try({
       try: () => {
+        if (phase !== "Open")
+          throw new ClientProbeError({ reason: "IO", cause: "closed native capability" });
         process.kill(pid, 0);
       },
       catch: (cause) =>
@@ -465,6 +484,12 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
     if (phase !== "Open") return Effect.void;
 
     return Effect.callback<void>((resume) => {
+      if (phase !== "Open") {
+        resume(Effect.void);
+
+        return;
+      }
+
       const handle = RAL().timer.setImmediate(() => resume(Effect.void));
 
       return Effect.sync(() => handle.dispose());

@@ -369,8 +369,9 @@ until their named tests and the final gate pass. Config coverage remains unresol
 - Owner: repository root, `AGENTS.md`; implementation directory `packages/cli`.
 - Rules: FX002 native-first, FX003 runtime boundary, FX004 decoding, FX006 ownership,
   FX009 capacity, FX012 exception lifecycle. No blanket lint suppression.
-- Scope: `packages/cli/src/lsp-transport.ts`; its owned real-client test and
-  `packages/cli/test/lsp-transport-peer.ts` process root.
+- Scope: portable `packages/cli/src/lsp-transport.ts` and its behavior tests.
+  `scripts/lsp-test-peer.ts` owns the real maintained native client/test roots;
+  no package-owned native peer or Node imports/types/globals survive the cutover.
 - Reason / missing capability: installed Effect has no maintained LSP Content-Length
   parser and connection lifecycle with this contract. Raw Stdio is not that protocol.
 - Native alternatives: Stdio/Stream provide bytes; RpcSerialization JSON-RPC has no
@@ -448,11 +449,14 @@ until their named tests and the final gate pass. Config coverage remains unresol
 
 **EX-0023 — extended installed watch/editor consumer scope (open).**
 
-- Owner: repository root, `AGENTS.md`; `packages/cli/test/packed-watch-peer.ts`.
-- The permanent `scripts/watch-editor-smoke.ts` composition root provides Bun services.
+- Owner: repository root, `AGENTS.md`; installed-consumer adapter
+  `packages/cli/test/packed-watch-peer.ts` and independent native host-test
+  invocation in `scripts/test/lsp-linux.test.ts`.
+- The permanent `scripts/watch-editor-smoke.ts` root provides Bun services.
+  Native host tests use owned Node-peer subprocesses with bounded stop deadlines.
 - Native alternative: installed Effect4.0.0 `effect/process` owns child process groups,
   stdin, output streams, interruption and joining; no second subprocess framework.
-- Scope: only the installed-consumer process adapter; product/session code imports no process API.
+- Scope: these test-only process boundaries; product/session code imports no process API.
 - Output admission is 128 lines with backpressure; shutdown receipts precede consumer-file release.
 - Rules: FX001 version authority, FX002 native-first and FX012 scoped resource ownership.
 - Verification: packed EOF/SIGINT, silence after shutdown and client-exit journeys are specified
@@ -1006,6 +1010,8 @@ Main landing, complete feature acceptance and the final code/docs gate stay held
 - Scope: public Bun dlopen, audited `tools/native/lsp-readiness.c`, packaged native
   asset, bounded raw IO, stdout completion, PID probe and scoped callback bridge.
   Own Node APIs remain forbidden in packages.
+  Native host tests live under `scripts/test/lsp-linux.*`; their owned process
+  invocation uses the existing EX-0023 test-custody boundary.
 - Rules: FX002 native-first, FX003 runtime boundary, FX004 decoded boundaries,
   FX006 resource ownership, FX009 finite admission and FX012 retirement.
 - Missing capability: installed Stdio/Bun stdin does not establish bounded raw

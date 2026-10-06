@@ -11,10 +11,11 @@ import {
 import { build, resolveProject, type Versions } from "../src/commands.ts";
 import cliPackage from "../package.json";
 import effectPackage from "effect/package.json";
-import { acquirePeer } from "./lsp-transport-peer.ts";
+import { acquirePeer } from "../../../scripts/lsp-test-peer.ts";
 import { expectTypeOf } from "vitest";
 import { lsp, lspSourceCoverage } from "../src/lsp.ts";
-import type { LspIO, TransportError } from "../src/lsp-transport.ts";
+import { LspPlatform, type LspIO, type TransportError } from "../src/lsp-transport.ts";
+import type { ExecutableInventory } from "../src/config-runtime.ts";
 import {
   capabilities,
   decodeChange,
@@ -67,7 +68,12 @@ describe("LSP method boundary and projection", () => {
     expectTypeOf<Effect.Error<typeof program>>().toEqualTypeOf<TransportError>();
     expectTypeOf<Effect.Error<typeof program>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Services<typeof program>>().toEqualTypeOf<
-      Crypto.Crypto | FileSystem.FileSystem | Path.Path | SourceFrontend
+      | Crypto.Crypto
+      | FileSystem.FileSystem
+      | Path.Path
+      | SourceFrontend
+      | LspPlatform
+      | ExecutableInventory
     >();
     expectTypeOf<Effect.Services<typeof program>>().not.toEqualTypeOf<never>();
     expectTypeOf<

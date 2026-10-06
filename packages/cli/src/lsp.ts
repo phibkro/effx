@@ -17,8 +17,9 @@ import { canonicalDocument, type OpenDocument } from "./documents.ts";
 import {
   acquireLspTransport,
   RpcFailure,
-  stdioLspIO,
+  LspPlatform,
   type LspIO,
+  type TransportError,
   type LspTransport,
   type RequestEnvelope,
 } from "./lsp-transport.ts";
@@ -62,7 +63,7 @@ export interface LspOptions {
   /** Startup cwd is captured before initialize; editor paths never reinterpret launch options. */
   readonly cwd?: string;
   /** Scoped transport substitution for real-client integration. No native handles cross this seam. */
-  readonly io?: Effect.Effect<LspIO>;
+  readonly io?: Effect.Effect<LspIO, TransportError, Scope.Scope>;
 }
 
 const unavailable = (reason: string) => new CompilerFault({ stage: "lsp", message: reason });
@@ -743,7 +744,8 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     }
   });
 
-  transport = yield* acquireLspTransport(options.io ?? stdioLspIO, {
+  const acquireIO = options.io ?? (yield* LspPlatform).acquireIO;
+  transport = yield* acquireLspTransport(acquireIO, {
     request: Effect.fnUntraced(function* (message: RequestEnvelope) {
       if (message.method === "initialize") {
         const params = yield* decodeInitialize(message.params).pipe(Effect.mapError(invalidParams));
