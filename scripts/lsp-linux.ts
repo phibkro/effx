@@ -536,15 +536,18 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
                   if (active.cursor < active.frame.byteLength) yield* turn;
                 }
-              }),
+              }).pipe(
+                // Restore the timeout race owner as well as its write child.
+                // Cursor disposal and close stay outside the restored region.
+                Effect.timeoutOrElse({
+                  duration: Math.max(
+                    0,
+                    Number(active.deadline - clock.monotonicTimeNanosUnsafe()) / 1_000_000,
+                  ),
+                  orElse: () => Effect.fail(ioFailure("IO", "stdout write deadline")),
+                }),
+              ),
             ).pipe(
-              Effect.timeoutOrElse({
-                duration: Math.max(
-                  0,
-                  Number(active.deadline - clock.monotonicTimeNanosUnsafe()) / 1_000_000,
-                ),
-                orElse: () => Effect.fail(ioFailure("IO", "stdout write deadline")),
-              }),
               Effect.ensuring(
                 Effect.sync(() => {
                   active.frame = empty;
