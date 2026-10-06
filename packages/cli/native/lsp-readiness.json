@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "library": "lsp-readiness.so",
+  "platform": "linux",
+  "architecture": "x64",
+  "elfClass": 64,
+  "elfMachine": 62,
+  "libc": "glibc",
+  "minimumGlibc": "2.2.5",
+  "glibcVersions": [
+    "2.2.5"
+  ],
+  "neededLibraries": [
+    "libc.so.6"
+  ],
+  "byteLength": 14128,
+  "sha256": "f656dd41bad0015d8a5a1c738b16158508f768235a2796a37a3c17ee7cc9db47",
+  "source": {
+    "file": "tools/native/lsp-readiness.c",
+    "byteLength": 511,
+    "sha256": "2db8800fea41b0aee0f981fd262a32f7e7498e0079b84bc9c167fce242b5fafa"
+  },
+  "compiler": {
+    "family": "gcc",
+    "version": "16.2.0",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "toolchain": {
+    "sourceNarHash": "sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=",
+    "binutilsVersion": "2.46",
+    "patchelfVersion": "0.15.2"
+  },
+  "reproducible": true
+}
