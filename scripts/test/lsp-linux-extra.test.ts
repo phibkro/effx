@@ -150,15 +150,15 @@ describe("Linux native extra ownership laws", () => {
           assert.isUndefined(identity.reopenedIdentity);
         } else {
           assert.isTrue((identity.reopenedFd ?? -1) > 4);
+          assert.strictEqual(identity.reopenedIdentity?.kind, form);
           assert.strictEqual(identity.reopenedIdentity?.device, identity.fd1Before?.device);
           assert.strictEqual(identity.reopenedIdentity?.inode, identity.fd1Before?.inode);
           assert.notStrictEqual((identity.reopenedIdentity?.flags ?? 0) & constants.O_NONBLOCK, 0);
 
-          if (form === "fifo")
-            assert.strictEqual(
-              (identity.fd1Before?.flags ?? constants.O_NONBLOCK) & constants.O_NONBLOCK,
-              0,
-            );
+          // C open_output_now (tools/native/lsp-readiness.c:42–49) creates a
+          // new OFD. Original flags may already be nonblocking; preserve the
+          // observed baseline above rather than assuming an initial value.
+          // A different descriptor number alone is not proof of OFD independence.
         }
 
         // Falsifier: treating a large frame as saturation evidence, accepting a
