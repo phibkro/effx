@@ -674,3 +674,39 @@ console monkeypatch or sandbox is permitted. Artifact/provenance evidence MUST
 use closed safe projections and never serialize runtime environment, raw args,
 config/credential/private payloads or raw causes. Final complete committed-clone
 verification and director review/order precede any feature acceptance or landing.
+
+### Operator regular-stdout amendment B — 2026-10-06
+
+The operator wrote, verbatim: **"B"**. This selects the most recent director-presented
+regular-stdout fork, not earlier coverage amendment A or a portable backend.
+The fork was: A retains regular-file stdout with an explicit storage-latency
+exception; B preserves the frozen stalled-writer deadline by rejecting that
+stdout form. The operator selected B; the director authorized its engineering
+integration. The proposed storage-latency exception is NOT approved.
+
+`effx lsp` MUST reject REGULAR-FILE STDOUT explicitly at startup, before protocol
+writes, unsafe native writer acquisition or fallback. Thus
+`effx lsp > protocol.log` is unsupported; the target file MUST receive no protocol
+bytes. There is no regular-output writer/cursor path, helper or silent timeout
+exception. Socket, FIFO and PTY stdout remain the qualified output matrix with
+the existing two-second stalled-writer/close budget. Unusual/unsupported output
+forms fail with an explicit classified startup error.
+
+Regular-file STDIN remains supported, together with maintained-client socket,
+FIFO and PTY stdin. Linux-x64/glibc qualification, exclusive fd0/cooperative
+config reporting, the original four defaults, coverage A/additional item 10 and
+other CLI/`effx dev` runtime/platform behavior remain unchanged. This amendment
+grants no credential, material-disposal, publication or main-branch authority.
+The common root/caller cutover remains 0019-owned until director adoption order.
+
+Native acceptance MUST use a real FD1 regular file and prove classified startup
+rejection with no protocol write or unsafe writer acquisition. It MUST separately
+retain the actual regular-stdin journey and exercise socket/FIFO/PTY output:
+original FD identities/flags, real saturation/partial progress/backpressure,
+SIGPIPE and pending-signal semantics, cancellation, joined close with actual
+release Exit, and no native call after Closed. Failed `3d40e67` and `12b25bf`
+receipts remain distinct evidence; neither is reclassified as acceptance.
+Source/ABI/asset changes require newly derived hashes/target manifest, actual
+audited build and fresh native gates. ELF symbol floors do not certify Ubuntu
+or an unexercised runtime. Complete §8/packed-client/final committed-reference
+verification and director review/order still precede feature acceptance/landing.
