@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { isatty } from "node:tty";
 import { RAL } from "vscode-languageserver-protocol/node";
-import { Effect, FiberSet, Schema, type Scope } from "effect";
+import { Deferred, Effect, FiberSet, Schema, type Scope } from "effect";
 import { ClientProbeError, TransportError, type LspIO, type LspCallbackRuntime } from "@effx/cli";
 import { NativeAssetManifest, compareVersions } from "./lsp-native-manifest.ts";
 
@@ -86,9 +86,14 @@ export const defaultLinuxLspManifestPath = fileURLToPath(
  * Poll is timeout-zero; read allocates at most 65536 bytes only after readiness.
  * Regular-file storage latency remains possible; accepted bytes cannot be undone.
  * One write is admitted at a time. Completion requires callback AND drain when
- * backpressured. Both write and shutdown waits have a two-second deadline.
+ * backpressured. Both Effect waits have a two-second deadline, but Bun 1.3.13
+ * forces stdout FileSink writes synchronous (BunProcess.cpp:2366–2374): a
+ * blocked foreign write cannot be interrupted by that deadline. EX-0035 remains
+ * unverified until a cancellable writer across the full stdout matrix exists.
  * Closing refuses all new operations before fd/library release; late callbacks
- * are inert. State is transient; no retry, durable queue or runtime compiler.
+ * are inert. Every close joins the same release Exit; failed release is a
+ * classified defect, not successful cleanup. State is transient; no retry,
+ * durable queue or runtime compiler.
  * EOF/PID death/SIGINT termination is owned by the portable session/root Scope.
  */
 export const acquireLinuxLspIO = Effect.fnUntraced(function* (
@@ -148,7 +153,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
         libraryReleased = true;
 
         return Effect.try({ try: () => library.close(), catch: () => failure("IO") }).pipe(
-          Effect.catch(() => Effect.logWarning("LSP native library release failed (IO)")),
+          Effect.orDie,
         );
       }),
   );
@@ -170,48 +175,13 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
   if (compareVersions(runtimeVersion, manifest.minimumGlibc) < 0) return yield* failure("Libc");
 
-  yield* Effect.acquireRelease(
-    Effect.suspend(() => {
-      if (fd0Owned) return Effect.fail(failure("Ownership"));
-
-      return Effect.sync(() => {
-        fd0Owned = true;
-      });
-    }),
-    () =>
-      Effect.sync(() => {
-        fd0Owned = false;
-      }),
-  );
-  yield* Effect.try({
-    try: () => {
-      // Read-only procfs inspection, never reopen fd0 or mutate its shared flags.
-      if (readlinkSync("/proc/self") !== String(process.pid)) throw failure("Procfs");
-      const target = readlinkSync("/proc/self/fd/0");
-      const info = fstatSync(0);
-
-      if (info.isSocket() || info.isFIFO()) return;
-
-      if (info.isFile()) {
-        if (statfsSync("/proc/self/fd/0").type === statfsSync("/proc").type)
-          throw failure("StdinForm");
-
-        return;
-      }
-
-      if (info.isCharacterDevice() && isatty(0) && /^\/dev\/pts\/\d+$/.test(target)) return;
-      throw failure("StdinForm");
-    },
-    catch: (cause) => (Schema.is(LinuxLspError)(cause) ? cause : failure("Procfs")),
-  });
-
   let phase: "Open" | "Closing" | "Closed" = "Open";
   let writeBusy = false;
-  const output = process.stdout;
-  // Register fd shutdown immediately after successful load, before symbol probes.
+  const released = yield* Deferred.make<void>();
+  const output = yield* Effect.try({ try: () => process.stdout, catch: () => failure("IO") });
 
   const close = Effect.suspend(() => {
-    if (phase !== "Open") return Effect.void;
+    if (phase !== "Open") return Deferred.await(released);
     phase = "Closing";
 
     const endOutput = Effect.callback<void, TransportError>((resume) => {
@@ -253,42 +223,77 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
         duration: "2 seconds",
         orElse: () => Effect.fail(ioFailure("IO", "stdout release deadline")),
       }),
-      Effect.catch(() =>
+      Effect.onError(() =>
         Effect.try({
           try: () => {
             output.destroy();
           },
-          catch: () => failure("IO"),
-        }).pipe(
-          Effect.catch(() => Effect.logWarning("LSP stdout destroy failed (IO)")),
-          Effect.andThen(Effect.logWarning("LSP stdout release failed or exceeded two seconds")),
-        ),
+          catch: () => ioFailure("IO", "stdout destroy"),
+        }).pipe(Effect.orDie),
       ),
+      Effect.orDie,
     );
 
-    return Effect.try({ try: () => closeSync(0), catch: () => failure("IO") }).pipe(
-      Effect.catch(() => Effect.logWarning("LSP fd0 release failed (IO)")),
-      Effect.andThen(endOutput),
-      Effect.andThen(
-        Effect.suspend(() => {
-          if (libraryReleased) return Effect.void;
-          libraryReleased = true;
+    const releaseLibrary = Effect.suspend(() => {
+      if (libraryReleased) return Effect.void;
+      libraryReleased = true;
 
-          return Effect.try({ try: () => lib.close(), catch: () => failure("IO") }).pipe(
-            Effect.catch(() => Effect.logWarning("LSP native library release failed (IO)")),
-          );
-        }),
-      ),
-      Effect.ensuring(
+      return Effect.try({ try: () => lib.close(), catch: () => failure("IO") }).pipe(Effect.orDie);
+    });
+
+    // Finalizer failures are defects in the never-E close contract. Ensuring
+    // attempts every reachable release and retains all classified failures.
+    return Effect.try({ try: () => closeSync(0), catch: () => failure("IO") }).pipe(
+      Effect.orDie,
+      Effect.ensuring(endOutput),
+      Effect.ensuring(releaseLibrary),
+      Effect.onExit((exit) =>
         Effect.sync(() => {
           phase = "Closed";
-        }),
+        }).pipe(Effect.andThen(Deferred.done(released, exit))),
       ),
-      Effect.uninterruptible,
     );
-  });
+  }).pipe(Effect.uninterruptible);
 
-  yield* Effect.addFinalizer(() => close);
+  // Adoption and its real release are registered atomically, before validation.
+  yield* Effect.acquireRelease(
+    Effect.suspend(() => {
+      if (fd0Owned) return Effect.fail(failure("Ownership"));
+
+      return Effect.sync(() => {
+        fd0Owned = true;
+      });
+    }),
+    () =>
+      close.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            fd0Owned = false;
+          }),
+        ),
+      ),
+  );
+  yield* Effect.try({
+    try: () => {
+      // Read-only procfs inspection, never reopen fd0 or mutate its shared flags.
+      if (readlinkSync("/proc/self") !== String(process.pid)) throw failure("Procfs");
+      const target = readlinkSync("/proc/self/fd/0");
+      const info = fstatSync(0);
+
+      if (info.isSocket() || info.isFIFO()) return;
+
+      if (info.isFile()) {
+        if (statfsSync("/proc/self/fd/0").type === statfsSync("/proc").type)
+          throw failure("StdinForm");
+
+        return;
+      }
+
+      if (info.isCharacterDevice() && isatty(0) && /^\/dev\/pts\/\d+$/.test(target)) return;
+      throw failure("StdinForm");
+    },
+    catch: (cause) => (Schema.is(LinuxLspError)(cause) ? cause : failure("Procfs")),
+  });
 
   const flags = yield* Effect.try({
     try: () => ({
@@ -447,10 +452,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
             output.destroy();
           },
           catch: () => ioFailure("IO", "stdout destroy"),
-        }).pipe(
-          Effect.catch(() => Effect.logWarning("LSP stdout cancellation release failed (IO)")),
-          Effect.andThen(close),
-        ),
+        }).pipe(Effect.orDie, Effect.ensuring(close)),
       ),
       Effect.ensuring(
         Effect.sync(() => {

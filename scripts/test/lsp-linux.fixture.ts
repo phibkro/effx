@@ -1,10 +1,11 @@
 import { BunRuntime } from "@effect/platform-bun";
-import { Deferred, Effect, Fiber, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect";
 import { writeSync, readFileSync, fstatSync } from "node:fs";
 import * as process from "node:process";
 import { acquireLinuxLspIO } from "../lsp-linux.ts";
 import { LinuxFixtureReceipt } from "./lsp-linux.contract.ts";
 import assert from "node:assert/strict";
+import type { TransportError } from "@effx/cli";
 
 const Mode = Schema.Literals([
   "read",
@@ -29,6 +30,30 @@ const receipt = Effect.fnUntraced(function* (value: typeof LinuxFixtureReceipt.T
   yield* Effect.sync(() => {
     writeSync(3, text + "\n");
   });
+});
+
+const observeWrite = Effect.fnUntraced(function* (
+  stage: "blocked-write" | "broken-write",
+  exit: Exit.Exit<void, TransportError>,
+) {
+  let failureCategory: NonNullable<typeof LinuxFixtureReceipt.Type.failureCategory> | undefined;
+
+  if (Exit.isSuccess(exit)) failureCategory = "write-unexpected-success";
+  else if (Exit.hasInterrupts(exit)) failureCategory = "write-unexpected-interrupt";
+  else if (Exit.hasDies(exit)) failureCategory = "write-defect";
+  else {
+    const error = Cause.findError(exit.cause);
+
+    if (
+      error._tag !== "Success" ||
+      (error.success.reason !== "IO" &&
+        !(stage === "broken-write" && error.success.reason === "Closed"))
+    )
+      failureCategory = "write-unexpected-failure";
+  }
+
+  if (failureCategory !== undefined)
+    yield* receipt({ event: "failure", stage, failureCategory }).pipe(Effect.orDie);
 });
 
 const program = Effect.gen(function* () {
@@ -61,11 +86,33 @@ const program = Effect.gen(function* () {
         yield* io.close;
         yield* Effect.sync(() => {
           assert.throws(() => fstatSync(0), { code: "EBADF" });
+        }).pipe(
+          Effect.onExit((exit) =>
+            Exit.hasDies(exit)
+              ? receipt({
+                  event: "failure",
+                  stage: "fd0-close",
+                  failureCategory: "fd0-not-closed",
+                }).pipe(Effect.orDie)
+              : Effect.void,
+          ),
+        );
+        yield* Effect.sync(() => {
           assert.equal(
             readFileSync("/proc/self/maps", "utf8").includes("/lsp-readiness.so"),
             false,
           );
-        });
+        }).pipe(
+          Effect.onExit((exit) =>
+            Exit.hasDies(exit)
+              ? receipt({
+                  event: "failure",
+                  stage: "library-close",
+                  failureCategory: "library-still-mapped",
+                }).pipe(Effect.orDie)
+              : Effect.void,
+          ),
+        );
         checks.push("fd0-closed", "library-unloaded");
 
         const readError = yield* io.read(65536).pipe(Effect.flip);
@@ -109,13 +156,19 @@ const program = Effect.gen(function* () {
         if (value !== 17) return yield* Effect.die("callback success channel changed");
         checks.push("callback-cancellation", "callback-finalizer-once", "promise-channel");
       } else if (launch.mode === "blocked-write") {
-        const error = yield* io.write(new Uint8Array(8 * 1024 * 1024)).pipe(Effect.flip);
+        const error = yield* io.write(new Uint8Array(8 * 1024 * 1024)).pipe(
+          Effect.onExit((exit) => observeWrite("blocked-write", exit)),
+          Effect.flip,
+        );
 
         if (error.reason !== "IO") return yield* Effect.die("blocked writer did not fail IO");
         yield* io.close;
         checks.push("writer-deadline", "release-deadline");
       } else if (launch.mode === "broken-write") {
-        const error = yield* io.write("synthetic").pipe(Effect.flip);
+        const error = yield* io.write("synthetic").pipe(
+          Effect.onExit((exit) => observeWrite("broken-write", exit)),
+          Effect.flip,
+        );
 
         if (error.reason !== "IO" && error.reason !== "Closed")
           return yield* Effect.die("broken pipe was not classified");
@@ -170,6 +223,13 @@ const program = Effect.gen(function* () {
   ).pipe(Effect.ensuring(receipt({ event: "released" }).pipe(Effect.orDie)));
 }).pipe(
   Effect.catchTag("LinuxLspError", (error) => receipt({ event: "failure", reason: error.reason })),
+  Effect.onExit((exit) =>
+    Exit.hasDies(exit)
+      ? receipt({ event: "failure", stage: "fixture", failureCategory: "fixture-defect" }).pipe(
+          Effect.orDie,
+        )
+      : Effect.void,
+  ),
 );
 
 BunRuntime.runMain(program, { disableErrorReporting: true });
