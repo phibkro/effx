@@ -14,6 +14,11 @@ export type DefinitionEntry = Pick<DefinitionData, "plan" | "target">;
 export interface ObservedInput {
   readonly kind: "file" | "directory" | "missing" | "symlink";
   readonly path: string;
+  /** True only when the host enumerated this directory's immediate membership.
+   * Absence/false denotes an existence or identity probe, not recursive authority.
+   * A later membership observation may upgrade an earlier probe for the same path.
+   */
+  readonly membership?: boolean;
 }
 
 /**
