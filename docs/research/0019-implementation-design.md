@@ -2,7 +2,7 @@
 
 # Spec 0019 implementation design
 
-Status: design for director approval; this note does not authorize implementation. Contract: docs/specs/0019-lift.md, approved/frozen 2026-10-04. Isolated branch feat/lift-0019 starts at 3d66eda158422282b6e2f44ec12910a362dcb9ae.
+Status: the director approved P0 → 0019 implementation on 2026-10-06, with the dated clarifications in spec 0019 §0.6. The operator-approved 2026-10-04 contract remains frozen. Isolated branch feat/lift-0019 starts at 3d66eda158422282b6e2f44ec12910a362dcb9ae.
 
 ## Evidence boundary and recovered work
 
