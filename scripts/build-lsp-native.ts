@@ -204,7 +204,7 @@ const program = Effect.gen(function* () {
 if (import.meta.main) {
   BunRuntime.runMain(program.pipe(
     Effect.scoped,
-    Effect.mapError((error) => error instanceof NativeBuildFailure ? error : new NativeBuildFailure({ stage: "io" })),
+    Effect.mapError((error) => Schema.is(NativeBuildFailure)(error) ? error : new NativeBuildFailure({ stage: "io" })),
     Effect.provide(BunServices.layer),
   ));
 }
