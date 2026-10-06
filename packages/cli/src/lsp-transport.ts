@@ -83,11 +83,10 @@ export class ClientProbeError extends Schema.TaggedError<ClientProbeError>()("Cl
 }) {}
 
 /** One root-owned scoped FiberSet bridges the maintained callback ABI.
- * clear interrupts and joins its fibers; interrupt only signals them. */
+ * clear interrupts and joins every callback fiber before its owner releases. */
 export interface LspCallbackRuntime<R> {
   readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>;
   readonly fork: <A, E>(effect: Effect.Effect<A, E, R>) => Fiber.Fiber<A, E>;
-  readonly interrupt: () => void;
   readonly clear: Effect.Effect<void>;
 }
 
@@ -106,14 +105,19 @@ export interface LspIO {
   readonly probePid: (pid: number) => Effect.Effect<void, ClientProbeError>;
   readonly turn: Effect.Effect<void>;
   readonly makeCallbackRuntime: <R>() => Effect.Effect<
-    LspCallbackRuntime<R>, never, R | import("effect").Scope.Scope
+    LspCallbackRuntime<R>,
+    never,
+    R | import("effect").Scope.Scope
   >;
 }
 
 /** The process root selects and provides the real native backend. */
-export class LspPlatform extends Context.Service<LspPlatform, {
-  readonly acquireIO: Effect.Effect<LspIO, TransportError, import("effect").Scope.Scope>;
-}>()("@effx/cli/lsp-transport/LspPlatform") {}
+export class LspPlatform extends Context.Service<
+  LspPlatform,
+  {
+    readonly acquireIO: Effect.Effect<LspIO, TransportError, import("effect").Scope.Scope>;
+  }
+>()("@effx/cli/lsp-transport/LspPlatform") {}
 
 export interface LspHandlers<R> {
   readonly request: (message: RequestEnvelope) => Effect.Effect<Schema.Json, RpcFailure, R>;
@@ -145,7 +149,8 @@ export interface LspTransport {
  * JSON/envelope errors get -32700/-32600 through the bounded writer and decoding
  * waits for its native completion. Unsafe byte/message/output saturation is terminal:
  * edits are never dropped. One decoder and one stock writer run at a time. No retries.
- * The supplied factory owns IO; this scope owns registrations and handler fibers.
+ * The supplied factory owns IO; this scope owns one demand fiber, the client
+ * monitor and handler lifetimes. The root owns the one callback runtime.
  * Non-cancellable foreign promises are observed, and closed guards fence late work.
  */
 export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
@@ -158,6 +163,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     Effect.suspend(() => {
       if (ioClosed) return Effect.void;
       ioClosed = true;
+
       return owned.close;
     });
 
@@ -237,6 +243,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     clientMonitor?.interruptUnsafe();
     inputFiber?.interruptUnsafe();
     // Keep the active stock frame alive; only handlers are cancelled here.
+
     for (const fiber of handlerFibers) fiber.interruptUnsafe();
 
     for (const item of pending.splice(0)) {
@@ -255,9 +262,8 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     onClose: () => ({ dispose: () => {} }),
     onError: () => ({ dispose: () => {} }),
     onEnd: () => ({ dispose: () => {} }),
-    write: (data: Uint8Array | string) => run(
-      Effect.suspend(() => isClosed() ? Effect.fail(fault("Closed")) : io.write(data)),
-    ),
+    write: (data: Uint8Array | string) =>
+      run(Effect.suspend(() => (isClosed() ? Effect.fail(fault("Closed")) : io.write(data)))),
     end: () => {}, // the root closes IO after bounded active-frame drain
   };
 
@@ -361,63 +367,62 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
         }
       }
 
-      return io.ral.applicationJson.encoder.encode(outgoing, { charset: "utf-8" })
-        .then(
-          (bytes) => {
-            if (state !== "Open") throw fault("Closed");
+      return io.ral.applicationJson.encoder.encode(outgoing, { charset: "utf-8" }).then(
+        (bytes) => {
+          if (state !== "Open") throw fault("Closed");
 
-            if (signal?.aborted) {
+          if (signal?.aborted) {
+            outputCount--;
+
+            return;
+          }
+
+          if (bytes.byteLength > BODY || outputBytes + bytes.byteLength > BODY) {
+            stop(fault("Capacity"));
+            throw fault("Capacity");
+          }
+
+          outputBytes += bytes.byteLength;
+
+          // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
+          return new Promise<void>((resolve, reject) => {
+            const cancel = () => {
+              if (item.started || isClosed()) return;
+
+              const index = pending.indexOf(item);
+
+              if (index === -1) return;
+
+              pending.splice(index, 1);
               outputCount--;
+              outputBytes -= bytes.byteLength;
+              item.detach();
+              // The calling Effect is interrupted. Fulfill the native ABI so
+              // its logger does not turn intentional cancellation into a fault.
+              resolve();
+            };
 
-              return;
-            }
+            const item = {
+              message: outgoing,
+              bytes,
+              resolve,
+              reject,
+              started: false,
+              detach: () => {
+                signal?.removeEventListener("abort", cancel);
+              },
+            };
 
-            if (bytes.byteLength > BODY || outputBytes + bytes.byteLength > BODY) {
-              stop(fault("Capacity"));
-              throw fault("Capacity");
-            }
-
-            outputBytes += bytes.byteLength;
-
-            // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
-            return new Promise<void>((resolve, reject) => {
-              const cancel = () => {
-                if (item.started || isClosed()) return;
-
-                const index = pending.indexOf(item);
-
-                if (index === -1) return;
-
-                pending.splice(index, 1);
-                outputCount--;
-                outputBytes -= bytes.byteLength;
-                item.detach();
-                // The calling Effect is interrupted. Fulfill the native ABI so
-                // its logger does not turn intentional cancellation into a fault.
-                resolve();
-              };
-
-              const item = {
-                message: outgoing,
-                bytes,
-                resolve,
-                reject,
-                started: false,
-                detach: () => {
-                  signal?.removeEventListener("abort", cancel);
-                },
-              };
-
-              signal?.addEventListener("abort", cancel, { once: true });
-              pending.push(item);
-              drain();
-            });
-          },
-          (cause) => {
-            stop(fault("Decode", cause));
-            throw fault("Decode", cause);
-          },
-        );
+            signal?.addEventListener("abort", cancel, { once: true });
+            pending.push(item);
+            drain();
+          });
+        },
+        (cause) => {
+          stop(fault("Decode", cause));
+          throw fault("Decode", cause);
+        },
+      );
     }
     end(): void {
       stop();
@@ -512,37 +517,56 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const pump = Effect.fnUntraced(function* () {
     if (state !== "Open" || !callback) return;
     const start = totalRead;
+
     while (state === "Open") {
       if (length === undefined) {
         const before = buffer.numberOfBytes;
+
         const headers = yield* Effect.try({
           try: () => buffer.tryReadHeaders(true),
           catch: (cause) => fault("Framing", cause),
         });
+
         if (headers) {
           if (before - buffer.numberOfBytes > HEADER) return yield* fault("Framing");
           const raw = headers.get("content-length");
           const contentType = headers.get("content-type");
-          if (!raw || !/^(0|[1-9][0-9]*)$/.test(raw) || raw.length > 8 ||
+
+          if (
+            !raw ||
+            !/^(0|[1-9][0-9]*)$/.test(raw) ||
+            raw.length > 8 ||
             (contentType !== undefined &&
-              !/^application\/(?:vscode-jsonrpc|json)(?:\s*;\s*charset=(?:utf-8|utf8))?$/i.test(contentType)))
+              !/^application\/(?:vscode-jsonrpc|json)(?:\s*;\s*charset=(?:utf-8|utf8))?$/i.test(
+                contentType,
+              ))
+          )
             return yield* fault("Framing");
+
           length = Number(raw);
+
           if (length > BODY) return yield* fault("Framing");
         } else if (buffer.numberOfBytes >= HEADER) return yield* fault("Framing");
       }
+
       if (length !== undefined) {
         const body = buffer.tryReadBody(length);
+
         if (body) {
           const bytes = length;
           length = undefined;
           decoding = true;
           decodingEnd = totalRead - buffer.numberOfBytes;
-          const json = yield* Effect.result(Effect.tryPromise({
-            try: () => io.ral.applicationJson.decoder.decode(body, { charset: "utf-8" }),
-            catch: (cause) => fault("Decode", cause),
-          }));
+
+          const json = yield* Effect.result(
+            Effect.tryPromise({
+              try: () => io.ral.applicationJson.decoder.decode(body, { charset: "utf-8" }),
+              catch: (cause) => fault("Decode", cause),
+            }),
+          );
+
           if (state !== "Open") return;
+
           if (Result.isFailure(json)) {
             yield* Effect.tryPromise({
               try: () => protocolError(null, ErrorCodes.ParseError, "Parse error"),
@@ -551,32 +575,50 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
           } else {
             const decoded = yield* Effect.result(decodeEnvelope(json.success));
             yield* Effect.tryPromise({
-              // EX-0030: the maintained ABI may complete synchronously or by Promise.
-              // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: observed maintained callback completion.
-              try: () => Result.isSuccess(decoded)
-                ? Promise.resolve(accept(decoded.success, bytes, decodingEnd))
-                : protocolError(null, ErrorCodes.InvalidRequest, "Invalid request envelope"),
+              try: () => {
+                if (Result.isSuccess(decoded)) {
+                  return Promise.resolve(accept(decoded.success, bytes, decodingEnd));
+                }
+
+                return protocolError(null, ErrorCodes.InvalidRequest, "Invalid request envelope");
+              },
               catch: (cause) => fault("IO", cause),
             });
           }
+
           decoding = false;
+
           for (const check of checkpoints) check();
+
           continue;
         }
       }
+
       const remaining = BODY + HEADER - (totalRead - start);
+
       if (remaining === 0) return;
+
       const need = (length ?? HEADER) - buffer.numberOfBytes;
       const max = Math.min(65536, need, remaining);
       const chunk = yield* io.read(max);
+
       if (state !== "Open") return;
+
       if (chunk === null) {
         stop(buffer.numberOfBytes !== 0 || length !== undefined ? fault("Framing") : undefined);
+
         return;
       }
-      if (!(chunk instanceof Uint8Array) || chunk.byteLength > max || chunk.buffer.byteLength > 65536)
+
+      if (
+        !(chunk instanceof Uint8Array) ||
+        chunk.byteLength > max ||
+        chunk.buffer.byteLength > 65536
+      )
         return yield* fault("IO", "Read capability exceeded its bound");
+
       if (chunk.byteLength === 0) return;
+
       buffer.append(chunk);
       totalRead += chunk.byteLength;
     }
@@ -718,6 +760,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     Effect.gen(function* () {
       while (state === "Open") {
         yield* ingress.withPermit(pump());
+
         if (state === "Open") yield* io.turn;
       }
     }).pipe(
@@ -741,6 +784,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       inputFiber = undefined;
     }
     // Join cancelled domain finalizers without interrupting native frame writes.
+
     yield* Effect.forEach(handlerFibers, (fiber) => Fiber.interrupt(fiber), { concurrency: 32 });
 
     if (activeWrite) {
@@ -784,28 +828,42 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
   const admitPending = Effect.withFiber((fiber) => {
     if (notificationFiberIds.has(fiber.id))
       return Effect.fail(fault("Handler", "Notification checkpoint would await itself"));
+
     return Effect.gen(function* () {
-      if (state !== "Open") return yield* (terminal ?? fault("Closed"));
+      if (state !== "Open") return yield* terminal ?? fault("Closed");
+
       yield* io.turn;
       // Exclusive demand captures ready bytes, never waits for future bytes.
-      const watermark = yield* ingress.withPermit(Effect.gen(function* () {
-        yield* Effect.uninterruptible(pump());
-        return totalRead;
-      }));
+
+      const watermark = yield* ingress.withPermit(
+        Effect.gen(function* () {
+          yield* Effect.uninterruptible(pump());
+
+          return totalRead;
+        }),
+      );
+
       yield* Effect.callback<void, TransportError>((resume) => {
         const check = () => {
           if (state !== "Open") {
             resume(Effect.fail(terminal ?? fault("Closed")));
+
             return;
           }
+
           const preceding = [...credits.values()].some(
             (credit) => !credit.request && credit.end <= watermark,
           );
+
           if (!(decoding && decodingEnd <= watermark) && !preceding) resume(Effect.void);
         };
+
         checkpoints.add(check);
         check();
-        return Effect.sync(() => { checkpoints.delete(check); });
+
+        return Effect.sync(() => {
+          checkpoints.delete(check);
+        });
       });
     });
   });
@@ -830,13 +888,15 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
     if (watchedClient === processId) return;
 
-    const probe = io.probePid(processId).pipe(
-      Effect.catchTag("ClientProbeError", (error) =>
-        error.reason === "Denied"
-          ? Effect.succeed(true)
-          : Effect.fail(fault(error.reason === "Gone" ? "Closed" : "IO", error.cause)),
-      ),
-    );
+    const probe = io
+      .probePid(processId)
+      .pipe(
+        Effect.catchTag("ClientProbeError", (error) =>
+          error.reason === "Denied"
+            ? Effect.succeed(true)
+            : Effect.fail(fault(error.reason === "Gone" ? "Closed" : "IO", error.cause)),
+        ),
+      );
 
     const initial = yield* Effect.exit(probe);
 
