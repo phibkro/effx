@@ -129,6 +129,7 @@ export const ExtraPeerFault = Schema.Struct({
     "Topology",
     "Setup",
     "Projection",
+    "Timeout",
   ]),
   stage: ExtraStage,
 });
