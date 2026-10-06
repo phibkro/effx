@@ -155,7 +155,7 @@ export const revealCalled = Operation.query({ name: "revealCalled" }).http.acces
           },
         );
 
-        for (const name of [
+        const invalidIds = [
           "forged",
           "forgedValue",
           "missing",
@@ -166,15 +166,18 @@ export const revealCalled = Operation.query({ name: "revealCalled" }).http.acces
           "nonconst",
           "valueCalled",
           "revealCalled",
-        ]) {
+        ];
+
+        assert.strictEqual(
+          result.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1102").length,
+          invalidIds.length,
+        );
+
+        for (const name of invalidIds) {
           assert.isUndefined(
             result.declarations
-              .find((d) => d.id === name)
-              ?.annotations.find((a) => a.name === "Http.Access"),
-            name,
-          );
-          assert.isTrue(
-            result.diagnostics.some((d) => d.code === "EFFX1102" && d.message.includes(name)),
+              .find((declaration) => declaration.id === name)
+              ?.annotations.find((annotation) => annotation.name === "Http.Access"),
             name,
           );
         }

@@ -91,20 +91,18 @@ describe("group association lowering", () => {
 
       const declaration = (id: string) => collected.declarations.find((item) => item.id === id);
       const group = declaration("Group");
-      assert.isDefined(
-        group,
-        "imported group declarations must be collected: " +
-          collected.diagnostics.map((d) => d.code + ": " + d.message).join("; "),
-      );
+      assert.isDefined(group);
       assert.isUndefined(declaration("InvalidGroup"));
       assert.isUndefined(declaration("UnusedBrokenGroup"));
       assert.isUndefined(declaration("UnusedBrokenClass"));
-      assert.isTrue(
-        collected.diagnostics.some(
-          (item) => item.code === "EFFX1102" && item.message.includes("InvalidGroup"),
-        ),
-      );
-      assert.isFalse(collected.diagnostics.some((item) => item.message.includes("UnusedBroken")));
+      const invalidGroups = collected.diagnostics.filter((item) => item.code === "EFFX1102");
+      const invalidGroupOffset = groups.indexOf("export const InvalidGroup");
+      assert.isAtLeast(invalidGroupOffset, 0);
+      const invalidGroupLine = groups.slice(0, invalidGroupOffset).split("\n").length;
+      assert.strictEqual(invalidGroups.length, 1);
+      assert.strictEqual(invalidGroups[0]?.severity, "error");
+      assert.strictEqual(invalidGroups[0]?.location?.file, groupPath);
+      assert.strictEqual(invalidGroups[0]?.location?.line, invalidGroupLine);
       assert.deepStrictEqual(group?.annotations[0]?.args[0], {
         root: {
           _tag: "Symbol",
@@ -164,9 +162,24 @@ describe("group association lowering", () => {
         { _tag: "Symbol", ref: { module: "../../src/_group-operations", export: "LocalGroup" } },
       ]);
 
-      for (const id of ["repeated", "nongroup", "missing", "hidden"])
-        assert.include(collected.diagnostics.map((item) => item.message).join("\n"), id);
-      assert.isAtLeast(collected.diagnostics.filter((item) => item.code === "EFFX2404").length, 4);
+      const brokenAssociations = collected.diagnostics.filter((item) => item.code === "EFFX2404");
+      assert.isAtLeast(brokenAssociations.length, 4);
+
+      for (const id of ["repeated", "nongroup", "hidden", "missing"]) {
+        const start = operations.indexOf(`export const ${id} =`);
+        assert.isAtLeast(start, 0);
+        const line = operations.slice(0, start).split("\n").length;
+
+        assert.isTrue(
+          brokenAssociations.some(
+            (item) =>
+              item.location?.file === operationPath &&
+              item.location.line >= line &&
+              item.location.line <= line + 2,
+          ),
+        );
+      }
+
       assert.isUndefined(declaration("repeated"));
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );

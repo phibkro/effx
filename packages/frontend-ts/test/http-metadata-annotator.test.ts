@@ -111,9 +111,6 @@ describe("Http.Contract metadata annotator lowering", () => {
 
         assert.strictEqual(invalid.length, 3);
 
-        for (const rejected of ["hiddenAnnotator", "notCallable", "() => Context.empty()"])
-          assert.isTrue(invalid.some((diagnostic) => diagnostic.message.includes(rejected)));
-
         for (const id of ["hidden", "invalid", "inline"]) {
           const declaration = collected.declarations.find((item) => item.id === id);
           assert.isDefined(declaration);

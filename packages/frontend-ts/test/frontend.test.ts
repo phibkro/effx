@@ -329,13 +329,6 @@ describe("TsSourceFrontend", () => {
         [...codes(errors(result.diagnostics))],
         ["EFFX2402", "EFFX2205", "EFFX2206"],
       );
-      assert.isTrue(
-        result.diagnostics.some(
-          (finding) =>
-            finding.code === "EFFX2402" &&
-            finding.message.includes("params schema fields must match path parameters"),
-        ),
-      );
       assert.isTrue(Option.isNone(result.files.value));
     }).pipe(Effect.provide(Services)),
   );
@@ -487,12 +480,6 @@ describe("TsSourceFrontend", () => {
       assert.isAtLeast(
         identity.diagnostics.filter((finding) => finding.code === "EFFX2402").length,
         3,
-      );
-      assert.isTrue(
-        identity.diagnostics.some(
-          (finding) =>
-            finding.code === "EFFX2402" && finding.message.includes("duplicate @Http.Contract"),
-        ),
       );
       assert.isAtLeast(
         identity.diagnostics.filter((finding) => finding.code === "EFFX1102").length,

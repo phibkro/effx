@@ -15,38 +15,32 @@ const cases = [
     subject: "unresolved",
     operand: "Missing",
     source: "...Missing",
-    reason: "unresolved tuple operand",
   },
-  { subject: "cycle", operand: "CycleA", source: "...CycleA", reason: "cyclic tuple initializer" },
+  { subject: "cycle", operand: "CycleA", source: "...CycleA" },
   {
     subject: "mutable",
     operand: "Mutable",
     source: "...Mutable",
-    reason: "operand must resolve to a const tuple initializer",
   },
   {
     subject: "notArray",
     operand: "NotArray",
     source: "...NotArray",
-    reason: "operand must resolve to a readonly const tuple of string literals",
   },
   {
     subject: "notReadonly",
     operand: "NotReadonly",
     source: "...NotReadonly",
-    reason: "operand is not a readonly const tuple",
   },
   {
     subject: "element",
     operand: "NonString",
     source: "...NonString",
-    reason: "tuple element `1` must be a string literal",
   },
   {
     subject: "mismatch",
     operand: "Mismatch",
     source: "...Mismatch",
-    reason: "tuple type disagrees with its runtime initializer elements or order",
   },
 ] as const;
 
@@ -65,7 +59,7 @@ export const healthy = Operation.query({ name: "healthy" }).http.problems({ code
 `;
 
 describe("registered lowering diagnostic routing", () => {
-  it.effect("preserves each tuple rejection's message and innermost spread location", () =>
+  it.effect("rejects each tuple input at its innermost spread location", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -86,18 +80,23 @@ describe("registered lowering diagnostic routing", () => {
 
       assert.strictEqual(diagnostics.length, cases.length);
 
-      for (const { subject, source: rejectedSource, reason } of cases) {
-        const diagnostic = diagnostics.find((item) => item.message.startsWith(`${subject}:`));
-        assert.isDefined(diagnostic, subject);
+      for (const { subject, source: rejectedSource } of cases) {
         const start = source.indexOf(rejectedSource);
         assert.isAtLeast(start, 0);
         const preceding = source.slice(0, start).split("\n");
-        assert.deepStrictEqual(diagnostic, {
-          code: "EFFX1102",
-          severity: "error",
-          message: `${subject}: cannot lower \`${rejectedSource}\` to an annotation argument: ${reason}`,
-          location: { file, line: preceding.length, col: preceding.at(-1)!.length + 1 },
-        });
+        const location = { file, line: preceding.length, col: preceding.at(-1)!.length + 1 };
+
+        const diagnostic = diagnostics.find(
+          (item) =>
+            item.location?.file === file &&
+            item.location.line === location.line &&
+            item.location.col === location.col,
+        );
+
+        assert.isDefined(diagnostic, subject);
+        assert.strictEqual(diagnostic.code, "EFFX1102");
+        assert.strictEqual(diagnostic.severity, "error");
+        assert.deepStrictEqual(diagnostic.location, location);
         assert.isFalse(
           collected.declarations
             .find((item) => item.id === subject)

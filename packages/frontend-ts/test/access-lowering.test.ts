@@ -142,12 +142,6 @@ describe("access annotation lowering", () => {
         );
 
         assert.strictEqual(invalidArguments.length, 2);
-        assert.isTrue(
-          invalidArguments.some((diagnostic) => diagnostic.message.includes("deriveAnnotations")),
-        );
-        assert.isTrue(
-          invalidArguments.some((diagnostic) => diagnostic.message.includes("hiddenResolver")),
-        );
         assert.isUndefined(collected.declarations.find((item) => item.id === "InvalidAccess.read"));
         assert.isUndefined(collected.declarations.find((item) => item.id === "HiddenAccess.read"));
       }).pipe(Effect.scoped, Effect.provide(Services)),

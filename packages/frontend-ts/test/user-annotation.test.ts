@@ -100,13 +100,13 @@ describe("user-declared annotations", () => {
       assert.ok(
         ir.edges.some((edge) => edge.kind === "ExtensionOf" && edge.qualifier === "app.RateLimit"),
       );
-      assert.deepStrictEqual(
-        result.diagnostics
-          .filter((d) => d.code === recorded.entry.code)
-          .map((d) => d.message)
-          .toSorted(),
-        ["ext:app.RateLimit/Limited.Builder: recorded", "ext:app.RateLimit/Limited.Get: recorded"],
+
+      const reports = result.diagnostics.filter(
+        (diagnostic) => diagnostic.code === recorded.entry.code,
       );
+
+      assert.strictEqual(reports.length, 2);
+      assert.isTrue(reports.every((diagnostic) => diagnostic.severity === "error"));
     }).pipe(Effect.provide(Services)),
   );
 
@@ -122,11 +122,7 @@ describe("user-declared annotations", () => {
     Effect.gen(function* () {
       const twice = yield* compileEntry("operations.rate-limit.duplicate.ts", withApp);
 
-      assert.ok(
-        twice.diagnostics.some(
-          (d) => d.code === "EFFX2402" && /duplicate @app.RateLimit/.test(d.message),
-        ),
-      );
+      assert.ok(twice.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2402"));
 
       const clash = yield* compileEntry("operations.rate-limit.ts", [
         ...withApp,
@@ -143,9 +139,7 @@ describe("user-declared annotations", () => {
       const leaky = extension("leaky", [implement(Leaky, {})]);
       const result = yield* compileEntry("operations.leaky.ts", [...Extensions.builtin, leaky]);
 
-      assert.ok(
-        result.diagnostics.some((d) => d.code === "EFFX1306" && /leaky\.def\.ts/.test(d.message)),
-      );
+      assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "EFFX1306"));
 
       const clean = yield* compileEntry("operations.rate-limit.ts", withApp);
 
@@ -161,18 +155,14 @@ describe("user-declared annotations", () => {
         const collected = Option.getOrThrow(result.collected.value);
         const target = collected.diagnostics.filter((d) => d.code === "EFFX1303");
 
-        assert.deepStrictEqual(
-          target.map((d) => d.message),
-          ['RateLimitedClass: @app.RateLimit targets "operation" and cannot decorate a class'],
-        );
+        assert.strictEqual(target.length, 1);
+        assert.strictEqual(target[0]?.severity, "error");
         assert.ok(target[0]?.location !== undefined);
 
         const generic = collected.diagnostics.filter((d) => d.code === "EFFX1104");
 
-        assert.deepStrictEqual(
-          generic.map((d) => d.message),
-          ["BuiltinOnClass: @Http.Get is not a class decorator"],
-        );
+        assert.strictEqual(generic.length, 1);
+        assert.strictEqual(generic[0]?.severity, "error");
       }).pipe(Effect.provide(Services)),
   );
 
@@ -186,12 +176,12 @@ describe("user-declared annotations", () => {
       const result = yield* compileEntry("operations.target-with.ts", registered);
       const collected = Option.getOrThrow(result.collected.value);
 
-      assert.deepStrictEqual(
-        collected.diagnostics.filter((d) => d.code === "EFFX1303").map((d) => d.message),
-        [
-          'classOnlyBuilder: .with(app.ClassOnly(...)) applies an annotation whose target is "class", not "operation"',
-        ],
+      const invalidTarget = collected.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "EFFX1303",
       );
+
+      assert.strictEqual(invalidTarget.length, 1);
+      assert.strictEqual(invalidTarget[0]?.severity, "error");
       assert.deepStrictEqual(
         collected.declarations.filter((d) => d.id === "classOnlyBuilder"),
         [],

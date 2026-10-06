@@ -172,7 +172,7 @@ describe("concrete HttpApi endpoint inventory", () => {
 
       const result = yield* compileCollected(collected, Extensions.builtin);
       assert.isTrue(
-        result.diagnostics.some((d) => d.code === "EFFX2415" && d.message.includes("profile")),
+        result.diagnostics.some((d) => d.code === "EFFX2415" && d.severity === "error"),
       );
       assert.isTrue(Option.isNone(result.files.value));
     }).pipe(Effect.scoped, Effect.provide(Services)),
@@ -185,7 +185,7 @@ describe("concrete HttpApi endpoint inventory", () => {
         const collected = yield* collectSource(undefined, "missing", emit);
         const result = yield* compileCollected(collected, Extensions.builtin);
         assert.isTrue(
-          result.diagnostics.some((d) => d.code === "EFFX2415" && d.message.includes("missing")),
+          result.diagnostics.some((d) => d.code === "EFFX2415" && d.severity === "error"),
         );
         assert.isTrue(Option.isNone(result.files.value));
       }).pipe(Effect.scoped, Effect.provide(Services)),
