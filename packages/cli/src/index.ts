@@ -31,3 +31,14 @@ export { dev, type DevOptions } from "./watch.ts";
 export { lsp, type LspOptions } from "./lsp.ts";
 
 export { ExecutableInventory } from "./config-runtime.ts";
+
+export {
+  acquireLspTransport,
+  RpcFailure,
+  TransportError,
+  ClientProbeError,
+  LspPlatform,
+  type LspIO,
+  type LspCallbackRuntime,
+  type LspTransport,
+} from "./lsp-transport.ts";
