@@ -752,3 +752,128 @@ boundary rather than silently publishing success (`260e175`). Valid declaration
 root/program semantics are unchanged. Real split and alias consumer tests and the
 final code/docs committed-reference gate remain required; no split journey pass is
 claimed by these source changes.
+
+## 9. Director stdio boundary decision — 2026-10-06
+
+The hard rule is unchanged: own package code must not import Node builtins/types
+or obtain equivalent ambient Node authority. EX-0030/0033 cannot override it. The
+legacy package acquisitions are unaccepted. The researched clean boundary is a
+real `scripts/effx.ts` process root outside packages, with portable
+`packages/cli/src/main.ts` remaining the only Effect CLI binding. No broad root
+cutover or platform restriction has been implemented.
+
+### Actual bounded capability protocol and forms
+
+This was a capability probe, not feature acceptance. The director authorized one
+suite of new synthetic children, with no app/config/credential input or inherited
+flag mutation. Observed executables were Bun 1.3.13 and parent Node v24.21.0; the
+client used installed maintained JSON-RPC 9.0.3. The exact protocol and results are
+retained in `/srv/share/projects/effx-watch-editor-0018-evidence/`: `stdio-probe-parent.cjs`,
+`stdio-probe-child.cjs`, `stdio-capability-results.json`, `stdio-probe-parent.log` and
+`stdio-probe-protocol-and-conclusion.md`. Each child had a five-second parent-owned
+deadline and a separate fd3 receipt channel. All child closes were observed; three
+blocked children required deadline termination.
+
+Raw reads requested exactly 65,536 bytes. They used the adopted original fd0
+without first initializing `process.stdin`; the separately reopened test descriptor
+was immediately closed, not used for the measured read. Floods offered at most
+1,048,576 bytes per case: 16 serialized maintained notifications actually offered
+1,047,894 header/body bytes. The 250ms sample was a bounded observation window, not
+a speed benchmark or a test-clock correctness assertion.
+
+| Observed stdin form | Read-only original flags | procfd reopen | Adopted original raw-empty read | Capability status |
+| --- | --- | --- | --- | --- |
+| Normal Node maintained-client child stdio: socket, not TTY | `02` | `ENXIO` | read-start only; blocked until parent deadline | Required standard topology; readiness-safe adoption unresolved |
+| Empty regular file | `0100000` | succeeded | returned zero; normal exit | Bounded raw EOF observed; not a proof of universal file IO latency |
+| Held-open synthetic named FIFO | `0100002` | succeeded | read-start only; blocked until parent deadline | Readiness/nonblocking premise unresolved for inherited fd |
+| Synthetic PTY via maintained util-linux `script` | `02` | succeeded | read-start only; blocked until parent deadline | TTY readiness unresolved; no shared flag mutation allowed |
+| procfs unavailable | not tested | no observed receipt | not tested | Must be handled explicitly, never assumed present |
+
+There is no implemented supported-stdin matrix to certify. In particular, Linux
+procfd reopening is **not a ready whole-LSP backend**: it failed for the observed
+normal maintained-client socket. A standard socket form cannot be excluded while
+claiming the frozen whole contract. An exclusive adopted reader does not require
+an independent open-file description, but it still requires actual readiness or
+nonblocking authority before a synchronous read can safely avoid indefinite wait.
+The inspected APIs did not establish that premise for all required forms.
+
+Public Web stdin returned an actual chunk of 131,011 bytes backed by 262,144 bytes
+in the bounded flood. Node-compatible readable registration followed by pause
+retained `readableLength=131011` while `readableFlowing=false` and `isPaused=true`.
+Both cases received 16 native writer acknowledgments. These measurements exceed a
+64KiB actual-chunk/readable bound; they do **not** measure hidden FileReader buffering
+or demonstrate unbounded growth. Source evidence below establishes no proved total
+retention bound, not an unlimited-memory runtime measurement.
+
+### Exact pinned source control flow
+
+All Bun citations refer to tag `bun-v1.3.13`, not current main or bun-types 1.4.2.
+
+- [ProcessObjectInternals.ts](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/js/builtins/ProcessObjectInternals.ts):
+  lines 119–134 obtain the native Web stream and enable flowing in `own`; 143–163
+  pause/disown the native source and release or defer the reader; 173–186 make
+  readable registration call `own`; 218–227 await one reader value and push its
+  entire chunk before deferred disown; 251–260 gate demand on reader state;
+  274–281 schedule pause/disown on nextTick. Thus readable is not established as a
+  readiness-only, zero-prefetch primitive, and pause is not synchronous quiescence.
+- [FileReader.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/webcore/FileReader.zig):
+  lines 49–170 classify/adopt/reopen fd forms, without a universal independent
+  NONBLOCK guarantee; 287–293 cancel/ref-release IOReader; 444–455 append when no
+  consumer accepts data and continue pollable pipes despite the high-water stopping
+  condition; 461–487 drain an owned native buffer that may exceed the provided view;
+  631–648 map `setFlowing(false)` to native pause; 657–668 construct the source.
+- [ReadableStream.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/webcore/ReadableStream.zig):
+  lines 402–478 delegate start/pull/cancel; 562–574 delegate flowing changes; 624–638
+  report readiness/chunk sizing without establishing a total FileReader byte cap.
+- [ReadableStreamInternals.ts](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/js/builtins/ReadableStreamInternals.ts):
+  lines 1945–1956 state native default streams are not BYOB; 1985–1989 grow automatic
+  allocation; 2109–2129 consume native results; 2135–2143 cancel/unreference the loader.
+  An allocation size or downstream rechunk is not a native retention proof.
+- [node_fs.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/node/node_fs.zig):
+  lines 4223–4234 trim the supplied buffer and issue one bounded read syscall;
+  2510–2515 expose no read AbortSignal, while line 48 binds the asynchronous request.
+  Raw byte bounds do not prove readiness; closing a descriptor is not evidence that
+  an already pending blocking read is canceled and joined. No guessed constants,
+  private handle access, FFI framework or shared descriptor flag mutation is approved.
+
+Installed `NodeStream.ts:385–402` also batches every available read into an array;
+its chunkSize does not bound a whole pull. `NodeStdio.ts:57–66` exposes neither raw
+adopted close nor an arbitrary PID probe. These are dependency-internal Node
+implementations, permitted by the hard rule, but they do not supply the full cap.
+
+### Smallest explicit engineering alternatives
+
+1. **Qualified Linux/Bun root:** requires a public maintained readiness/nonblocking
+   adopted-descriptor capability for the actual socket, FIFO, regular and TTY forms,
+   explicit exclusive-reader caller assumptions, safe close/join and finite retained
+   native bytes. The source/probe has not supplied that prerequisite. Procfd reopen
+   alone is disqualified by the socket receipt; no Linux-only or pipe-only narrowing
+   is silently adopted. This option is not offered as executable-ready.
+2. **Maintained portable capability or real runtime change:** obtain an actual Bun
+   capability/release fixing readiness/producer retention and pin/retest it, or
+   evaluate a Node-native process runtime with maintained bounded/cancellable IO.
+   The latter changes Bun config/plugin loading and platform layer semantics and
+   requires explicit 0015/runtime compatibility work, not just changing an import.
+   No portable capability or runtime migration has been certified here. The cost
+   is runtime/package pins plus complete config, host, stream, client-death, packed
+   and unchanged-output verification. No PID-hiding dependency is proposed.
+
+Both preserve the same clean root: scripts selects platform, native IO/liveness and
+one scoped callback bridge; packages consume Effect-facing caps and maintained
+common JSON-RPC. The cutover must migrate CLI build/pack entry, root scripts, every
+test/example/workflow caller, foreign test peers and native cache inventory, with
+no old executable shim. Existing commands, flags, IR and generated bytes do not
+change. A root location by itself is not a backend guarantee.
+
+### Cooperative config stdio and effx-owned reporting
+
+The no-sandbox distinction is explicit: effx-owned Console, logger, config-fault,
+usage/help and error reporting must use stderr or legitimate framed protocol output
+through the root-selected native Console/Stdio policy, before and after initialize.
+Cooperative trusted config uses that native Effect logger/Console path. Arbitrary
+trusted code writing raw fd1 or ambient global `console.log` bypasses that policy
+and is outside containment, just as arbitrary filesystem effects are outside the
+zero-write guarantee. No global console/resolver monkeypatch or sandbox is added.
+Synthetic native-logger/config-throw/help/error host cases remain required before
+claiming effx-owned stdout purity. This is the director clarification, not a silent
+exception or an assertion that arbitrary trusted code can be isolated.
