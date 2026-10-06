@@ -224,10 +224,13 @@ export const loadProject = Effect.fn("loadProject")(function* (
         visited.add(file);
         const contents = snapshot.readFile(file);
 
-        if (contents === undefined) continue;
+        if (contents === undefined) throw new Error("Referenced tsconfig unavailable: " + file);
         const json = ts.parseConfigFileTextToJson(file, contents);
 
-        if (json.error !== undefined) continue;
+        if (json.error !== undefined)
+          throw new Error(
+            file + ": " + ts.flattenDiagnosticMessageText(json.error.messageText, "\n"),
+          );
 
         const referenced = ts.parseJsonConfigFileContent(
           json.config,
@@ -236,6 +239,15 @@ export const loadProject = Effect.fn("loadProject")(function* (
           undefined,
           file,
         );
+
+        if (referenced.errors.length > 0)
+          throw new Error(
+            file +
+              ": " +
+              referenced.errors
+                .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+                .join("\n"),
+          );
 
         pending.push(...(referenced.projectReferences ?? []));
       }

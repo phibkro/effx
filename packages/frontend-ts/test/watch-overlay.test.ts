@@ -364,6 +364,79 @@ describe("analysis source snapshots", () => {
   );
 
   it.effect(
+    "saved referenced config faults block compilation and recover without changing valid IR",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "selected-reference.json");
+        const referenceDirectory = path.join(root, "referenced");
+        const reference = path.join(referenceDirectory, "tsconfig.json");
+
+        const validReference =
+          '{"extends":"../tsconfig.json","files":["../src/schemas.ts"],"include":[]}';
+
+        yield* fs.makeDirectory(referenceDirectory);
+        yield* fs.writeFileString(reference, validReference);
+        yield* fs.writeFileString(
+          config,
+          '{"extends":"./tsconfig.json","references":[{"path":"./referenced"}]}',
+        );
+        const project = { tsconfigPath: config, entry: ["src/operations.ts"] };
+        const probes: ObservedInput[] = [];
+
+        const initial = yield* compileSnapshot(project, {
+          onObserve: (input) => probes.push(input),
+        });
+
+        const withoutReferences = yield* compile(
+          { tsconfigPath: path.join(root, "tsconfig.json"), entry: ["src/operations.ts"] },
+          Extensions.builtin,
+        );
+
+        assertSameCompilation(initial, withoutReferences);
+        assert.isTrue(probes.some((input) => input.kind === "file" && input.path === reference));
+        yield* fs.writeFileString(reference, "{");
+        const malformed = yield* compileSnapshot(project, {}).pipe(Effect.flip);
+
+        assert.strictEqual(malformed._tag, "CompilerFault");
+        assert.strictEqual(malformed.stage, "collect");
+        assert.include(malformed.message, reference);
+        yield* fs.writeFileString(
+          reference,
+          '{"extends":"../tsconfig.json","compilerOptions":{"target":"not-a-target"},"files":["../src/schemas.ts"],"include":[]}',
+        );
+        const invalidOptions = yield* compileSnapshot(project, {}).pipe(Effect.flip);
+
+        assert.strictEqual(invalidOptions._tag, "CompilerFault");
+        assert.include(invalidOptions.message, reference);
+        assert.include(invalidOptions.message, "target");
+        yield* fs.remove(reference);
+        const missingProbes: ObservedInput[] = [];
+
+        const missing = yield* compileSnapshot(project, {
+          onObserve: (input) => missingProbes.push(input),
+        }).pipe(Effect.flip);
+
+        assert.strictEqual(missing._tag, "CompilerFault");
+        assert.include(missing.message, reference);
+        assert.isTrue(
+          missingProbes.some((input) => input.kind === "missing" && input.path === reference),
+        );
+        assert.isTrue(
+          missingProbes.some(
+            (input) => input.kind === "directory" && input.path === referenceDirectory,
+          ),
+        );
+        yield* fs.writeFileString(reference, validReference);
+        const repaired = yield* compileSnapshot(project, {});
+
+        assertSameCompilation(repaired, initial);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
     "observes configs, membership, metadata, missing resolution parents and physical dependency links",
     () =>
       Effect.gen(function* () {
