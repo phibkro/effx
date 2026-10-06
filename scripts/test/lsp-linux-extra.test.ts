@@ -45,6 +45,7 @@ const runExtra = Effect.fnUntraced(function* (
       const text = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString);
       const code = Number(yield* child.exitCode);
       const result = text.trim() === "" ? undefined : yield* decodeResult(text.trim());
+      const fixtureFailure = result?.receipts.find((receipt) => receipt.event === "failure");
 
       if (result !== undefined && (code !== 0 || result.code !== 0 || result.fault !== undefined))
         yield* Effect.logInfo("Safe native-law failure result", result);
@@ -52,6 +53,7 @@ const runExtra = Effect.fnUntraced(function* (
         code,
         0,
         `extra peer exit=${code}; mode=${mode}; form=${form}; reason=${result?.fault?.reason ?? "unobserved"}; stage=${result?.fault?.stage ?? "unobserved"}`,
+        `extra peer exit=${code}; mode=${mode}; form=${form}; reason=${result?.fault?.reason ?? "unobserved"}; stage=${result?.fault?.stage ?? "unobserved"}; fixtureExit=${result?.code ?? "unobserved"}; fixtureTag=${fixtureFailure?.failureTag ?? "unobserved"}; fixtureStage=${fixtureFailure?.stage ?? "unobserved"}; prefill=${fixtureFailure?.prefillFailure ?? "unobserved"}; command=${fixtureFailure?.commandFailure ?? "unobserved"}; errno=${fixtureFailure?.fixtureErrno ?? "unobserved"}`,
       );
       assert.isDefined(result, "extra peer produced no safe result");
 
