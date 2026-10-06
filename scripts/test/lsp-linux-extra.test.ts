@@ -45,6 +45,9 @@ const runExtra = Effect.fnUntraced(function* (
       const text = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString);
       const code = Number(yield* child.exitCode);
       const result = text.trim() === "" ? undefined : yield* decodeResult(text.trim());
+
+      if (result !== undefined && (code !== 0 || result.code !== 0 || result.fault !== undefined))
+        yield* Effect.logInfo("Safe native-law failure result", result);
       assert.strictEqual(
         code,
         0,
