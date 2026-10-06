@@ -353,7 +353,7 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.code, "EFFX2414");
     assert.strictEqual(diagnostic.severity, "error");
   });
-  it("preserves the landed root-level missing-candidate message", () => {
+  it("preserves the landed root-level missing-candidate diagnostic code", () => {
     const diagnostic = HttpDiagnostics.EFFX2415.emit({ _tag: "NoCandidate", root: "AuthoredApi" });
 
     assert.strictEqual(diagnostic.code, "EFFX2415");
@@ -381,7 +381,7 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.code, "EFFX2415");
     assert.strictEqual(diagnostic.severity, "error");
   });
-  it("pins naming diagnostic messages and caller-owned locations", () => {
+  it("preserves naming diagnostic codes and caller-owned locations", () => {
     const location = { file: "effx.config.ts", line: 1, col: 1 };
 
     const invalid = HttpDiagnostics.EFFX2412.emit(
@@ -389,6 +389,7 @@ describe("HTTP diagnostic registry", () => {
       { location },
     );
 
+    assert.strictEqual(invalid.code, "EFFX2412");
     assert.strictEqual(invalid.severity, "error");
     assert.deepStrictEqual(invalid.location, location);
 
@@ -398,6 +399,7 @@ describe("HTTP diagnostic registry", () => {
       second: "content.read",
     });
 
+    assert.strictEqual(collision.code, "EFFX2413");
     assert.strictEqual(collision.severity, "error");
   });
 
@@ -601,7 +603,7 @@ describe("HTTP diagnostic registry", () => {
     assert.strictEqual(diagnostic.severity, "error");
     assert.strictEqual(diagnostic.location, location);
   });
-  it("preserves the pipeline unavailable-root message without invented detail", () => {
+  it("preserves the pipeline unavailable-root diagnostic code", () => {
     const diagnostic = HttpDiagnostics.EFFX2415.emit({
       _tag: "InventoryUnavailable",
       root: "AuthoredApi",
