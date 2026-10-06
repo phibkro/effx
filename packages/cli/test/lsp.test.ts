@@ -307,13 +307,19 @@ const initializePeer = Effect.fnUntraced(function* (peer: Peer, params: Schema.J
     stderr.match(/^effx lsp transport: (Closed|Framing|Decode|Capacity|IO|Handler)\r?$/mu)?.[1] ??
     "unobserved";
 
+  const cliFailure = /Missing required flag: --trust-config\b/u.test(stderr)
+    ? "MissingOption(trust-config)"
+    : /Missing required flag: --build\b/u.test(stderr)
+      ? "MissingOption(build)"
+      : "unobserved";
+
   const child = yield* Effect.raceFirst(peer.exit.pipe(Effect.asSome), Effect.succeedNone);
   const code = Option.isSome(nativeCode) ? nativeCode.value.code : "unobserved";
   const childExit = Option.isSome(child) ? child.value.code : "unobserved";
   const decodedStderrUtf8Bytes = new TextEncoder().encode(stderr).byteLength;
 
   assert.fail(
-    `LSP initialization failed; nativeCode=${code}; transportReason=${transportReason}; decodedStderrUtf8Bytes=${decodedStderrUtf8Bytes}; childExit=${childExit}`,
+    `LSP initialization failed; nativeCode=${code}; transportReason=${transportReason}; cliFailure=${cliFailure}; decodedStderrUtf8Bytes=${decodedStderrUtf8Bytes}; childExit=${childExit}`,
   );
 });
 
@@ -893,6 +899,25 @@ describe("maintained LSP client project journeys", () => {
           for (const message of yield* peer.notifications) {
             if (message.method === "textDocument/publishDiagnostics" && isPublished(message.params))
               assert.isAtMost(message.params.version ?? 0, 1);
+          }
+        }),
+      ),
+    30000,
+  );
+  it.live(
+    "omitted and explicit trust toggles reach the actual LSP handler without changing parsing authority",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const directory = yield* copyUsersFixture();
+
+          for (const args of [["lsp"], ["lsp", "--no-trust-config"], ["lsp", "--trust-config"]]) {
+            const peer = yield* acquirePeer(true, { cwd: directory, args });
+            assert.strictEqual((yield* peer.requestError("unknown", {})).code, -32002);
+            assert.deepStrictEqual(yield* initializePeer(peer, clientParameters), capabilities);
+            assert.strictEqual(yield* peer.request("shutdown"), null);
+            yield* peer.notification("exit");
+            assert.strictEqual((yield* peer.exit).code, 0);
           }
         }),
       ),

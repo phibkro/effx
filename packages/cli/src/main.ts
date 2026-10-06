@@ -121,7 +121,7 @@ const launchSelection = Effect.fnUntraced(function* () {
 const devCli = Command.make(
   "dev",
   {
-    build: Flag.Boolean("build"),
+    build: Flag.Boolean("build").pipe(Flag.withDefault(false)),
     executableFiles: Flag.String("exec-file").pipe(Flag.atLeast(0)),
     executableDirectories: Flag.String("exec-dir").pipe(Flag.atLeast(0)),
   },
@@ -138,7 +138,7 @@ const devCli = Command.make(
 const lspCli = Command.make(
   "lsp",
   {
-    trustConfig: Flag.Boolean("trust-config"),
+    trustConfig: Flag.Boolean("trust-config").pipe(Flag.withDefault(false)),
     executableFiles: Flag.String("exec-file").pipe(Flag.atLeast(0)),
     executableDirectories: Flag.String("exec-dir").pipe(Flag.atLeast(0)),
   },
