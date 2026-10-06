@@ -326,7 +326,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       if (!ownedIdentities.some((root) => under(file, root))) sources.set(file, text);
     }
 
-    const result = yield* compile(project.config, project.extensions, {
+    const attempt = yield* compile(project.config, project.extensions, {
       sources,
       onObserve: (input) =>
         observed.set(
@@ -341,53 +341,72 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       onRootSources: (roots: ReadonlyArray<string>) => {
         selectedRoots = roots;
       },
-    });
+    }).pipe(
+      Effect.match({
+        onFailure: (fault) => ({ _tag: "Faulted" as const, fault }),
+        onSuccess: (result) => ({ _tag: "Compiled" as const, result }),
+      }),
+    );
 
     yield* assertSelectedRoots([project.tsconfigPath, ...selectedRoots]);
 
-    analyzedMembers.set(snapshot, new Set(texts.keys()));
-    const locations = new Map<string, { readonly uri: string; readonly text: string }>();
-    const locationFiles = new Set<string>();
+    if (attempt._tag === "Compiled") {
+      const result = attempt.result;
+      analyzedMembers.set(snapshot, new Set(texts.keys()));
+      const locations = new Map<string, { readonly uri: string; readonly text: string }>();
+      const locationFiles = new Set<string>();
 
-    const recordLocation = (diagnostic: import("@effx/diagnostics").Diagnostic): void => {
-      if (diagnostic.location)
-        locationFiles.add(path.resolve(project!.rootDir, diagnostic.location.file));
+      const recordLocation = (diagnostic: import("@effx/diagnostics").Diagnostic): void => {
+        if (diagnostic.location)
+          locationFiles.add(path.resolve(project!.rootDir, diagnostic.location.file));
 
-      for (const related of diagnostic.related ?? []) recordLocation(related);
-    };
+        for (const related of diagnostic.related ?? []) recordLocation(related);
+      };
 
-    for (const diagnostic of result.diagnostics) recordLocation(diagnostic);
+      for (const diagnostic of result.diagnostics) recordLocation(diagnostic);
 
-    for (const file of locationFiles) {
-      const text = texts.get(file);
+      for (const file of locationFiles) {
+        const text = texts.get(file);
 
-      if (text !== undefined) {
-        const uri = yield* path
-          .toFileUrl(file)
-          .pipe(Effect.mapError(() => unavailable("Diagnostic URI unavailable")));
+        if (text !== undefined) {
+          const uri = yield* path
+            .toFileUrl(file)
+            .pipe(Effect.mapError(() => unavailable("Diagnostic URI unavailable")));
 
-        locations.set(file, { uri: uri.href, text });
+          locations.set(file, { uri: uri.href, text });
+        }
       }
+
+      analyzedSources.set(snapshot, locations);
     }
 
-    analyzedSources.set(snapshot, locations);
     yield* watch!.poll.pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
     const previous = yield* watch!.current;
     const previousChanges = yield* watch!.takeChanges;
     executableInputs = withKnownExecutableFiles(executableInputs, yield* loadedExecutableFiles());
-    const observedSources: WatchInput[] = [];
+    // A failed attempt contributes recovery coverage, never a successful snapshot.
+    const observedSources = new Map<string, WatchInput>();
 
-    for (const input of observed.values()) {
-      if (!ownedIdentities.some((output) => under(input.path, output))) observedSources.push(input);
+    if (attempt._tag === "Faulted") {
+      for (const input of sourceInputs) {
+        if (!ownedIdentities.some((output) => under(input.path, output)))
+          observedSources.set(input.path, input);
+      }
     }
 
-    sourceInputs = observedSources;
+    for (const input of observed.values()) {
+      if (!ownedIdentities.some((output) => under(input.path, output)))
+        observedSources.set(input.path, input);
+    }
+
+    const nextSourceInputs = [...observedSources.values()];
     yield* watch!
       .replaceInputs(
-        [...executableInputs, ...sourceInputs],
+        [...executableInputs, ...nextSourceInputs],
         [...ownedIdentities, path.join(project!.rootDir, ".git")],
       )
       .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
+    sourceInputs = nextSourceInputs;
     yield* watch!.poll.pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
     const current = yield* watch!.current;
     const changes = yield* watch!.takeChanges;
@@ -415,7 +434,9 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     else if (previousChanges.dirty || changes.dirty)
       yield* session!.invalidate.pipe(Effect.mapError(() => unavailable("Session unavailable")));
 
-    return result;
+    if (attempt._tag === "Faulted") return yield* attempt.fault;
+
+    return attempt.result;
   });
 
   const initialize = Effect.fnUntraced(function* (decoded: Initialize) {
