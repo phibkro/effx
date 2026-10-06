@@ -40,6 +40,22 @@ const isLinuxError = Schema.is(LinuxLspError);
 
 let stage: typeof ExtraStage.Type = "setup";
 
+let identityFailure: ExtraReceipt["identityFailure"];
+
+let identityObservations: Pick<
+  ExtraReceipt,
+  "fd0Before" | "fd0After" | "fd1Before" | "fd1After" | "reopenedFd" | "reopenedIdentity"
+> = {};
+
+const identityEqual = <A>(
+  actual: A,
+  expected: A,
+  category: NonNullable<ExtraReceipt["identityFailure"]>,
+) => {
+  if (actual !== expected) identityFailure = category;
+  assert.equal(actual, expected);
+};
+
 const receipt = Effect.fnUntraced(function* (value: ExtraReceipt) {
   const text = yield* encodeReceipt(value);
   yield* Effect.sync(() => {
@@ -219,21 +235,37 @@ const main = Effect.gen(function* () {
         observer.close();
       });
 
+      // Bun v1.3.13 readdirInner opens the directory and closes it before
+      // returning (node_fs.zig L4946–4958). Its listed fd can be reused by Root.
+      // Only descriptors still valid AFTER enumeration belong to the baseline.
+      // https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/node/node_fs.zig#L4946-L4958
       const beforeFds = yield* Effect.sync(() =>
-        readdirSync("/proc/self/fd").map(Number).filter(Number.isSafeInteger),
+        readdirSync("/proc/self/fd")
+          .map(Number)
+          .filter(Number.isSafeInteger)
+          .filter((fd) => !isClosed(fd)),
       );
 
       const fd0Before = yield* Effect.sync(() => snapshot(observer, 0));
       const fd1Before = yield* Effect.sync(() => snapshot(observer, 1));
-      assert.equal(fd1Before.kind, launch.form);
+      identityObservations = { fd0Before, fd1Before };
+      identityEqual(fd1Before.kind, launch.form, "stdout-kind");
       stage = "acquire";
       const io = yield* acquireLinuxLspIO(launch.manifest);
       yield* receipt({ event: "acquired", stage, fixturePid: process.pid });
       stage = "identity";
       const fd0After = yield* Effect.sync(() => snapshot(observer, 0));
       const fd1After = yield* Effect.sync(() => snapshot(observer, 1));
-      assert.deepEqual(fd0After, fd0Before);
-      assert.deepEqual(fd1After, fd1Before);
+      identityObservations = { fd0Before, fd0After, fd1Before, fd1After };
+      // These are the identity/status laws, not equality of incidental stat data.
+      identityEqual(fd0After.kind, fd0Before.kind, "fd0-kind");
+      identityEqual(fd0After.device, fd0Before.device, "fd0-device");
+      identityEqual(fd0After.inode, fd0Before.inode, "fd0-inode");
+      identityEqual(fd0After.flags, fd0Before.flags, "fd0-flags");
+      identityEqual(fd1After.kind, fd1Before.kind, "fd1-kind");
+      identityEqual(fd1After.device, fd1Before.device, "fd1-device");
+      identityEqual(fd1After.inode, fd1Before.inode, "fd1-inode");
+      identityEqual(fd1After.flags, fd1Before.flags, "fd1-flags");
 
       const reopened = yield* Effect.sync(() =>
         readdirSync("/proc/self/fd")
@@ -245,7 +277,11 @@ const main = Effect.gen(function* () {
             try {
               const identity = snapshot(observer, fd);
 
-              return identity.device === fd1Before.device && identity.inode === fd1Before.inode;
+              return (
+                identity.kind === fd1Before.kind &&
+                identity.device === fd1Before.device &&
+                identity.inode === fd1Before.inode
+              );
             } catch (cause) {
               if (badFd(cause)) return false;
               throw cause;
@@ -253,11 +289,9 @@ const main = Effect.gen(function* () {
           }),
       );
 
-      assert.equal(reopened.length, launch.form === "socket" ? 0 : 1);
+      identityEqual(reopened.length, launch.form === "socket" ? 0 : 1, "reopened-count");
       const outputFd = reopened[0] ?? 1;
       const reopenedIdentity = reopened[0] === undefined ? undefined : snapshot(observer, outputFd);
-
-      if (reopenedIdentity) assert.notEqual(reopenedIdentity.flags & constants.O_NONBLOCK, 0);
 
       const identityReceipt: Omit<ExtraReceipt, "reopenedFd" | "reopenedIdentity"> & {
         reopenedFd?: number;
@@ -267,6 +301,21 @@ const main = Effect.gen(function* () {
       if (reopenedIdentity !== undefined) {
         identityReceipt.reopenedFd = outputFd;
         identityReceipt.reopenedIdentity = reopenedIdentity;
+        identityObservations = { ...identityObservations, reopenedFd: outputFd, reopenedIdentity };
+        identityEqual(reopenedIdentity.kind, fd1Before.kind, "reopened-kind");
+        identityEqual(reopenedIdentity.device, fd1Before.device, "reopened-device");
+        identityEqual(reopenedIdentity.inode, fd1Before.inode, "reopened-inode");
+        identityEqual(
+          reopenedIdentity.flags & constants.O_NONBLOCK,
+          constants.O_NONBLOCK,
+          "reopened-flags",
+        );
+
+        // FIFO starts blocking; its owned nonblocking output must not share
+        // flags. A PTY may already be nonblocking, so equal flags there do not
+        // establish a shared-description claim.
+        if (launch.form === "fifo")
+          identityEqual(fd1Before.flags & constants.O_NONBLOCK, 0, "reopened-shared-flags");
       }
 
       yield* receipt(identityReceipt);
@@ -513,7 +562,7 @@ const main = Effect.gen(function* () {
         reason: error.success.reason,
       }).pipe(Effect.orDie);
 
-    return receipt({
+    const failureReceipt: ExtraReceipt = {
       event: "failure",
       stage,
       failureTag: Exit.hasInterrupts(exit)
@@ -521,7 +570,14 @@ const main = Effect.gen(function* () {
         : Exit.hasDies(exit)
           ? "FixtureDefect"
           : "Other",
-    }).pipe(Effect.orDie);
+    };
+
+    if (identityFailure !== undefined)
+      return receipt({ ...failureReceipt, identityFailure, ...identityObservations }).pipe(
+        Effect.orDie,
+      );
+
+    return receipt(failureReceipt).pipe(Effect.orDie);
   }),
 );
 
