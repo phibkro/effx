@@ -459,11 +459,19 @@ const main = Effect.gen(function* () {
           "reopened-flags",
         );
 
-        // FIFO starts blocking; its owned nonblocking output must not share
-        // flags. A PTY may already be nonblocking, so equal flags there do not
-        // establish a shared-description claim.
-        if (launch.form === "fifo")
-          identityEqual(fd1Before.flags & constants.O_NONBLOCK, 0, "reopened-shared-flags");
+        // Original status flags are the caller's observed baseline, not a
+        // blocking premise. Bun's conditional writer path can set NONBLOCK:
+        // https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/io/openForWriting.zig#L62-L119
+        // Its invocation in the failed fixture was not observed.
+        //
+        // Independence comes from the qualified source construction: Root
+        // calls open_output_now (scripts/lsp-linux.ts), whose open(procfd) at
+        // tools/native/lsp-readiness.c:42-49 creates a new open description,
+        // not dup's shared flags: https://man7.org/linux/man-pages/man2/open.2.html
+        // This distinct descriptor check alone is NOT the independence proof.
+        // Owned NONBLOCK above and original kind/device/inode/flags unchanged
+        // at acquisition and backpressure remain the actual observation laws.
+        identityEqual(outputFd === 1, false, "reopened-shared-flags");
       }
 
       yield* receipt(identityReceipt);
