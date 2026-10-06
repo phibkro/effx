@@ -1045,3 +1045,74 @@ Main landing, complete feature acceptance and the final code/docs gate stay held
 
 Main/lift records were searched before reservation. EX-0034 remains reserved
 for lift reflection. These open records waive no package rule or verification.
+
+## 11. Failed native gate and synchronous-writer source audit — 2026-10-06
+
+### Observed gate, not source inference
+
+The supervised native gate at `3d40e67` exited 1: 21 tests, 13 passed, eight
+failed. The handle is `proc://spec0018-linux-native-3d40e67`. Closed-law and
+unread-stdout cases observed inner fixture code 1. Six corrupted-asset cases
+observed outer Node-peer code 1 before receipt decoding. Neither code establishes
+a deadline kill. The earlier stderr was discarded; precise foreign causes remain
+unobserved. No failed writer run was repeated to confirm a cause.
+
+The socket/FIFO/file/PTY read cases executed in this gate. Closed and blocked
+writer results failed; no complete native cleanup/feature acceptance is claimed.
+A post-gate PID check found no matching owned fixture/peer. The failed gate’s
+closed public receipt is `native-gate-3d40e67.json` in the external evidence root.
+
+Actual unchanged source SHA256:
+`2db8800fea41b0aee0f981fd262a32f7e7498e0079b84bc9c167fce242b5fafa`.
+Actual unchanged asset SHA256:
+`f656dd41bad0015d8a5a1c738b16158508f768235a2796a37a3c17ee7cc9db47`.
+These identify the old audited read-only native asset, not the upcoming writer
+semantic change. Its GLIBC_2.2.5 symbol floor does not certify an older host or
+Ubuntu runtime. The new source/asset must derive new identities and qualification.
+
+### Independently readable pinned primary sources
+
+- Bun process stdio construction: https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/bindings/BunProcess.cpp#L2331-L2383 .
+  The decisive `forceSync = true` and hook call extend beyond the earlier quoted
+  2331–2375 range. Eager stdout construction invokes this path.
+- FileSink force-sync hook: https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/webcore/FileSink.zig#L71-L82 .
+  Lines 78–81 set both force_sync fields and call updateNonblocking(fd, false).
+- Pipe writer selection: https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/io/PipeWriter.zig#L29-L41 and
+  https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/io/PipeWriter.zig#L66-L78 .
+  force_sync selects the file path; that path calls synchronous bun.sys.write.
+
+Public source-only excerpts are retained under
+`/srv/share/projects/effx-watch-editor-0018-evidence/writer-source-BunProcess.cpp.txt`,
+`writer-source-FileSink.zig.txt` and `writer-source-PipeWriter.zig.txt`.
+They contain source URLs/lines only, not runtime logs, environment, arguments or
+private payloads. This source finding is distinct from the eight observed failures.
+An Effect timeout cannot preempt a synchronous blocked syscall.
+
+### Approved reachable engineering repair and outstanding storage contract
+
+The director approved native socket MSG_DONTWAIT, explicit SIGPIPE handling,
+and independent nonblocking FIFO/PTY descriptions without shared-flag mutation.
+The implementation retains one bounded cursor, owned release and closed-state
+fences. It removes the obsolete synchronous writer and eager process.stdout.
+Semantic C changes require a new audited build, manifest, ABI and actual native
+capability/release gate. A prototype size or source audit does not satisfy that gate.
+
+Source-only lifecycle fixes landed as `7edd9d3`: actual fd0 release registers
+before validation, concurrent close callers join one Deferred containing the
+actual release Exit, and every reachable release runs before faults propagate.
+Peer admission repair `e5b0c0d` gates socket payload on an actual acquired receipt
+and preserves real child code/signal plus closed reason/stage fields. Neither
+commit establishes that the old eight failures are repaired.
+
+Regular stdout is not silently removed. Its storage-latency question remains an
+unapproved observable contract prerequisite. Linux open(2) states O_NONBLOCK has
+no effect on regular-file IO; poll(2) reports regular files ready regardless.
+close(2) does not cancel/join an already-entered blocking syscall. Primary sources:
+https://man7.org/linux/man-pages/man2/open.2.html ,
+https://man7.org/linux/man-pages/man2/poll.2.html ,
+https://man7.org/linux/man-pages/man2/close.2.html .
+The existing prototype caveat concerns reads, not the frozen writer two-second
+acceptance at spec line 670. An explicit regular-output latency amendment or a
+proved storage/cancel-and-join bound is required before claiming that guarantee.
+No approval, storage waiver, common-root adoption, full acceptance or landing is
+inferred here; reachable Linux writer and lifecycle work continues.
