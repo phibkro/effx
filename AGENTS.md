@@ -38,9 +38,11 @@ stdin and forced-stop deadlines stay scoped; the script is a composition root.
 The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
 
-EX-0030 permits Node-compatible stdio and the pinned `vscode-jsonrpc` ABI only in
-`packages/cli/src/lsp-transport.ts`. Its scoped integration peer lives at
-`packages/cli/test/lsp-transport-peer.ts`; portable session code cannot import these APIs.
+EX-0030 records the pinned maintained `vscode-jsonrpc` ABI, not permission to
+override the hard ban on own Node imports/types or ambient Node authority in packages.
+The previous package-Node exception wording was withdrawn by the director on
+2026-10-06. A real process root outside packages must supply owned Effect-facing
+IO/liveness and the single scoped callback bridge; native backend acceptance is pending.
 EX-0031 records native sequential filesystem observation instead of the installed
 unbounded push-watch backend. Both open records, exact versions, tests and retirement
 triggers live in `docs/research/0018-watch-editor-design.md` §6. They are not verified
@@ -50,10 +52,11 @@ only inside `packages/frontend-ts/src/ts.ts`. It preserves native include/exclud
 semantics for virtual source membership without a second glob implementation.
 The runtime export is guarded; its local ABI assertion and retirement are recorded
 in the same design evidence. No TypeScript object crosses the frontend service.
-EX-0033 permits read-only Bun evaluated module-cache key inventory only in
-`packages/cli/src/config-runtime.ts`. It never inspects exports, evicts modules or
-installs hooks. Physical file keys supplement complete caller-declared logical
-coverage; they are not full provenance. Versions and retirement are in the same evidence.
+EX-0033 records read-only evaluated module-cache inventory data, not authority for
+`node:module` inside a package. Native cache acquisition must belong to the same
+outside-packages process root and supply a narrow inventory capability. Physical
+keys supplement complete caller-declared logical coverage; they are neither full
+provenance nor a sandbox. The legacy package acquisition remains unaccepted.
 
 ## Commands
 
