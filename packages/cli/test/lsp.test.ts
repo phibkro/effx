@@ -13,7 +13,7 @@ import cliPackage from "../package.json";
 import effectPackage from "effect/package.json";
 import { acquirePeer } from "./lsp-transport-peer.ts";
 import { expectTypeOf } from "vitest";
-import { lsp } from "../src/lsp.ts";
+import { lsp, lspSourceCoverage } from "../src/lsp.ts";
 import type { LspIO, TransportError } from "../src/lsp-transport.ts";
 import {
   capabilities,
@@ -37,6 +37,20 @@ const fixtureVersions: Versions = {
 };
 
 describe("LSP method boundary and projection", () => {
+  it("retains strongest immediate membership without granting probe or recursive authority", () => {
+    const probe = lspSourceCoverage("/source", false);
+    assert.strictEqual(probe.path, "/source");
+    assert.strictEqual(probe.kind, "source");
+    assert.isFalse(probe.directory);
+    assert.notProperty(probe, "recursive");
+
+    const membership = lspSourceCoverage("/source", true, probe);
+    assert.isTrue(membership.directory);
+    assert.deepStrictEqual(lspSourceCoverage("/source", false, membership), membership);
+    assert.deepStrictEqual(lspSourceCoverage("/source", true, membership), membership);
+    assert.notProperty(membership, "recursive");
+  });
+
   it("construction never acquires IO and keeps platform/frontend requirements", () => {
     let acquisitions = 0;
 
