@@ -2,6 +2,20 @@ import { Schema } from "effect";
 
 export const LinuxFixtureReceipt = Schema.Struct({
   event: Schema.Literals(["acquired", "released", "result", "failure"]),
+  failureCategory: Schema.optionalKey(
+    Schema.Literals([
+      "fd0-not-closed",
+      "library-still-mapped",
+      "write-unexpected-success",
+      "write-unexpected-failure",
+      "write-unexpected-interrupt",
+      "write-defect",
+      "fixture-defect",
+    ]),
+  ),
+  stage: Schema.optionalKey(
+    Schema.Literals(["fd0-close", "library-close", "blocked-write", "broken-write", "fixture"]),
+  ),
   bytes: Schema.optionalKey(Schema.Int),
   maximumRead: Schema.optionalKey(Schema.Int),
   maximumBacking: Schema.optionalKey(Schema.Int),

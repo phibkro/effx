@@ -35,7 +35,7 @@ const runPeer = Effect.fnUntraced(function* (
       assert.strictEqual(
         Number(yield* child.exitCode),
         0,
-        "Node peer must finish, not be deadline-killed",
+        "Node peer exited unsuccessfully; this code alone does not establish a deadline kill",
       );
 
       return yield* Schema.decodeEffect(Schema.fromJsonString(LinuxPeerResult))(text.trim());
