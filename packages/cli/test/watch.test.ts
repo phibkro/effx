@@ -21,11 +21,12 @@ import type { Crypto, Path, PlatformError } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import { expectTypeOf } from "vitest";
 import {
+  copyRc116Fixture,
   copyUsersFixture,
   encodeJsonString,
   testDirectory,
 } from "../../../tools/testing/projects.ts";
-import { acquireBuildOutput, resolveProject } from "../src/commands.ts";
+import { acquireBuildOutput, build, resolveProject } from "../src/commands.ts";
 import { dev } from "../src/watch.ts";
 import type { WatchClosed, WatchLimit } from "../src/watch-files.ts";
 import { acquireOutputOwner } from "../src/output-owner.ts";
@@ -731,5 +732,206 @@ describe("actual scoped effx dev journey", () => {
         assert.isFalse(edited.text.includes("0 error(s)"));
         yield* Fiber.interrupt(worker);
       }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
+
+  it.effect("handler dev observes another project's generated HTTP contract as input", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const copied = yield* copyRc116Fixture();
+      const contractConfig = copied + "/project/contract/tsconfig.effx.json";
+      const handlerConfig = copied + "/project/handlers/tsconfig.effx.json";
+      const handlerSource = copied + "/src/profile.effx.ts";
+      const contractSource = copied + "/src/profile-contract.effx.ts";
+      const generatedContract = copied + "/project/contract/.effx/generated/profile-contract.ts";
+      const handlerManifest = copied + "/project/handlers/.effx/manifest.json";
+      const handlerProjection = copied + "/project/handlers/.effx/generated/profile-handlers.ts";
+      const sentinel = copied + "/application-executed.txt";
+      const original = yield* fs.readFileString(handlerSource);
+
+      // Keep handler declarations unchanged when the contract producer changes.
+      // The copied native root imports project/contract/.effx/generated/ProfileApi.
+      yield* fs.writeFileString(contractSource, original);
+      yield* fs.writeFileString(
+        contractConfig,
+        (yield* fs.readFileString(contractConfig)).replace(
+          "../../src/profile.effx.ts",
+          "../../src/profile-contract.effx.ts",
+        ),
+      );
+      const root = copied + "/src/profile-root.ts";
+
+      const tripwire =
+        '\nimport { writeFileSync } from "node:fs"; writeFileSync(' +
+        (yield* encodeJsonString(sentinel)) +
+        ', "application executed");\n';
+
+      yield* fs.writeFileString(root, (yield* fs.readFileString(root)) + tripwire);
+      const contract = yield* resolveProject(contractConfig, true, "effect-4.0-rc", "contract");
+      yield* build(contract, versions);
+      const bootstrap = yield* fs.readFileString(generatedContract);
+      const beforeWatch = (yield* TestConsole.logLines).length;
+
+      const worker = yield* Effect.forkScoped(
+        observeDev(
+          {
+            project: handlerConfig,
+            target: "effect-4.0-rc",
+            emit: "handlers",
+            strictAccess: true,
+            build: true,
+          },
+          versions,
+        ),
+      );
+
+      const initial = yield* awaitOutput(beforeWatch, (text) =>
+        text.includes("build cycle 1 complete"),
+      );
+
+      assert.isTrue(initial.text.includes("0 error(s)"));
+      // Imported own-output aliases are not declaration roots. They must remain
+      // readable like direct own-output imports, without watching our write bytes.
+      yield* fs.symlink(handlerProjection, copied + "/src/owned-handler-alias.ts");
+      yield* fs.symlink(
+        copied + "/project/handlers/.effx/generated",
+        copied + "/src/owned-output-directory",
+      );
+
+      const handlerWithAliases =
+        original +
+        '\nimport "./owned-handler-alias.js";\nimport "./owned-output-directory/profile-handlers.js";\n';
+
+      yield* fs.writeFileString(handlerSource, handlerWithAliases);
+
+      const aliases = yield* awaitOutput(initial.offset, (text) => {
+        const latest = text.slice(text.lastIndexOf("effx dev cycle "));
+
+        return latest.includes("0 error(s)") && /effx dev build cycle \d+ complete/.test(latest);
+      });
+
+      assert.isFalse(aliases.text.includes("RestartRequired"));
+
+      // Leaving owned output must remain observable through the logical route.
+      yield* fs.remove(copied + "/src/owned-handler-alias.ts");
+      yield* fs.symlink(generatedContract, copied + "/src/owned-handler-alias.ts");
+
+      const retargeted = yield* awaitOutput(aliases.offset, (text) => {
+        const latest = text.slice(text.lastIndexOf("effx dev cycle "));
+
+        return latest.includes("0 error(s)") && /effx dev build cycle \d+ complete/.test(latest);
+      });
+
+      assert.isFalse(retargeted.text.includes("RestartRequired"));
+
+      const acceptedManifest = yield* fs.readFileString(handlerManifest);
+      const acceptedProjection = yield* fs.readFileString(handlerProjection);
+      const quiet = yield* TestConsole.logLines;
+      yield* TestClock.adjust("1 second");
+      assert.deepStrictEqual(yield* TestConsole.logLines, quiet);
+
+      // Produce a genuinely different group through the normal contract compiler,
+      // not an edited output fixture or a replacement inventory implementation.
+      yield* fs.writeFileString(
+        contractSource,
+        original.replace(
+          'operationId: "profile.readOwnProfile"',
+          'operationId: "profile.readChanged"',
+        ),
+      );
+      const beforeChange = (yield* TestConsole.logLines).length;
+      yield* build(contract, versions);
+      assert.notStrictEqual(yield* fs.readFileString(generatedContract), bootstrap);
+      const handler = yield* resolveProject(handlerConfig, true, "effect-4.0-rc", "handlers");
+      const changedCheck = yield* compile(handler.config, handler.extensions);
+      assert.isTrue(
+        changedCheck.diagnostics.some(
+          (entry) => entry.code === "EFFX2415" && entry.severity === "error",
+        ),
+      );
+
+      const changed = yield* awaitOutput(beforeChange, (text) => {
+        const latest = text.slice(text.lastIndexOf("effx dev cycle "));
+
+        return latest.includes("EFFX2415") && finished(latest);
+      });
+
+      for (const entry of changedCheck.diagnostics)
+        assert.isTrue(changed.text.includes(entry.message));
+      assert.isFalse(changed.text.includes("RestartRequired"));
+      assert.strictEqual(yield* fs.readFileString(handlerSource), handlerWithAliases);
+      assert.strictEqual(yield* fs.readFileString(handlerManifest), acceptedManifest);
+      assert.strictEqual(yield* fs.readFileString(handlerProjection), acceptedProjection);
+
+      yield* fs.writeFileString(contractSource, original);
+      const beforeRepair = (yield* TestConsole.logLines).length;
+      yield* build(contract, versions);
+
+      const repaired = yield* awaitOutput(beforeRepair, (text) => {
+        const latest = text.slice(text.lastIndexOf("effx dev cycle "));
+
+        return latest.includes("0 error(s)") && /effx dev build cycle \d+ complete/.test(latest);
+      });
+
+      assert.isFalse(
+        repaired.text.slice(repaired.text.lastIndexOf("effx dev cycle ")).includes("EFFX2415"),
+      );
+      assert.strictEqual(yield* fs.readFileString(handlerProjection), acceptedProjection);
+      assert.isFalse(yield* fs.exists(sentinel));
+      const repairedQuiet = yield* TestConsole.logLines;
+      yield* TestClock.adjust("1 second");
+      assert.deepStrictEqual(yield* TestConsole.logLines, repairedQuiet);
+      yield* Fiber.interrupt(worker);
+    }).pipe(Effect.scoped, Effect.provide(platform)),
+  );
+
+  it.effect("saved referenced JSON faults clear the native dev cycle and repair normally", () =>
+    Effect.gen(function* () {
+      const { fs, dir, config, selected } = yield* fixture();
+      const reference = dir + "/reference/tsconfig.json";
+      const valid = '{"compilerOptions":{"composite":true},"files":["ref.ts"]}';
+      yield* fs.makeDirectory(dir + "/reference");
+      yield* fs.writeFileString(dir + "/reference/ref.ts", "export const reference = true;");
+      yield* fs.writeFileString(reference, valid);
+      yield* fs.writeFileString(
+        config,
+        selected.replace('"include":', '"references":[{"path":"./reference"}],"include":'),
+      );
+
+      const worker = yield* Effect.forkScoped(observeDev({ project: config }, versions));
+      const initial = yield* awaitOutput(0, finished);
+      assert.isTrue(initial.text.includes("0 error(s)"));
+      yield* fs.writeFileString(reference, "{ invalid");
+
+      const corrupt = yield* awaitOutput(initial.offset, (text) =>
+        text.includes("Diagnostics cleared"),
+      );
+
+      assert.isTrue(corrupt.text.includes("CompilerFault"));
+      const project = yield* resolveProject(config);
+      const corruptCheck = yield* compile(project.config, project.extensions).pipe(Effect.exit);
+      assert.isTrue(Exit.isFailure(corruptCheck));
+
+      yield* fs.remove(reference);
+
+      const missing = yield* awaitOutput(corrupt.offset, (text) =>
+        text.includes("Diagnostics cleared"),
+      );
+
+      assert.isTrue(missing.text.includes("CompilerFault"));
+      const missingCheck = yield* compile(project.config, project.extensions).pipe(Effect.exit);
+      assert.isTrue(Exit.isFailure(missingCheck));
+
+      yield* fs.writeFileString(reference, valid);
+
+      const repaired = yield* awaitOutput(missing.offset, (text) => {
+        const latest = text.slice(text.lastIndexOf("effx dev cycle "));
+
+        return latest.includes("0 error(s)") && finished(latest);
+      });
+
+      assert.isFalse(repaired.text.includes("RestartRequired"));
+      assert.isFalse(yield* fs.exists(dir + "/.effx"));
+      yield* Fiber.interrupt(worker);
+    }).pipe(Effect.scoped, Effect.provide(platform)),
   );
 });
