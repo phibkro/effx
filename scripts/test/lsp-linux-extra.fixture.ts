@@ -38,6 +38,8 @@ const badFd = Schema.is(Schema.Struct({ code: Schema.Literal("EBADF") }));
 
 const isLinuxError = Schema.is(LinuxLspError);
 
+const hasPublicErrno = Schema.is(Schema.Struct({ errno: Schema.Int }));
+
 let stage: typeof ExtraStage.Type = "setup";
 
 let identityFailure: ExtraReceipt["identityFailure"];
@@ -46,6 +48,25 @@ let identityObservations: Pick<
   ExtraReceipt,
   "fd0Before" | "fd0After" | "fd1Before" | "fd1After" | "reopenedFd" | "reopenedIdentity"
 > = {};
+
+// Retain only the registered projection before an assertion replaces the cause.
+// This state is failure evidence, never an early saturation receipt.
+type FixtureObservations = Pick<
+  ExtraReceipt,
+  | "prefillFailure"
+  | "commandFailure"
+  | "fixtureErrno"
+  | "fixtureScopeCleanupFailed"
+  | "prefillBytes"
+  | "partialWrites"
+  | "minimumPartialBytes"
+  | "wouldBlock"
+  | "pollMask"
+>;
+
+const fixtureObservations: {
+  -readonly [K in keyof FixtureObservations]: FixtureObservations[K];
+} = {};
 
 const identityEqual = <A>(
   actual: A,
@@ -118,23 +139,51 @@ const closedError = <A>(exit: Exit.Exit<A, TransportError>): boolean => {
   return error._tag === "Success" && error.success.reason === "Closed";
 };
 
-// FD4 is the fixed test control socket, never the adopted fd0. A kernel poll
-// receipt, not elapsed time, admits each synchronous one-byte read.
+const readCommandByte = (buffer: Uint8Array): number => {
+  try {
+    return readSync(4, buffer, 0, 1, null);
+  } catch (cause) {
+    fixtureObservations.commandFailure = "read";
+
+    if (hasPublicErrno(cause)) fixtureObservations.fixtureErrno = Math.abs(cause.errno);
+    throw cause;
+  }
+};
+
+// FD4 is the fixed inherited test control reader, never the adopted fd0. A
+// kernel poll receipt, not elapsed time, admits each synchronous one-byte read.
 const command = Effect.fnUntraced(function* (observer: Observer, expected: number) {
   const buffer = new Uint8Array(1);
 
   while (true) {
     const ready = yield* Effect.sync(() => observer.symbols.ready_now(4));
+
+    if (ready < 0) {
+      fixtureObservations.commandFailure = "poll";
+      fixtureObservations.fixtureErrno = -ready;
+    } else fixtureObservations.pollMask = ready;
     assert.ok(ready >= 0);
 
     if ((ready & observer.symbols.poll_in()) !== 0) {
       yield* Effect.sync(() => {
-        assert.equal(readSync(4, buffer, 0, 1, null), 1);
+        const bytes = readCommandByte(buffer);
+
+        if (bytes !== 1) fixtureObservations.commandFailure = "short-read";
+        assert.equal(bytes, 1);
+
+        if (buffer[0] !== expected) fixtureObservations.commandFailure = "unexpected-byte";
         assert.equal(buffer[0], expected);
       });
 
       return;
     }
+
+    const terminal =
+      ready &
+      (observer.symbols.poll_err() | observer.symbols.poll_hup() | observer.symbols.poll_invalid());
+
+    if (terminal !== 0) fixtureObservations.commandFailure = "terminal";
+    assert.equal(terminal, 0);
 
     yield* Effect.sleep("1 millis");
   }
@@ -147,7 +196,10 @@ const prefill = (observer: Observer, fd: number, socket: boolean) => {
   let partialWrites = 0;
   let minimumPartialBytes = 65536;
   let count = 1;
-  let initial = true;
+  fixtureObservations.prefillBytes = accepted;
+  fixtureObservations.partialWrites = partialWrites;
+  fixtureObservations.minimumPartialBytes = minimumPartialBytes;
+  fixtureObservations.wouldBlock = false;
 
   for (let calls = 0; calls < 8192 && accepted < 8 * 1024 * 1024; calls++) {
     const written = socket
@@ -155,9 +207,19 @@ const prefill = (observer: Observer, fd: number, socket: boolean) => {
       : observer.symbols.fd_write_now(fd, pointer, count);
 
     if (written === -osConstants.errno.EAGAIN || written === -osConstants.errno.EWOULDBLOCK) {
-      if (count === 1) return { prefillBytes: accepted, partialWrites, minimumPartialBytes };
+      if (count === 1) {
+        fixtureObservations.wouldBlock = true;
+
+        return { prefillBytes: accepted, partialWrites, minimumPartialBytes };
+      }
+
       count = 1;
     } else {
+      if (written < 0) {
+        fixtureObservations.prefillFailure = "native-write";
+        fixtureObservations.fixtureErrno = -written;
+      } else if (written === 0 || written > count)
+        fixtureObservations.prefillFailure = "invalid-write";
       assert.ok(written > 0 && written <= count);
       accepted += written;
 
@@ -166,15 +228,18 @@ const prefill = (observer: Observer, fd: number, socket: boolean) => {
         minimumPartialBytes = Math.min(minimumPartialBytes, written);
       }
 
-      // Offset capacity by one byte before large requests; a real short result
-      // must still be observed, never inferred from that arithmetic.
-      if (initial) {
-        initial = false;
-        count = backing.byteLength;
-      }
+      fixtureObservations.prefillBytes = accepted;
+      fixtureObservations.partialWrites = partialWrites;
+      fixtureObservations.minimumPartialBytes = minimumPartialBytes;
+
+      // A successful one-byte probe is progress, not saturation. Resume large
+      // requests so the call bound never becomes a one-byte capacity guess.
+      // Only a real short write and a real one-byte EAGAIN establish the laws.
+      count = backing.byteLength;
     }
   }
 
+  fixtureObservations.prefillFailure = "bound";
   assert.fail("prefill bound reached without observed one-byte EAGAIN");
 };
 
@@ -226,7 +291,15 @@ const main = Effect.gen(function* () {
               observerClosed = true;
               owned.close();
             }
-          }),
+          }).pipe(
+            Effect.onExit((exit) =>
+              Effect.sync(() => {
+                // This observes only this fixture-owned observer finalizer.
+                // It is not the Root close Exit or native release evidence.
+                if (Exit.isFailure(exit)) fixtureObservations.fixtureScopeCleanupFailed = true;
+              }),
+            ),
+          ),
       );
 
       const closeObserver = Effect.sync(() => {
@@ -326,9 +399,18 @@ const main = Effect.gen(function* () {
         prefill(observer, outputFd, launch.form === "socket"),
       );
 
+      if (
+        saturated.prefillBytes <= 0 ||
+        saturated.partialWrites <= 0 ||
+        saturated.minimumPartialBytes <= 0 ||
+        saturated.minimumPartialBytes >= 65536
+      )
+        fixtureObservations.prefillFailure = "one-byte-blocked-without-partial";
       assert.ok(saturated.prefillBytes > 0 && saturated.partialWrites > 0);
       assert.ok(saturated.minimumPartialBytes > 0 && saturated.minimumPartialBytes < 65536);
       const bodyBytes = extraBodyForPrefill(saturated.prefillBytes);
+
+      if (bodyBytes > extraMaximumBodyBytes) fixtureObservations.prefillFailure = "frame-bound";
       assert.ok(
         bodyBytes <= extraMaximumBodyBytes,
         "observed capacity cannot fit a bounded backpressure frame",
@@ -379,8 +461,21 @@ const main = Effect.gen(function* () {
       }
 
       yield* Effect.sync(() => {
-        assert.deepEqual(snapshot(observer, 0), fd0Before);
-        assert.deepEqual(snapshot(observer, 1), fd1Before);
+        const fd0Backpressure = snapshot(observer, 0);
+        const fd1Backpressure = snapshot(observer, 1);
+        identityObservations = {
+          ...identityObservations,
+          fd0After: fd0Backpressure,
+          fd1After: fd1Backpressure,
+        };
+        identityEqual(fd0Backpressure.kind, fd0Before.kind, "fd0-kind");
+        identityEqual(fd0Backpressure.device, fd0Before.device, "fd0-device");
+        identityEqual(fd0Backpressure.inode, fd0Before.inode, "fd0-inode");
+        identityEqual(fd0Backpressure.flags, fd0Before.flags, "fd0-flags");
+        identityEqual(fd1Backpressure.kind, fd1Before.kind, "fd1-kind");
+        identityEqual(fd1Backpressure.device, fd1Before.device, "fd1-device");
+        identityEqual(fd1Backpressure.inode, fd1Before.inode, "fd1-inode");
+        identityEqual(fd1Backpressure.flags, fd1Before.flags, "fd1-flags");
         caller.fill(33);
       });
       const refusal = yield* io.write("forbidden-concurrent-writer").pipe(Effect.exit);
@@ -558,6 +653,8 @@ const main = Effect.gen(function* () {
       return receipt({
         event: "failure",
         stage,
+        ...fixtureObservations,
+        ...identityObservations,
         failureTag: "LinuxLspError",
         reason: error.success.reason,
       }).pipe(Effect.orDie);
@@ -565,6 +662,8 @@ const main = Effect.gen(function* () {
     const failureReceipt: ExtraReceipt = {
       event: "failure",
       stage,
+      ...fixtureObservations,
+      ...identityObservations,
       failureTag: Exit.hasInterrupts(exit)
         ? "Interrupted"
         : Exit.hasDies(exit)
