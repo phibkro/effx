@@ -1,15 +1,7 @@
 // EX-0035: public Bun FFI / adopted fd0/fd1 boundary. No package owns native authority.
 import { dlopen, ptr } from "bun:ffi";
 import { Buffer } from "node:buffer";
-import {
-  closeSync,
-  fstatSync,
-  readFileSync,
-  readlinkSync,
-  readSync,
-  statfsSync,
-  statSync,
-} from "node:fs";
+import { fstatSync, readFileSync, readlinkSync, readSync, statfsSync, statSync } from "node:fs";
 import * as process from "node:process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -73,6 +65,9 @@ const symbols = {
   // bun-v1.3.13 dlopen resolves dependencies via public dlsym; GNU returns an
   // immutable NUL-terminated version, copied by Bun CString before library close.
   gnu_get_libc_version: { args: [], returns: "cstring" },
+  // EX-0035: public unistd.h declares int close(int fd). Resolve the existing
+  // libc dependency via dlsym, as above; no private Bun descriptor ABI.
+  close: { args: ["i32"], returns: "i32" },
 } as const;
 
 export const defaultLinuxLspManifestPath = fileURLToPath(
@@ -82,20 +77,17 @@ export const defaultLinuxLspManifestPath = fileURLToPath(
 /** Lazy acquisition at the external Bun root. The session exclusively owns the
  * original fd0/fd1 (no stdin/stdout stream is obtained), the loaded library and one
  * callback FiberSet. Trusted config must not read fd0; this is not a sandbox.
- * Standard sockets/FIFOs, ordinary regular files and Linux PTYs are qualified.
+ * Standard sockets/FIFOs and Linux PTYs are qualified; ordinary regular files
+ * are input-only. Regular stdout is rejected before native acquisition.
  * Procfs, non-PTY devices and unavailable procfs fail before poll/raw read.
  * Poll is timeout-zero; read allocates at most 65536 bytes only after readiness.
- * Regular-file storage latency remains possible; accepted bytes cannot be undone.
+ * Regular-input storage latency remains possible; accepted bytes cannot be undone.
  * One immutable owned frame/cursor is admitted; concurrent writers are refused.
  * Socket sends use MSG_DONTWAIT|MSG_NOSIGNAL; FIFO/PTY writes use an independently
  * opened O_NONBLOCK description, never shared flag mutation. C owns per-call
  * SIGPIPE thread masking/consumption/restoration for write(2). Kernel acceptance
  * completes each chunk; there is no FileSink queue or late write callback.
  * One monotonic Effect Clock deadline covers progress and release waiting.
- * Regular output remains real IO, but Linux ignores O_NONBLOCK for storage:
- * neither write(2) nor close(2) is made interruptible by the two-second wait.
- * The regular WRITE/release latency premise still needs explicit approval;
- * EX-0035 is not full-backend acceptance and no hard wall-clock bound is claimed.
  * Closing refuses new progress before fd/library release. Every close joins
  * the same actual release Exit; failed release is a
  * classified defect, not successful cleanup. State is transient; no retry,
@@ -108,6 +100,15 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
   if (process.platform !== "linux" || process.arch !== "x64" || Bun.version !== "1.3.13") {
     return yield* failure("Target");
   }
+
+  // Amendment B: reject regular stdout before loading native code or adopting
+  // descriptors. No output capability or protocol cursor can exist on this path.
+  yield* Effect.try({
+    try: () => {
+      if (fstatSync(1).isFile()) throw failure("StdoutForm");
+    },
+    catch: () => failure("StdoutForm"),
+  });
 
   const manifestText = yield* Effect.try({
     try: () => {
@@ -197,6 +198,20 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
   const released = yield* Deferred.make<void>();
 
+  // EX-0035: Bun skips close for POSIX fd 0/1/2; SDK success is not release:
+  // https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/bun.js/node/node_fs.zig#L3391-L3395
+  // https://github.com/oven-sh/bun/blob/bun-v1.3.13/src/fd.zig#L245-L251
+  // Use one public libc close for every owned descriptor, before lib.close.
+  // Any nonzero result is a classified release defect; never retry close.
+  const releaseFd = Effect.fnUntraced(function* (fd: number) {
+    yield* Effect.try({
+      try: () => {
+        if (lib.symbols.close(fd) !== 0) throw failure("IO");
+      },
+      catch: () => failure("IO"),
+    }).pipe(Effect.orDie);
+  });
+
   const close = Effect.suspend(() => {
     if (phase !== "Open") return Deferred.await(released);
     phase = "Closing";
@@ -227,19 +242,14 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
         if (!fd1Owned) return Effect.void;
         fd1Owned = false;
 
-        return Effect.try({ try: () => closeSync(1), catch: () => failure("IO") }).pipe(
-          Effect.orDie,
-        );
+        return releaseFd(1);
       });
 
       // Do not retry close(2): Linux may already have released the descriptor
       // even on failure. Every reachable release is attempted, once.
       if (fd === undefined || fd === 1) return releaseOriginal;
 
-      return Effect.try({ try: () => closeSync(fd), catch: () => failure("IO") }).pipe(
-        Effect.orDie,
-        Effect.ensuring(releaseOriginal),
-      );
+      return releaseFd(fd).pipe(Effect.ensuring(releaseOriginal));
     });
 
     const releaseLibrary = Effect.suspend(() => {
@@ -251,9 +261,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
     // Finalizer failures are defects in the never-E close contract. Ensuring
     // attempts every reachable release and retains all classified failures.
-    // A deadline bounds Effect waiting, not an uninterruptible storage syscall.
-    return Effect.try({ try: () => closeSync(0), catch: () => failure("IO") }).pipe(
-      Effect.orDie,
+    return releaseFd(0).pipe(
       Effect.ensuring(stopWriter),
       Effect.ensuring(releaseOutput),
       Effect.ensuring(releaseLibrary),
@@ -344,16 +352,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
         return "Socket" as const;
       }
 
-      if (info.isFile()) {
-        if (statfsSync("/proc/self/fd/1").type === statfsSync("/proc").type)
-          throw failure("StdoutForm");
-        // Keep the inherited file cursor/O_APPEND. A procfd reopen would start
-        // a new nonappend description at offset zero. Real storage writes and
-        // their close remain uninterruptible; no regular-file deadline claim.
-        outputFd = 1;
-
-        return "File" as const;
-      }
+      if (info.isFile()) throw failure("StdoutForm");
 
       const pty =
         info.isCharacterDevice() &&
