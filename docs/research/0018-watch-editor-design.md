@@ -1,12 +1,19 @@
 # 0018 — Watch/editor implementation design for review
 
-Status: **operator defaults and amendment A approved; full implementation active**, 2026-10-05.
+Status: **operator defaults and amendment A approved; full implementation active**, 2026-10-06.
 Frozen contract: [`../specs/0018-watch-editor.md`](../specs/0018-watch-editor.md),
 commit `9ac1bff`; preserved draft parent `d37f77e`; baseline main `3d66eda`.
-The operator approved the four product policies with **"approve defaults"**.
+The operator approved the four product policies with **"approve defaults"** on 2026-10-06.
 The director approved the session, overlay, native polling and transport plan
 in principle, subject to real boundary tests and exception records. The operator
-separately approved amendment A. No landing authority is granted.
+separately approved amendment A on 2026-10-06. No landing authority is granted.
+
+**Director provenance correction — 2026-10-06.** The current **"approve defaults"**
+and **"A"** approvals belong to the authoritative conversation date 2026-10-06,
+not the 2026-10-05 dates supplied in those messages. Original commits/history and
+verbatim quotes remain preserved. Research and execution dates below remain
+observed machine-clock facts; they do not imply earlier approval. This correction
+changes no accepted policy or implementation authority.
 
 The approved component dependencies were installed with ordinary `bun install`.
 `vscode-jsonrpc` resolves to 9.0.3. Published and installed source establish API
@@ -461,7 +468,7 @@ unmerged, dirty, unknown-owner and separately owned 0016 trees are excluded.
 
 ## 7. Proposed contract amendment — explicit executable coverage
 
-**Operator-approved A on 2026-10-05; incorporated into frozen spec commit74c4fe1.**
+**Operator-approved A on 2026-10-06; incorporated into frozen spec commit74c4fe1.**
 
 The director approved isolated portable components with explicit dependency tests.
 The operator approved the four defaults and then **"A"**. The authoritative frozen

@@ -1,8 +1,15 @@
 # Spec 0018 — Watch checks and editor diagnostics
 
-Status: **frozen — operator-approved** — 2026-10-05. Changes require an explicit dated amendment.
+Status: **frozen — operator-approved** — 2026-10-06. Changes require an explicit dated amendment.
 Baseline: live local main `3d66eda158422282b6e2f44ec12910a362dcb9ae`.
-Depends on approved 0016, frozen 0015 and 0002. The operator approved all four §9 defaults on 2026-10-05. Implementation remains subject to design review; this contract grants no publication or main-branch landing authority.
+Depends on approved 0016, frozen 0015 and 0002. The operator approved all four §9 defaults on 2026-10-06. Implementation remains subject to design review; this contract grants no publication or main-branch landing authority.
+
+**Director provenance correction — 2026-10-06.** The authoritative conversation
+date is 2026-10-06. Supplied messages incorrectly dated the current **"approve
+defaults"** and **"A"** approvals 2026-10-05; the director corrects their approval
+dates here to 2026-10-06. Original commits/history and verbatim approval quotes are
+preserved. Observed machine-clock research/execution timestamps are unchanged and
+do not establish an earlier approval date. Accepted policies are unchanged.
 
 ## 1. Goal, constraints and values
 
@@ -126,7 +133,7 @@ separately prove untrusted configs never execute. Config that writes during impo
 is not made read-only by calling it from LSP. No config or plugin is evaluated from
 an unsaved overlay or temporary file.
 
-### Executable coverage — operator amendment A, 2026-10-05
+### Executable coverage — operator amendment A, 2026-10-06
 
 `EffxConfig` and its existing Schema decoder MUST accept optional
 `executableCoverage: { files?: readonly string[], directories?: readonly
@@ -568,7 +575,7 @@ Transport library, finite admission limits and host caching are engineering choi
 not arbitrary operator knobs. Correctness, framing, authority enforcement, parity
 and resource ownership are not optional preferences.
 
-### Approval amendment — 2026-10-05
+### Approval amendment — 2026-10-06
 
 The operator wrote, verbatim: **"approve defaults"**. This approval applies to all
 four defaults in this spec, not to the earlier approval of 0016 or any credential,
@@ -586,7 +593,7 @@ publication, deployment or landing authority:
 
 This amendment freezes the contract; it does not claim implementation acceptance.
 
-### Operator coverage amendment A — 2026-10-05
+### Operator coverage amendment A — 2026-10-06
 
 The operator wrote, verbatim: **"A"**. This approves the explicit conditional
 executable-coverage proposal in
