@@ -3,8 +3,14 @@ import { Cause, Crypto, Effect, Exit, FileSystem, Layer, Option, Path, Schema } 
 import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compiler";
 import { BunServices } from "@effect/platform-bun";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import { copyUsersFixture, encodeJsonString } from "../../../tools/testing/projects.ts";
-import { resolveProject } from "../src/commands.ts";
+import {
+  copyRc116Fixture,
+  copyUsersFixture,
+  encodeJsonString,
+} from "../../../tools/testing/projects.ts";
+import { build, resolveProject, type Versions } from "../src/commands.ts";
+import cliPackage from "../package.json";
+import effectPackage from "effect/package.json";
 import { acquirePeer } from "./lsp-transport-peer.ts";
 import { expectTypeOf } from "vitest";
 import { lsp } from "../src/lsp.ts";
@@ -23,6 +29,12 @@ const TsconfigJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.J
 const decodeTsconfig = Schema.decodeEffect(TsconfigJson);
 
 const encodeTsconfig = Schema.encodeEffect(TsconfigJson);
+
+const fixtureVersions: Versions = {
+  effx: cliPackage.version,
+  effect: effectPackage.version,
+  typescript: TsSourceFrontend.typescriptVersion,
+};
 
 describe("LSP method boundary and projection", () => {
   it("construction never acquires IO and keeps platform/frontend requirements", () => {
@@ -919,6 +931,228 @@ describe("maintained LSP client project journeys", () => {
             yield* peer.notification("exit");
             assert.strictEqual((yield* peer.exit).code, 0);
           }
+        }),
+      ),
+    30000,
+  );
+
+  it.live.each(["file", "directory"])(
+    "reads own generated HTTP contracts through a nonroot %s alias and retains retarget-away observation",
+    (kind) =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyRc116Fixture();
+          const handlerConfig = path.join(directory, "project", "handlers", "tsconfig.effx.json");
+          const producerConfig = path.join(directory, "project", "contract", "tsconfig.effx.json");
+          const ownContracts = path.join(directory, "project", "handlers", ".effx", "generated");
+
+          const externalContracts = path.join(
+            directory,
+            "project",
+            "contract",
+            ".effx",
+            "generated",
+          );
+
+          const declaration = path.join(directory, "src", "profile.effx.ts");
+          const producerSourceDirectory = path.join(directory, "project", "contract", "src");
+
+          const producerDeclaration = path.join(
+            producerSourceDirectory,
+            "profile-contract.effx.ts",
+          );
+
+          const ownProducerConfig = path.join(
+            directory,
+            "project",
+            "handlers",
+            "tsconfig.contract.json",
+          );
+
+          const original = yield* fs.readFileString(declaration);
+          yield* build(
+            yield* resolveProject(handlerConfig, true, "effect-4.0-rc", "contract"),
+            fixtureVersions,
+          );
+          yield* fs.makeDirectory(producerSourceDirectory, { recursive: true });
+          const producerSource = original.replaceAll('from "./', 'from "../../../src/');
+          yield* fs.writeFileString(producerDeclaration, producerSource);
+          const producer = yield* decodeTsconfig(yield* fs.readFileString(producerConfig));
+          const handler = yield* decodeTsconfig(yield* fs.readFileString(handlerConfig));
+          yield* fs.writeFileString(
+            producerConfig,
+            yield* encodeTsconfig({ ...producer, include: ["src/profile-contract.effx.ts"] }),
+          );
+          yield* fs.writeFileString(
+            ownProducerConfig,
+            yield* encodeTsconfig({
+              ...handler,
+              include: ["../contract/src/profile-contract.effx.ts"],
+            }),
+          );
+
+          const alias = path.join(
+            directory,
+            "src",
+            kind === "file" ? "owned-contract-alias.ts" : "owned-contract-directory",
+          );
+
+          const ownTarget =
+            kind === "file" ? path.join(ownContracts, "profile-contract.ts") : ownContracts;
+
+          const externalTarget =
+            kind === "file"
+              ? path.join(externalContracts, "profile-contract.ts")
+              : externalContracts;
+
+          yield* fs.symlink(ownTarget, alias);
+          const rootFile = path.join(directory, "src", "profile-root.ts");
+          const rootSource = yield* fs.readFileString(rootFile);
+
+          const importRoute =
+            kind === "file"
+              ? "./owned-contract-alias.js"
+              : "./owned-contract-directory/profile-contract.js";
+
+          yield* fs.writeFileString(
+            rootFile,
+            rootSource.replace(
+              "../project/contract/.effx/generated/profile-contract.js",
+              importRoute,
+            ),
+          );
+
+          const peer = yield* acquirePeer(true, {
+            cwd: directory,
+            args: [
+              "lsp",
+              "--project",
+              handlerConfig,
+              "--strict-access",
+              "--target",
+              "effect-4.0-rc",
+              "--emit",
+              "handlers",
+            ],
+          });
+
+          yield* initializePeer(peer, clientParameters);
+          yield* peer.notification("initialized", {});
+          const uri = (yield* path.toFileUrl(declaration)).href;
+          yield* peer.notification("textDocument/didOpen", {
+            textDocument: { uri, version: 1, languageId: "typescript", text: original },
+          });
+          assert.deepStrictEqual((yield* published(peer, uri, 1)).diagnostics, []);
+          yield* fs.writeFileString(
+            producerDeclaration,
+            producerSource.replace("Read own profile", "Read own profile updated"),
+          );
+          yield* build(
+            yield* resolveProject(ownProducerConfig, true, "effect-4.0-rc", "contract"),
+            fixtureVersions,
+          );
+          yield* peer.notification("textDocument/didChange", {
+            textDocument: { uri, version: 2 },
+            contentChanges: [{ text: original }],
+          });
+          assert.deepStrictEqual((yield* published(peer, uri, 2)).diagnostics, []);
+          yield* fs.writeFileString(
+            producerDeclaration,
+            producerSource.replace("profile.readOwnProfile", "profile.readChanged"),
+          );
+          yield* build(
+            yield* resolveProject(producerConfig, true, "effect-4.0-rc", "contract"),
+            fixtureVersions,
+          );
+          yield* fs.remove(alias);
+          yield* fs.symlink(externalTarget, alias);
+          const isLog = Schema.is(Schema.Struct({ message: Schema.String }));
+          yield* peer.waitNotification(
+            "window/logMessage",
+            (value) => isLog(value) && value.message.includes("EFFX2415"),
+          );
+          yield* published(peer, uri, 2);
+          yield* fs.remove(alias);
+          yield* fs.symlink(ownTarget, alias);
+          assert.deepStrictEqual((yield* published(peer, uri, 2)).diagnostics, []);
+          assert.strictEqual(yield* fs.readFileString(declaration), original);
+          assert.strictEqual(yield* peer.request("shutdown"), null);
+          yield* peer.notification("exit");
+          assert.strictEqual((yield* peer.exit).code, 0);
+
+          for (const message of yield* peer.notifications) {
+            if (message.method === "window/logMessage" && isLog(message.params)) {
+              assert.notInclude(message.params.message, "Analysis unavailable");
+              assert.notInclude(message.params.message, "RestartRequired");
+            }
+          }
+        }),
+      ),
+    30000,
+  );
+
+  it.live(
+    "clears malformed referenced JSON and resumes after the same reference is repaired",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+          const selectedConfig = path.join(directory, "tsconfig.json");
+          const originalConfig = yield* decodeTsconfig(yield* fs.readFileString(selectedConfig));
+          const referenceDirectory = path.join(directory, "reference");
+          const referenceConfig = path.join(referenceDirectory, "tsconfig.json");
+          yield* fs.makeDirectory(referenceDirectory);
+          yield* fs.writeFileString(
+            path.join(referenceDirectory, "ref.ts"),
+            "export const referenced = 1;\n",
+          );
+
+          const validReference = yield* encodeTsconfig({
+            compilerOptions: { composite: true },
+            files: ["ref.ts"],
+          });
+
+          yield* fs.writeFileString(referenceConfig, validReference);
+          yield* fs.writeFileString(
+            selectedConfig,
+            yield* encodeTsconfig({ ...originalConfig, references: [{ path: "./reference" }] }),
+          );
+          const file = path.join(directory, "src", "broken.ts");
+          const source = yield* fs.readFileString(file);
+          const uri = (yield* path.toFileUrl(file)).href;
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+          yield* initializePeer(peer, clientParameters);
+          yield* peer.notification("initialized", {});
+          yield* peer.notification("textDocument/didOpen", {
+            textDocument: { uri, version: 1, languageId: "typescript", text: source },
+          });
+          const initial = yield* published(peer, uri, 1);
+          assert.isAbove(initial.diagnostics.length, 0);
+          yield* fs.writeFileString(referenceConfig, "{");
+          assert.deepStrictEqual((yield* published(peer, uri, 1)).diagnostics, []);
+          const isLog = Schema.is(Schema.Struct({ message: Schema.String }));
+          yield* peer.waitNotification(
+            "window/logMessage",
+            (value) => isLog(value) && value.message.includes("Analysis unavailable"),
+          );
+          yield* fs.writeFileString(referenceConfig, validReference);
+          const isPublished = Schema.is(Published);
+
+          const repaired = yield* decodePublished(
+            yield* peer.waitNotification(
+              "textDocument/publishDiagnostics",
+              (value) => isPublished(value) && value.uri === uri && value.diagnostics.length > 0,
+            ),
+          );
+
+          assert.deepStrictEqual(repaired.diagnostics, initial.diagnostics);
+          assert.strictEqual(yield* peer.request("shutdown"), null);
+          yield* peer.notification("exit");
+          assert.strictEqual((yield* peer.exit).code, 0);
         }),
       ),
     30000,
