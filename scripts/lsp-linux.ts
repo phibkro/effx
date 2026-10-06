@@ -1,5 +1,6 @@
-// EX-0035: public Bun FFI / adopted fd0 boundary. No package owns native authority.
-import { dlopen } from "bun:ffi";
+// EX-0035: public Bun FFI / adopted fd0/fd1 boundary. No package owns native authority.
+import { dlopen, ptr } from "bun:ffi";
+import { Buffer } from "node:buffer";
 import {
   closeSync,
   fstatSync,
@@ -14,9 +15,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { isatty } from "node:tty";
 import { RAL } from "vscode-languageserver-protocol/node";
-import { Deferred, Effect, FiberSet, Schema, type Scope } from "effect";
+import { Clock, Deferred, Effect, FiberSet, Predicate, Schema, type Scope } from "effect";
 import { ClientProbeError, TransportError, type LspIO, type LspCallbackRuntime } from "@effx/cli";
-import { NativeAssetManifest, compareVersions } from "./lsp-native-manifest.ts";
+import { NativeAssetManifest, compareVersions, nativeSymbols } from "./lsp-native-manifest.ts";
 
 const positive = Schema.Int.check(Schema.isGreaterThan(0));
 
@@ -30,6 +31,7 @@ export class LinuxLspError extends Schema.TaggedError<LinuxLspError>()("LinuxLsp
     "Symbols",
     "Procfs",
     "StdinForm",
+    "StdoutForm",
     "Ownership",
     "IO",
   ]),
@@ -53,6 +55,11 @@ const readBound = Schema.is(positive.check(Schema.isLessThanOrEqualTo(65536)));
 
 const empty = new Uint8Array(0);
 
+// Spec 0018: one body (8 MiB) plus the bounded framing header (8 KiB).
+const frameBound = 8 * 1024 * 1024 + 8 * 1024;
+
+const writeAllowanceNanos = 2_000_000_000n;
+
 let fd0Owned = false;
 
 const failure = (reason: LinuxLspError["reason"]) => new LinuxLspError({ reason });
@@ -61,13 +68,7 @@ const ioFailure = (reason: TransportError["reason"], detail: string) =>
   new TransportError({ reason, cause: detail });
 
 const symbols = {
-  ready_now: { args: ["i32"], returns: "i32" },
-  fd_flags: { args: ["i32"], returns: "i32" },
-  poll_in: { args: [], returns: "i32" },
-  poll_hup: { args: [], returns: "i32" },
-  poll_err: { args: [], returns: "i32" },
-  poll_invalid: { args: [], returns: "i32" },
-  pollfd_size: { args: [], returns: "i32" },
+  ...nativeSymbols,
   // GNU public gnu/libc-version.h: const char *gnu_get_libc_version(void).
   // bun-v1.3.13 dlopen resolves dependencies via public dlsym; GNU returns an
   // immutable NUL-terminated version, copied by Bun CString before library close.
@@ -79,19 +80,24 @@ export const defaultLinuxLspManifestPath = fileURLToPath(
 );
 
 /** Lazy acquisition at the external Bun root. The session exclusively owns the
- * original fd0 (no stdin stream is ever obtained), the loaded library and one
+ * original fd0/fd1 (no stdin/stdout stream is obtained), the loaded library and one
  * callback FiberSet. Trusted config must not read fd0; this is not a sandbox.
  * Standard sockets/FIFOs, ordinary regular files and Linux PTYs are qualified.
  * Procfs, non-PTY devices and unavailable procfs fail before poll/raw read.
  * Poll is timeout-zero; read allocates at most 65536 bytes only after readiness.
  * Regular-file storage latency remains possible; accepted bytes cannot be undone.
- * One write is admitted at a time. Completion requires callback AND drain when
- * backpressured. Both Effect waits have a two-second deadline, but Bun 1.3.13
- * forces stdout FileSink writes synchronous (BunProcess.cpp:2366–2374): a
- * blocked foreign write cannot be interrupted by that deadline. EX-0035 remains
- * unverified until a cancellable writer across the full stdout matrix exists.
- * Closing refuses all new operations before fd/library release; late callbacks
- * are inert. Every close joins the same release Exit; failed release is a
+ * One immutable owned frame/cursor is admitted; concurrent writers are refused.
+ * Socket sends use MSG_DONTWAIT|MSG_NOSIGNAL; FIFO/PTY writes use an independently
+ * opened O_NONBLOCK description, never shared flag mutation. C owns per-call
+ * SIGPIPE thread masking/consumption/restoration for write(2). Kernel acceptance
+ * completes each chunk; there is no FileSink queue or late write callback.
+ * One monotonic Effect Clock deadline covers progress and release waiting.
+ * Regular output remains real IO, but Linux ignores O_NONBLOCK for storage:
+ * neither write(2) nor close(2) is made interruptible by the two-second wait.
+ * The regular WRITE/release latency premise still needs explicit approval;
+ * EX-0035 is not full-backend acceptance and no hard wall-clock bound is claimed.
+ * Closing refuses new progress before fd/library release. Every close joins
+ * the same actual release Exit; failed release is a
  * classified defect, not successful cleanup. State is transient; no retry,
  * durable queue or runtime compiler.
  * EOF/PID death/SIGINT termination is owned by the portable session/root Scope.
@@ -176,63 +182,65 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
   if (compareVersions(runtimeVersion, manifest.minimumGlibc) < 0) return yield* failure("Libc");
 
   let phase: "Open" | "Closing" | "Closed" = "Open";
-  let writeBusy = false;
+  const clock = yield* Clock.Clock;
+  let outputFd: number | undefined;
+  let fd1Owned = false;
+
+  let writer:
+    | {
+        frame: Uint8Array;
+        cursor: number;
+        readonly deadline: bigint;
+        readonly stopped: Deferred.Deferred<void>;
+      }
+    | undefined;
+
   const released = yield* Deferred.make<void>();
-  const output = yield* Effect.try({ try: () => process.stdout, catch: () => failure("IO") });
 
   const close = Effect.suspend(() => {
     if (phase !== "Open") return Deferred.await(released);
     phase = "Closing";
+    const active = writer;
 
-    const endOutput = Effect.callback<void, TransportError>((resume) => {
-      if (output.closed || output.writableFinished || output.destroyed) {
-        resume(Effect.void);
+    // Fence progress first. The active writer observes Closing on its next turn
+    // and acknowledges cursor disposal before output/library release. Its
+    // original allowance is reused, never extended by another two-second wait.
+    const stopWriter = Effect.suspend(() => {
+      if (!active) return Effect.void;
+      const remaining = active.deadline - clock.monotonicTimeNanosUnsafe();
 
-        return;
-      }
+      return Deferred.await(active.stopped).pipe(
+        Effect.interruptible,
+        Effect.timeoutOrElse({
+          duration: Math.max(0, Number(remaining) / 1_000_000),
+          orElse: () => Effect.fail(ioFailure("IO", "stdout release deadline")),
+        }),
+        Effect.orDie,
+      );
+    });
 
-      let active = true;
+    const releaseOutput = Effect.suspend(() => {
+      const fd = outputFd;
+      outputFd = undefined;
 
-      const finish = () => {
-        if (active) resume(Effect.void);
-      };
+      const releaseOriginal = Effect.suspend(() => {
+        if (!fd1Owned) return Effect.void;
+        fd1Owned = false;
 
-      const error = () => {
-        if (active) resume(Effect.fail(ioFailure("IO", "stdout release")));
-      };
-
-      output.once("finish", finish);
-      output.once("close", finish);
-      output.once("error", error);
-
-      try {
-        output.end();
-      } catch {
-        error();
-      }
-
-      return Effect.sync(() => {
-        active = false;
-        output.off("finish", finish);
-        output.off("close", finish);
-        output.off("error", error);
+        return Effect.try({ try: () => closeSync(1), catch: () => failure("IO") }).pipe(
+          Effect.orDie,
+        );
       });
-    }).pipe(
-      Effect.interruptible,
-      Effect.timeoutOrElse({
-        duration: "2 seconds",
-        orElse: () => Effect.fail(ioFailure("IO", "stdout release deadline")),
-      }),
-      Effect.onError(() =>
-        Effect.try({
-          try: () => {
-            output.destroy();
-          },
-          catch: () => ioFailure("IO", "stdout destroy"),
-        }).pipe(Effect.orDie),
-      ),
-      Effect.orDie,
-    );
+
+      // Do not retry close(2): Linux may already have released the descriptor
+      // even on failure. Every reachable release is attempted, once.
+      if (fd === undefined || fd === 1) return releaseOriginal;
+
+      return Effect.try({ try: () => closeSync(fd), catch: () => failure("IO") }).pipe(
+        Effect.orDie,
+        Effect.ensuring(releaseOriginal),
+      );
+    });
 
     const releaseLibrary = Effect.suspend(() => {
       if (libraryReleased) return Effect.void;
@@ -243,9 +251,11 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
     // Finalizer failures are defects in the never-E close contract. Ensuring
     // attempts every reachable release and retains all classified failures.
+    // A deadline bounds Effect waiting, not an uninterruptible storage syscall.
     return Effect.try({ try: () => closeSync(0), catch: () => failure("IO") }).pipe(
       Effect.orDie,
-      Effect.ensuring(endOutput),
+      Effect.ensuring(stopWriter),
+      Effect.ensuring(releaseOutput),
       Effect.ensuring(releaseLibrary),
       Effect.onExit((exit) =>
         Effect.sync(() => {
@@ -262,6 +272,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
       return Effect.sync(() => {
         fd0Owned = true;
+        fd1Owned = true;
       });
     }),
     () =>
@@ -298,6 +309,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
   const flags = yield* Effect.try({
     try: () => ({
       input: lib.symbols.poll_in(),
+      output: lib.symbols.poll_out(),
       hup: lib.symbols.poll_hup(),
       error: lib.symbols.poll_err(),
       invalid: lib.symbols.poll_invalid(),
@@ -307,7 +319,7 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
     catch: () => failure("Symbols"),
   });
 
-  const masks = [flags.input, flags.hup, flags.error, flags.invalid];
+  const masks = [flags.input, flags.output, flags.hup, flags.error, flags.invalid];
 
   if (
     !int32(flags.size) ||
@@ -316,10 +328,64 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
     !int32(flags.initial) ||
     flags.initial < 0 ||
     masks.some((v) => !int32(v) || v <= 0 || (v & (v - 1)) !== 0) ||
-    new Set(masks).size !== 4
+    new Set(masks).size !== masks.length
   )
     return yield* failure("Symbols");
-  const knownMask = masks.reduce((a, b) => a | b, 0);
+  const knownMask = flags.input | flags.hup | flags.error | flags.invalid;
+  const outputMask = flags.output | flags.hup | flags.error | flags.invalid;
+
+  const outputForm = yield* Effect.try({
+    try: () => {
+      const info = fstatSync(1);
+
+      if (info.isSocket()) {
+        outputFd = 1;
+
+        return "Socket" as const;
+      }
+
+      if (info.isFile()) {
+        if (statfsSync("/proc/self/fd/1").type === statfsSync("/proc").type)
+          throw failure("StdoutForm");
+        // Keep the inherited file cursor/O_APPEND. A procfd reopen would start
+        // a new nonappend description at offset zero. Real storage writes and
+        // their close remain uninterruptible; no regular-file deadline claim.
+        outputFd = 1;
+
+        return "File" as const;
+      }
+
+      const pty =
+        info.isCharacterDevice() &&
+        isatty(1) &&
+        /^\/dev\/pts\/\d+$/.test(readlinkSync("/proc/self/fd/1"));
+
+      if (!info.isFIFO() && !pty) throw failure("StdoutForm");
+      const fd = lib.symbols.open_output_now();
+
+      if (!int32(fd) || fd <= 1) throw failure("IO");
+      // Store immediately: the already-registered owner releases it even if
+      // metadata validation below fails. C never mutates fd1 shared flags.
+      outputFd = fd;
+      const opened = fstatSync(fd);
+
+      if (opened.dev !== info.dev || opened.ino !== info.ino || opened.mode !== info.mode)
+        throw failure("IO");
+
+      return "Nonblocking" as const;
+    },
+    catch: (cause) => (Schema.is(LinuxLspError)(cause) ? cause : failure("IO")),
+  });
+
+  const encoder = new TextEncoder();
+
+  const wouldBlock = (result: number): boolean => {
+    const retry = lib.symbols.io_would_block(result);
+
+    if (retry !== 0 && retry !== 1) throw ioFailure("IO", "invalid errno classification");
+
+    return retry === 1;
+  };
 
   const read = Effect.fnUntraced(function* (maxBytes: number) {
     if (phase !== "Open") return yield* ioFailure("Closed", "closed fd0");
@@ -367,98 +433,135 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
   });
 
   const write = Effect.fnUntraced(function* (data: Uint8Array | string) {
-    if (phase !== "Open") return yield* ioFailure("Closed", "closed stdout");
+    const stopped = yield* Deferred.make<void>();
 
-    if (writeBusy) return yield* ioFailure("Capacity", "one native writer");
-    writeBusy = true;
-    yield* Effect.callback<void, TransportError>((resume) => {
-      if (phase !== "Open") {
-        resume(Effect.fail(ioFailure("Closed", "closed stdout")));
+    // Admission and finalizer installation cannot be interrupted between
+    // retaining the sole frame and giving it an owner. No waiting producers.
+    return yield* Effect.uninterruptibleMask((restore) =>
+      Effect.suspend(() => {
+        if (phase !== "Open") return Effect.fail(ioFailure("Closed", "closed stdout"));
 
-        return;
-      }
+        if (writer) return Effect.fail(ioFailure("Capacity", "one native writer"));
 
-      let active = true;
-      let callbackDone = false;
-      let drainDone = false;
-      let submitted = false;
-
-      const finish = () => {
-        if (active && submitted && callbackDone && drainDone) resume(Effect.void);
-      };
-
-      const error = () => {
-        if (active) resume(Effect.fail(ioFailure("IO", "stdout write")));
-      };
-
-      const drain = () => {
-        drainDone = true;
-        finish();
-      };
-
-      const closed = () => {
-        if (active) resume(Effect.fail(ioFailure("Closed", "stdout closed")));
-      };
-
-      output.once("error", error);
-      output.once("close", closed);
-      output.once("drain", drain);
-
-      const cleanup = Effect.sync(() => {
-        active = false;
-        output.off("error", error);
-        output.off("close", closed);
-        output.off("drain", drain);
-      });
-      // The public stock writable callback ABI may complete after cancellation;
-      // cleanup fences that completion. Accepted kernel bytes are not retracted.
-
-      try {
-        const accepted = output.write(data, (cause) => {
-          if (!active) return;
-
-          if (cause) {
-            error();
-
-            return;
-          }
-
-          callbackDone = true;
-          finish();
-        });
-
-        drainDone = accepted || drainDone;
-        submitted = true;
-        finish();
-      } catch {
-        error();
-      }
-
-      return cleanup;
-    }).pipe(
-      Effect.timeoutOrElse({
-        duration: "2 seconds",
-        orElse: () =>
-          Effect.try({
-            try: () => {
-              output.destroy();
-            },
-            catch: () => ioFailure("IO", "stdout destroy"),
-          }).pipe(Effect.andThen(Effect.fail(ioFailure("IO", "stdout write deadline")))),
-      }),
-      Effect.onInterrupt(() =>
-        Effect.try({
+        return Effect.try({
           try: () => {
-            output.destroy();
+            const deadline = clock.monotonicTimeNanosUnsafe() + writeAllowanceNanos;
+
+            if (Predicate.isString(data) && data.length > frameBound)
+              throw ioFailure("Capacity", "native frame bound");
+
+            const length = Predicate.isString(data)
+              ? Buffer.byteLength(data, "utf8")
+              : data.byteLength;
+
+            if (length > frameBound) throw ioFailure("Capacity", "native frame bound");
+            // This necessary copy isolates mutable caller bytes while we wait
+            // for readiness; C receives a const pointer to private storage.
+            const frame = Predicate.isString(data) ? encoder.encode(data) : new Uint8Array(data);
+            const active = { frame, cursor: 0, deadline, stopped };
+            writer = active;
+
+            return active;
           },
-          catch: () => ioFailure("IO", "stdout destroy"),
-        }).pipe(Effect.orDie, Effect.ensuring(close)),
-      ),
-      Effect.ensuring(
-        Effect.sync(() => {
-          writeBusy = false;
-        }),
-      ),
+          catch: (cause) =>
+            Schema.is(TransportError)(cause) ? cause : ioFailure("IO", "stdout frame"),
+        }).pipe(
+          Effect.flatMap((active) =>
+            restore(
+              Effect.gen(function* () {
+                while (active.cursor < active.frame.byteLength) {
+                  yield* Effect.try({
+                    try: () => {
+                      // Fence, readiness, pointer construction and syscall are
+                      // one synchronous boundary. There is no scheduler gap
+                      // in which Closing can release the FD/library beneath us.
+                      if (phase !== "Open" || outputFd === undefined)
+                        throw ioFailure("Closed", "closed stdout");
+
+                      if (clock.monotonicTimeNanosUnsafe() >= active.deadline)
+                        throw ioFailure("IO", "stdout write deadline");
+                      const ready = lib.symbols.output_ready_now(outputFd);
+
+                      if (!int32(ready)) throw ioFailure("IO", "invalid output poll result");
+
+                      if (ready < 0) {
+                        if (wouldBlock(ready)) return;
+                        throw ioFailure("IO", "output poll");
+                      }
+
+                      if (
+                        (ready & ~outputMask) !== 0 ||
+                        (ready & (flags.hup | flags.error | flags.invalid)) !== 0
+                      )
+                        throw ioFailure("IO", "output poll error");
+
+                      if ((ready & flags.output) === 0) return;
+                      const count = Math.min(65536, active.frame.byteLength - active.cursor);
+
+                      // Validate the entire public ptr(view, byteOffset) span
+                      // before forming a pointer. Keep backing storage alive
+                      // until this synchronous native call has returned.
+                      if (
+                        !Number.isSafeInteger(active.cursor) ||
+                        active.cursor < 0 ||
+                        !readBound(count) ||
+                        active.cursor + count > active.frame.byteLength
+                      )
+                        throw ioFailure("Capacity", "native output span");
+                      const pointer = ptr(active.frame, active.cursor);
+
+                      const accepted =
+                        outputForm === "Socket"
+                          ? lib.symbols.socket_write_now(outputFd, pointer, count)
+                          : lib.symbols.fd_write_now(outputFd, pointer, count);
+
+                      if (!int32(accepted)) throw ioFailure("IO", "invalid native write result");
+
+                      if (accepted < 0) {
+                        if (wouldBlock(accepted)) return;
+                        throw ioFailure("IO", "stdout native write");
+                      }
+
+                      if (accepted === 0 || accepted > count)
+                        throw ioFailure("IO", "native write progress");
+                      active.cursor += accepted;
+
+                      if (clock.monotonicTimeNanosUnsafe() >= active.deadline)
+                        throw ioFailure("IO", "stdout write deadline");
+                    },
+                    catch: (cause) =>
+                      Schema.is(TransportError)(cause)
+                        ? cause
+                        : ioFailure("IO", "stdout native write"),
+                  });
+
+                  if (active.cursor < active.frame.byteLength) yield* turn;
+                }
+              }),
+            ).pipe(
+              Effect.timeoutOrElse({
+                duration: Math.max(
+                  0,
+                  Number(active.deadline - clock.monotonicTimeNanosUnsafe()) / 1_000_000,
+                ),
+                orElse: () => Effect.fail(ioFailure("IO", "stdout write deadline")),
+              }),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  active.frame = empty;
+                  active.cursor = 0;
+
+                  if (writer === active) writer = undefined;
+                }).pipe(Effect.andThen(Deferred.succeed(stopped, undefined))),
+              ),
+              // Dispose the cursor before joining close: waiting on our own
+              // stopped receipt during interruption would deadlock. Accepted
+              // kernel bytes remain accepted; no later chunk is submitted.
+              Effect.onError(() => close),
+            ),
+          ),
+        );
+      }),
     );
   });
 
