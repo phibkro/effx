@@ -310,6 +310,26 @@ const program = Effect.gen(function* () {
   // Both files are staged until every check and the closed projection succeed.
   yield* fs.makeDirectory(assetDirectory, { recursive: true });
   yield* fs.writeFileString(`${first}/manifest.json`, `${JSON.stringify(projection, null, 2)}\n`);
+  // Reuse the repository formatter at build time so tracked manifest generation
+  // obeys the same convention as the normal hooks, rather than a second layout.
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  const formatter = yield* spawner
+    .spawn(
+      ChildProcess.make("./node_modules/.bin/oxfmt", [`${first}/manifest.json`], {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        forceKillAfter: "2 seconds",
+      }),
+    )
+    .pipe(Effect.mapError(() => new NativeBuildFailure({ stage: "projection" })));
+
+  const formatted = yield* formatter.exitCode.pipe(
+    Effect.mapError(() => new NativeBuildFailure({ stage: "projection" })),
+  );
+
+  if (formatted !== 0) return yield* new NativeBuildFailure({ stage: "projection" });
   yield* fs.copyFile(`${first}/${library}`, `${assetDirectory}/${library}`);
   yield* fs.copyFile(`${first}/manifest.json`, `${assetDirectory}/lsp-readiness.json`);
 });

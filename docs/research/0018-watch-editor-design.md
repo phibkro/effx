@@ -1010,8 +1010,11 @@ Main landing, complete feature acceptance and the final code/docs gate stay held
 - Scope: public Bun dlopen, audited `tools/native/lsp-readiness.c`, packaged native
   asset, bounded raw IO, stdout completion, PID probe and scoped callback bridge.
   Own Node APIs remain forbidden in packages.
-  Native host tests live under `scripts/test/lsp-linux.*`; their owned process
-  invocation uses the existing EX-0023 test-custody boundary.
+  Native host tests include scripts/test/lsp-linux.*, lsp-linux-extra.* and
+  lsp-linux-sigpipe.*; scoped process invocation uses EX-0023. The signal test
+  condition/observation helper tools/native/lsp-sigpipe-test.c and test-assets
+  never replace production write functions or compile at runtime. The packed
+  refusal boundary scripts/packed-lsp-stdout.ts projects observable fields only.
 - Rules: FX002 native-first, FX003 runtime boundary, FX004 decoded boundaries,
   FX006 resource ownership, FX009 finite admission and FX012 retirement.
 - Missing capability: installed Stdio/Bun stdin does not establish bounded raw
@@ -1029,7 +1032,8 @@ Main landing, complete feature acceptance and the final code/docs gate stay held
 
 **EX-0036 — native-asset build-tool boundary.**
 
-- Owner: repository root (`AGENTS.md`); `scripts/build-lsp-native.ts`.
+- Owner: repository root (`AGENTS.md`); scripts/build-lsp-native.ts and
+  scripts/build-lsp-sigpipe-test.ts (test-only condition/observation asset).
 - Scope: unstable Effect ChildProcess for owned build-time compiler/ELF tools.
   No runtime compiler or package process API.
 - Rules: FX002 native-first, FX003 root ownership, FX004 manifest decoding,
@@ -1158,11 +1162,10 @@ no matching owned fixture/peer. The safe selected receipt is
 `native-smoke-a4f2ecc.json`; each failed gate has its own `native-gate-<ref>.json`.
 None of those receipts contains raw causes, stderr, args, environment or private
 payloads. The native asset was rebuilt twice after B source qualification.
-Current source SHA256 is
-`8fad9c4eb545bb136b3ef655c61b693ee9a0da0833b76a4913f5d75e764a1b67`;
-the independently re-derived asset SHA256 is
-`db8843396d90597318a5eacdfb7a11cdee22df912dae1e2ee2c7eb99f0e49d3c`.
-ABI 2 derives GLIBC_2.32 and libc.so.6; this is no Ubuntu or runtime certification.
+The current source/artifact identities and derived ELF requirements have one
+authoritative manifest in packages/cli/native/lsp-readiness.json. The exact
+smoke identities remain in native-smoke-a4f2ecc.json. Those references do not
+certify Ubuntu or an unexercised runtime.
 
 ### Covered and still-unexercised criteria
 
