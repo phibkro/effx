@@ -54,7 +54,7 @@ const GenericObservations = Schema.Struct({
       value,
     ): value is () => Promise<{
       success: { status: number; body: string };
-      denial: { status: number; handlerRan: boolean };
+      denial: { status: number; body: string };
     }> => Predicate.isFunction(value),
   ),
 });
