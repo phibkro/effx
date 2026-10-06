@@ -3,7 +3,20 @@ import { assert, describe, it } from "@effect/vitest";
 import { compile } from "@effx/compiler";
 import type { CompilerFault, SourceFrontend } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
-import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Schema } from "effect";
+import {
+  Cause,
+  Console,
+  Context,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Queue,
+  Schema,
+} from "effect";
 import type { Crypto, Path, PlatformError } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import { expectTypeOf } from "vitest";
@@ -18,28 +31,94 @@ import type { WatchClosed, WatchLimit } from "../src/watch-files.ts";
 import { acquireOutputOwner } from "../src/output-owner.ts";
 import type { SessionClosed } from "../src/project-session.ts";
 
-const platform = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
+type DevExit = Exit.Exit<
+  Effect.Success<ReturnType<typeof dev>>,
+  Effect.Error<ReturnType<typeof dev>>
+>;
+
+class ReportReceipts extends Context.Service<
+  ReportReceipts,
+  {
+    readonly console: Console.Console;
+    readonly awaitWake: Effect.Effect<void>;
+    readonly exit: Effect.Effect<Option.Option<DevExit>>;
+    readonly noteExit: (exit: DevExit) => Effect.Effect<void>;
+  }
+>()("@effx/cli/test/watch/ReportReceipts") {
+  static readonly layer = Layer.effect(
+    ReportReceipts,
+    Effect.gen(function* () {
+      const actual = yield* Console.Console;
+      const wake = yield* Queue.dropping<void>(1);
+      let exit: Option.Option<DevExit> = Option.none();
+      yield* Effect.addFinalizer(() => Queue.shutdown(wake));
+
+      return ReportReceipts.of({
+        // Forward every real Console method. Only native log completion wakes the
+        // consumer; one coalesced wake retains no report history or waiting producer.
+        console: Object.assign(Object.create(actual), {
+          log: (...args: ReadonlyArray<unknown>) => {
+            actual.log(...args);
+            Queue.offerUnsafe(wake, undefined);
+          },
+        }),
+        awaitWake: Queue.take(wake),
+        exit: Effect.sync(() => exit),
+        noteExit: (completed) =>
+          Effect.sync(() => {
+            exit = Option.some(completed);
+            Queue.offerUnsafe(wake, undefined);
+          }),
+      });
+    }),
+  );
+}
+
+const consoleReceipts = Layer.effect(
+  Console.Console,
+  ReportReceipts.pipe(Effect.map((receipts) => receipts.console)),
+).pipe(Layer.provideMerge(ReportReceipts.layer));
+
+const platform = TsSourceFrontend.layer.pipe(
+  Layer.provideMerge(BunServices.layer),
+  Layer.provideMerge(consoleReceipts),
+);
+
+const observeDev = Effect.fnUntraced(function* (...args: Parameters<typeof dev>) {
+  const receipts = yield* ReportReceipts;
+
+  return yield* dev(...args).pipe(Effect.onExit(receipts.noteExit));
+});
 
 const versions = { effx: "test", effect: "4.0.0", typescript: "6.0.3" };
 
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-// Completion is the program's report, not elapsed time. The clock only drives
-// native observation; a finite attempt bound fails if the report never arrives.
+// One controlled clock step admits a native observer pass after an edit. Receipt
+// waiting then suspends for real IO/reporting; elapsed time never signals success.
 const awaitOutput = Effect.fnUntraced(function* (
   after: number,
   accepts: (text: string) => boolean,
 ) {
-  for (let attempt = 0; attempt < 80; attempt++) {
+  const receipts = yield* ReportReceipts;
+  yield* TestClock.adjust("250 millis");
+
+  while (true) {
     const lines = yield* TestConsole.logLines;
     const text = lines.slice(after).map(String).join("\n");
 
     if (accepts(text)) return { text, offset: lines.length };
-    yield* TestClock.adjust("250 millis");
-    yield* Effect.yieldNow;
-  }
 
-  assert.fail("Dev did not publish the expected report");
+    const exit = yield* receipts.exit;
+
+    if (Option.isSome(exit)) {
+      if (Exit.isFailure(exit.value)) return yield* Effect.failCause(exit.value.cause);
+
+      assert.fail("Dev exited without publishing the expected report");
+    }
+
+    yield* receipts.awaitWake;
+  }
 });
 
 const fixture = Effect.fnUntraced(function* () {
@@ -95,7 +174,7 @@ describe("actual scoped effx dev journey", () => {
         );
 
         const worker = yield* Effect.forkScoped(
-          dev({ project: config, config: executable, emit }, versions),
+          observeDev({ project: config, config: executable, emit }, versions),
         );
 
         const output = yield* awaitOutput(0, finished);
@@ -117,7 +196,7 @@ describe("actual scoped effx dev journey", () => {
       const { fs, dir, config } = yield* fixture();
       const app = dir + "/src/operations.ts";
       const original = yield* fs.readFileString(app);
-      const worker = yield* Effect.forkScoped(dev({ project: config }, versions));
+      const worker = yield* Effect.forkScoped(observeDev({ project: config }, versions));
       let output = yield* awaitOutput(0, finished);
       const project = yield* resolveProject(config);
       const oneShot = yield* compile(project.config, project.extensions);
@@ -165,7 +244,7 @@ describe("actual scoped effx dev journey", () => {
       );
 
       const worker = yield* Effect.forkScoped(
-        dev({ project: config, config: executable }, versions),
+        observeDev({ project: config, config: executable }, versions),
       );
 
       let output = yield* awaitOutput(0, finished);
@@ -187,7 +266,7 @@ describe("actual scoped effx dev journey", () => {
         const { fs, dir, config, selected } = yield* fixture();
         const app = dir + "/src/operations.ts";
         const original = yield* fs.readFileString(app);
-        const worker = yield* Effect.forkScoped(dev({ project: config }, versions));
+        const worker = yield* Effect.forkScoped(observeDev({ project: config }, versions));
         const initial = yield* awaitOutput(0, finished);
 
         if (change === "rename") {
@@ -233,7 +312,7 @@ describe("actual scoped effx dev journey", () => {
         const original = yield* fs.readFileString(app);
 
         const worker = yield* Effect.forkScoped(
-          dev({ project: config, outDir, build: true, emit: "all" }, versions),
+          observeDev({ project: config, outDir, build: true, emit: "all" }, versions),
         );
 
         const initial = yield* awaitOutput(0, (text) => text.includes("manifest"));
@@ -311,7 +390,7 @@ describe("actual scoped effx dev journey", () => {
           );
 
         const worker = yield* Effect.forkScoped(
-          dev(
+          observeDev(
             {
               project: config,
               config: executable,
@@ -375,7 +454,7 @@ describe("actual scoped effx dev journey", () => {
       );
 
       const worker = yield* Effect.forkScoped(
-        dev({ project: config, config: executable }, versions),
+        observeDev({ project: config, config: executable }, versions),
       );
 
       const output = yield* awaitOutput(0, (text) => text.includes("RestartRequired"));
@@ -387,7 +466,11 @@ describe("actual scoped effx dev journey", () => {
   it.effect("saved emit changes remove only manifest-owned obsolete generated files", () =>
     Effect.gen(function* () {
       const { fs, dir, config, selected } = yield* fixture();
-      const worker = yield* Effect.forkScoped(dev({ project: config, build: true }, versions));
+
+      const worker = yield* Effect.forkScoped(
+        observeDev({ project: config, build: true }, versions),
+      );
+
       const initial = yield* awaitOutput(0, (text) => text.includes("manifest"));
       const output = dir + "/.effx/generated";
       const before = yield* fs.readDirectory(output);
@@ -407,10 +490,18 @@ describe("actual scoped effx dev journey", () => {
   it.effect("a competing dev build terminates without changing the first owner artifacts", () =>
     Effect.gen(function* () {
       const { fs, dir, config } = yield* fixture();
-      const first = yield* Effect.forkScoped(dev({ project: config, build: true }, versions));
+
+      const first = yield* Effect.forkScoped(
+        observeDev({ project: config, build: true }, versions),
+      );
+
       yield* awaitOutput(0, (text) => text.includes("manifest"));
       const manifest = yield* fs.readFileString(dir + "/.effx/manifest.json");
-      const second = yield* Effect.forkScoped(dev({ project: config, build: true }, versions));
+
+      const second = yield* Effect.forkScoped(
+        observeDev({ project: config, build: true }, versions),
+      );
+
       const exit = yield* Fiber.await(second);
       assert.isTrue(Exit.isFailure(exit));
 
@@ -453,7 +544,7 @@ describe("actual scoped effx dev journey", () => {
         yield* fs.writeFileString(covered, "export const selected = true;");
 
         const worker = yield* Effect.forkScoped(
-          dev({ project: config, executableFiles: [covered] }, versions),
+          observeDev({ project: config, executableFiles: [covered] }, versions),
         );
 
         yield* awaitOutput(0, finished);
@@ -509,7 +600,7 @@ describe("actual scoped effx dev journey", () => {
 
         yield* Effect.gen(function* () {
           const worker = yield* Effect.forkScoped(
-            dev({ project: config, build: true }, versions).pipe(
+            observeDev({ project: config, build: true }, versions).pipe(
               Effect.provideService(FileSystem.FileSystem, observedFs),
             ),
           );
@@ -562,7 +653,11 @@ describe("actual scoped effx dev journey", () => {
         if (alias === "physical-alias") yield* fs.symlink(dir + "/src", output);
 
         yield* fs.writeFileString(config, selected.replace('"include":', '"files":'));
-        const worker = yield* Effect.forkScoped(dev({ project: config, outDir: output }, versions));
+
+        const worker = yield* Effect.forkScoped(
+          observeDev({ project: config, outDir: output }, versions),
+        );
+
         const exit = yield* Fiber.await(worker);
         assert.isTrue(Exit.isFailure(exit));
 
@@ -598,7 +693,10 @@ describe("actual scoped effx dev journey", () => {
 
         yield* fs.writeFileString(config, oldPolicy);
 
-        const worker = yield* Effect.forkScoped(dev({ project: config, build: true }, versions));
+        const worker = yield* Effect.forkScoped(
+          observeDev({ project: config, build: true }, versions),
+        );
+
         const initial = yield* awaitOutput(0, (text) => text.includes("manifest"));
         yield* fs.writeFileString(config, newPolicy);
 
