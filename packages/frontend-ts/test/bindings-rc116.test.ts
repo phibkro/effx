@@ -48,6 +48,17 @@ const Observations = Schema.Struct({
 
 type BoundBehaviorObservations = typeof Observations.Type;
 
+const GenericObservations = Schema.Struct({
+  observeGenericBoundBehaviors: Schema.declare(
+    (
+      value,
+    ): value is () => Promise<{
+      success: { status: number; body: string };
+      denial: { status: number; handlerRan: boolean };
+    }> => Predicate.isFunction(value),
+  ),
+});
+
 const typeDiagnostics = Effect.fnUntraced(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -223,6 +234,34 @@ describe("bound Profile and Content against installed rc.116", () => {
           ),
           diagnostics.map((diagnostic) => `${diagnostic.file}: ${diagnostic.message}`).join("\n"),
         );
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+    120_000,
+  );
+
+  it.effect(
+    "runs the generic guards-mode consumer with observable guard and handler Effects",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* generatedFixture();
+        const path = yield* Path.Path;
+        const modulePath = path.join(directory, "src", "generic-behaviors.ts");
+
+        const loaded = yield* Effect.tryPromise({
+          try: () => import(modulePath),
+          catch: (cause) => new BoundBehaviorFailure({ cause }),
+        });
+
+        const observations = yield* Schema.decodeUnknownEffect(GenericObservations)(loaded);
+
+        const observed = yield* Effect.tryPromise({
+          try: () => observations.observeGenericBoundBehaviors(),
+          catch: (cause) => new BoundBehaviorFailure({ cause }),
+        });
+
+        assert.strictEqual(observed.success.status, 200);
+        assert.strictEqual(observed.success.body, "publish:4096");
+        assert.notStrictEqual(observed.denial.status, 200);
+        assert.notStrictEqual(observed.denial.body, observed.success.body);
       }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );

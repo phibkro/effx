@@ -1,0 +1,94 @@
+import { Effect, Layer } from "effect";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import {
+  ContentApiHandlers,
+  ContentApiHandlersWith,
+} from "../project/bound-generic/.effx/generated/content-handlers.js";
+import { ExternalContentApi } from "./content-root.js";
+import { makeGenericGuards, makeGenericRawHandlers } from "./content-bound-generic.js";
+import { PersonSecurity } from "./profile-support.js";
+
+export interface GenericBehaviorObservations {
+  readonly success: { readonly status: number; readonly body: string };
+  readonly denial: { readonly status: number; readonly body: string };
+}
+
+const Security = Layer.succeed(PersonSecurity, { sessionCookie: (effect) => effect });
+const genericContext = { maxBodyBytes: 4096 };
+
+const publishRequest = () =>
+  new Request("http://fixture/api/content/articles/article-1:publish", {
+    method: "POST",
+    body: "{}",
+    headers: {
+      cookie: "session=fixture",
+      "content-type": "application/json",
+      "idempotency-key": "fixture-key",
+      "if-match": '"v1"',
+    },
+  });
+
+/**
+ * Runs the real generated generic bound factory on the unchanged rc.116 content root: a constrained
+ * generic raw factory with a guards factory that shares its context tuple. The success case proves the
+ * generic context reaches the handler Effect; the denial case proves the guard runs before the raw
+ * handler, whose Effect must never be evaluated.
+ */
+export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservations> =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const successHost = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(ExternalContentApi).pipe(
+                Layer.provide(ContentApiHandlers(genericContext)),
+                Layer.provide(Security),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (host) => Effect.promise(() => host.dispose()),
+        );
+
+        const successResponse = yield* Effect.promise(() => successHost.handler(publishRequest()));
+        const successBody = yield* Effect.promise(() => successResponse.text());
+
+        const denialHost = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(ExternalContentApi).pipe(
+                Layer.provide(
+                  ContentApiHandlersWith({
+                    raw: {
+                      ...makeGenericRawHandlers(genericContext),
+                      publishArticle: (input, authorize) =>
+                        makeGenericRawHandlers(genericContext).publishArticle(input, authorize),
+                    },
+                    guards: {
+                      ...makeGenericGuards(genericContext),
+                      "content.publishArticle": () => Effect.die("denied"),
+                    },
+                  }),
+                ),
+                Layer.provide(Security),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (host) => Effect.promise(() => host.dispose()),
+        );
+
+        const denialResponse = yield* Effect.promise(() => denialHost.handler(publishRequest()));
+        const denialBody = yield* Effect.promise(() => denialResponse.text());
+
+        return {
+          success: { status: successResponse.status, body: successBody },
+          denial: { status: denialResponse.status, body: denialBody },
+        };
+      }),
+    ),
+  );
