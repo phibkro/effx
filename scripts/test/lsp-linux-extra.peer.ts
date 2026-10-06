@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { Socket } from "node:net";
+import { Readable, Writable } from "node:stream";
 import { Effect, Schema } from "effect";
 import {
   ExtraMode,
@@ -47,6 +47,51 @@ const wouldBlock = Schema.is(Schema.Struct({ code: Schema.Literals(["EAGAIN", "E
 
 const knownSignal = Schema.is(ExtraPeerResult.fields.signal);
 
+// Selected observations survive scope failure; an absent exit stays null, never 0.
+const observed: { -readonly [K in keyof ExtraPeerResult]: ExtraPeerResult[K] } & {
+  receipts: Array<ExtraReceipt>;
+} = {
+  code: null,
+  signal: null,
+  receipts: [],
+  frameBytesRead: 0,
+  prefillBytesRead: 0,
+  prefixVerified: false,
+  frameVerified: false,
+  fixtureGone: false,
+  ptyChildJoined: false,
+};
+
+let outerFailed = false;
+
+let observedFixturePid: number | undefined;
+
+let observedForm: typeof ExtraForm.Type | undefined;
+
+let observedControllerClosed = false;
+
+const projectFailure = (fault: ExtraPeerFault): ExtraPeerResult => {
+  outerFailed = true;
+  let fixtureGone = false;
+
+  if (observedFixturePid !== undefined) {
+    try {
+      process.kill(observedFixturePid, 0);
+    } catch (cause) {
+      fixtureGone = goneProcess(cause);
+    }
+  }
+
+  return {
+    ...observed,
+    fixtureGone,
+    ptyChildJoined:
+      observedControllerClosed &&
+      (observedForm !== "pty" || (observed.signal === null && fixtureGone)),
+    fault: { reason: fault.reason, stage: fault.stage },
+  };
+};
+
 const main = Effect.scoped(
   Effect.gen(function* () {
     const launch = yield* decodeLaunch({
@@ -54,23 +99,34 @@ const main = Effect.scoped(
       manifest: process.argv[3],
       mode: process.argv[4],
       form: process.argv[5],
-    });
+    }).pipe(Effect.mapError(() => new ExtraPeerError({ reason: "Setup", stage: "launch" })));
+
+    observedForm = launch.form;
 
     const directory = yield* Effect.acquireRelease(
-      Effect.sync(() => mkdtempSync(join(tmpdir(), "effx-lsp-extra-"))),
+      Effect.try({
+        try: () => mkdtempSync(join(tmpdir(), "effx-lsp-extra-")),
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "setup" }),
+      }),
       (owned) => Effect.sync(() => rmSync(owned, { recursive: true, force: true })),
     );
 
     const sinkPath = join(directory, "output.fifo");
 
-    if (launch.form === "fifo") yield* Effect.sync(() => execFileSync("mkfifo", [sinkPath]));
+    if (launch.form === "fifo")
+      yield* Effect.try({
+        try: () => execFileSync("mkfifo", [sinkPath]),
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "setup" }),
+      });
 
     const reader = yield* Effect.acquireRelease(
-      Effect.sync(() =>
-        launch.form === "fifo"
-          ? openSync(sinkPath, constants.O_RDONLY | constants.O_NONBLOCK)
-          : undefined,
-      ),
+      Effect.try({
+        try: () =>
+          launch.form === "fifo"
+            ? openSync(sinkPath, constants.O_RDONLY | constants.O_NONBLOCK)
+            : undefined,
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "output-stream" }),
+      }),
       (fd) =>
         Effect.sync(() => {
           if (fd !== undefined) closeSync(fd);
@@ -79,8 +135,11 @@ const main = Effect.scoped(
 
     let parentWriter: number | undefined;
     yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        if (reader !== undefined) parentWriter = openSync(sinkPath, constants.O_WRONLY);
+      Effect.try({
+        try: () => {
+          if (reader !== undefined) parentWriter = openSync(sinkPath, constants.O_WRONLY);
+        },
+        catch: () => new ExtraPeerError({ reason: "Setup", stage: "output-stream" }),
       }),
       () =>
         Effect.sync(() => {
@@ -113,8 +172,20 @@ const main = Effect.scoped(
             stdio: ["pipe", parentWriter ?? "pipe", "pipe", "pipe", "pipe"],
           });
 
-          owned.once("close", () => {
+          owned.once("close", (code, signal) => {
             controllerClosed = true;
+            observedControllerClosed = true;
+            observed.code = code;
+            observed.signal = knownSignal(signal) ? signal : "Other";
+          });
+          // A spawn error can arrive after an early topology failure has unwound
+          // its callback. Keep this classified listener until the real close.
+          owned.on("error", () => {
+            observed.fault ??= { reason: "Spawn", stage: "spawn" };
+          });
+          owned.once("exit", (code, signal) => {
+            observed.code = code;
+            observed.signal = knownSignal(signal) ? signal : "Other";
           });
 
           return owned;
@@ -164,13 +235,16 @@ const main = Effect.scoped(
     );
 
     // The fixture owns the inherited original writer now; our copy would hide EOF.
-    yield* Effect.sync(() => {
-      if (parentWriter !== undefined) {
-        closeSync(parentWriter);
-        parentWriter = undefined;
-      }
+    yield* Effect.try({
+      try: () => {
+        if (parentWriter !== undefined) {
+          closeSync(parentWriter);
+          parentWriter = undefined;
+        }
+      },
+      catch: () => new ExtraPeerError({ reason: "Setup", stage: "output-stream" }),
     });
-    const receipts: Array<ExtraReceipt> = [];
+    const receipts = observed.receipts;
     let fifoDrain: (() => void) | undefined;
     let finished = false;
 
@@ -185,19 +259,12 @@ const main = Effect.scoped(
       );
 
     return yield* Effect.callback<ExtraPeerResult, ExtraPeerError>((resume) => {
-      const receiptStream = child.stdio[3];
-      const control = child.stdio[4];
+      // Public stream roles, not private handles or a JS-class claim of kernel kind.
+      // Node v24.21.0 doc/api/child_process.md: stdio[fd] is a pipe stream;
+      // stdout is Readable. Native kinds are checked by the fixture's FD receipts.
+      const receiptStream = child.stdio[3] instanceof Readable ? child.stdio[3] : undefined;
+      const control = child.stdio[4] instanceof Writable ? child.stdio[4] : undefined;
       const output = child.stdout;
-
-      if (
-        !(receiptStream instanceof Socket) ||
-        !(control instanceof Socket) ||
-        (reader === undefined && !(output instanceof Socket))
-      ) {
-        resume(Effect.fail(new ExtraPeerError({ reason: "Topology", stage: "setup" })));
-
-        return;
-      }
 
       // No flowing reader until the writer-waiting receipt. Raw FIFO reads have
       // no hidden libuv read registration; socket/PTY readable mode is budgeted.
@@ -224,11 +291,14 @@ const main = Effect.scoped(
       const backing = new Uint8Array(65536);
 
       const recordFault = (reason: ExtraPeerFault["reason"], stage: ExtraPeerFault["stage"]) => {
-        if (active) fault ??= { reason, stage };
+        if (active) {
+          fault ??= { reason, stage };
+          observed.fault = fault;
+        }
       };
 
       const acknowledge = (byte: number) => {
-        control.write(new Uint8Array([byte]), (error) => {
+        control?.write(new Uint8Array([byte]), (error) => {
           if (error) recordFault("Control", "prefix");
         });
       };
@@ -272,6 +342,11 @@ const main = Effect.scoped(
           fullAck = true;
           acknowledge(100);
         }
+
+        observed.prefillBytesRead = prefillBytesRead;
+        observed.frameBytesRead = frameBytesRead;
+        observed.prefixVerified = prefixVerified;
+        observed.frameVerified = frameVerified;
       };
 
       const cleanup = () => {
@@ -289,10 +364,11 @@ const main = Effect.scoped(
         // not prevent the normal controller waitpid path from completing.
         if (!controllerClosed) output?.resume();
         child.off("close", close);
+        child.off("exit", exited);
         child.off("error", spawnError);
         // Keep error handlers through stream destruction; late writes are inert.
         child.stdin?.destroy();
-        control.destroy();
+        control?.destroy();
       };
 
       const finish = () => {
@@ -365,7 +441,16 @@ const main = Effect.scoped(
 
               bytes = backing.subarray(0, count);
             } else {
-              if (!output || output.readableLength === 0) break;
+              if (!output) break;
+
+              if (output.readableLength === 0) {
+                // A paused Readable still needs read(0) to observe EOF. A readable
+                // listener prevents Node flushStdio.resume from flowing.
+                // v24.21.0 lib/internal/streams/readable.js:680-700,1243-1260.
+                output.read(0);
+                break;
+              }
+
               reading = true;
 
               const chunk: unknown = output.read(
@@ -407,6 +492,7 @@ const main = Effect.scoped(
       const receiptError = () => recordFault("Receipt", "receipt");
       const spawnError = () => recordFault("Spawn", "spawn");
       const streamError = () => recordFault("Control", "receipt");
+      const outputError = () => recordFault("Drain", "output-stream");
 
       const close = (code: number | null, signal: string | null) => {
         childExit = { code, signal };
@@ -415,6 +501,14 @@ const main = Effect.scoped(
         drainBudget = Infinity;
         drain();
         finish();
+      };
+
+      const exited = () => {
+        // Exit is the producer milestone; close also waits for stdio. Granting
+        // the terminal drain only on close makes stdout and close wait on each other.
+        // v24.21.0 lib/internal/child_process.js:318-333,1137-1143.
+        drainBudget = Infinity;
+        drain();
       };
 
       const receive = (chunk: Uint8Array) => {
@@ -446,6 +540,7 @@ const main = Effect.scoped(
 
           if (event.fixturePid !== undefined) {
             fixturePid = event.fixturePid;
+            observedFixturePid = fixturePid;
 
             if (stopRequested && !stopSent) {
               stopSent = true;
@@ -496,22 +591,36 @@ const main = Effect.scoped(
       };
 
       detachReceipts = () => {
-        receiptStream.off("data", receive);
-        receiptStream.off("error", receiptError);
+        receiptStream?.off("data", receive);
+        receiptStream?.off("error", receiptError);
       };
 
-      receiptStream.on("data", receive);
-      receiptStream.on("error", receiptError);
-      control.on("error", streamError);
+      receiptStream?.on("data", receive);
+      receiptStream?.on("error", receiptError);
+      control?.on("error", streamError);
       child.stdin?.on("error", streamError);
       child.stderr?.on("data", () => {}); // raw foreign stderr is never acquired into a receipt
       child.on("error", spawnError);
       child.once("close", close);
+      child.once("exit", exited);
       output?.on("readable", drain);
+      output?.on("error", outputError);
       output?.on("end", end);
       output?.on("data", consumeOnExit);
       output?.pause();
       fifoDrain = drain;
+
+      if (receiptStream === undefined) recordFault("Topology", "receipt-stream");
+      else if (control === undefined) recordFault("Topology", "control-stream");
+      else if (reader === undefined && !(output instanceof Readable))
+        recordFault("Topology", "output-stream");
+
+      if (fault?.reason === "Topology") {
+        // Keep FD3 observation through the scope's real fixture/controller join,
+        // including PTY PID discovery. Typed failure cannot manufacture code 0.
+        resume(Effect.fail(new ExtraPeerError(fault)));
+        cleanup();
+      }
 
       return Effect.sync(cleanup);
     }).pipe(Effect.timeout("10 seconds"));
@@ -528,17 +637,32 @@ process.once("SIGINT", interrupt);
 
 process.once("SIGTERM", interrupt);
 
-void Effect.runPromiseExit(main.pipe(Effect.flatMap(encodeResult)), { signal: abort.signal }).then(
-  (exit) => {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", interrupt);
-
-    if (exit._tag === "Failure") {
-      process.exitCode = 1;
-
-      return;
-    }
-
-    process.stdout.write(exit.value + "\n");
-  },
+const projected = main.pipe(
+  Effect.catchTags({
+    ExtraPeerError: (fault) => Effect.sync(() => projectFailure(fault)),
+    TimeoutError: () => Effect.sync(() => projectFailure({ reason: "Timeout", stage: "scope" })),
+  }),
+  Effect.flatMap((result) =>
+    encodeResult(result).pipe(
+      Effect.catchTag("SchemaError", () =>
+        encodeResult(projectFailure({ reason: "Projection", stage: "projection" })),
+      ),
+    ),
+  ),
 );
+
+void Effect.runPromiseExit(projected, { signal: abort.signal }).then((exit) => {
+  process.off("SIGINT", interrupt);
+  process.off("SIGTERM", interrupt);
+
+  if (exit._tag === "Failure") {
+    process.exitCode = 1;
+
+    return;
+  }
+
+  if (outerFailed || observed.fault !== undefined) process.exitCode = 1;
+  process.stdout.write(exit.value + "\n", (error) => {
+    if (error) process.exitCode = 1;
+  });
+});
