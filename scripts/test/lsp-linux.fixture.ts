@@ -324,7 +324,7 @@ const program = Effect.gen(function* () {
 
       yield* receipt({ event: "result", checks });
     }),
-  ).pipe(Effect.ensuring(receipt({ event: "released" }).pipe(Effect.orDie)));
+  ).pipe(Effect.ensuring(receipt({ event: "fixture-scope-exited" }).pipe(Effect.orDie)));
 }).pipe(
   Effect.catchTag("LinuxLspError", (error) => receipt({ event: "failure", reason: error.reason })),
   Effect.onExit((exit) =>

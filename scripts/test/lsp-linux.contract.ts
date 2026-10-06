@@ -8,7 +8,7 @@ export const LinuxDescriptorIdentity = Schema.Struct({
 });
 
 export const LinuxFixtureReceipt = Schema.Struct({
-  event: Schema.Literals(["acquired", "released", "result", "failure"]),
+  event: Schema.Literals(["acquired", "fixture-scope-exited", "result", "failure"]),
   fixturePid: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
   sinkKind: Schema.optionalKey(Schema.Literal("fifo")),
   finiteAcceptedBytes: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),

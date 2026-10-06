@@ -75,7 +75,7 @@ describe("Linux native LSP boundary", () => {
         assert.strictEqual(result.code, 0);
         assert.deepStrictEqual(
           result.receipts.map((r) => r.event),
-          ["acquired", "result", "released"],
+          ["acquired", "result", "fixture-scope-exited"],
         );
         const read = result.receipts.find((r) => r.event === "result");
         assert.isDefined(read);
@@ -104,8 +104,8 @@ describe("Linux native LSP boundary", () => {
         assert.deepStrictEqual(
           result.receipts.map((r) => r.event),
           mode === "closed"
-            ? ["acquired", "result", "result", "released"]
-            : ["acquired", "result", "released"],
+            ? ["acquired", "result", "result", "fixture-scope-exited"]
+            : ["acquired", "result", "fixture-scope-exited"],
         );
 
         if (mode === "closed") {
@@ -125,7 +125,7 @@ describe("Linux native LSP boundary", () => {
       const result = yield* runPeer("signal");
       assert.deepStrictEqual(
         result.receipts.map((r) => r.event),
-        ["acquired", "released"],
+        ["acquired", "fixture-scope-exited"],
       );
       assert.strictEqual(result.stdoutBytes, 0);
     }).pipe(Effect.provide(BunServices.layer)),
@@ -135,7 +135,13 @@ describe("Linux native LSP boundary", () => {
     Effect.gen(function* () {
       const result = yield* runPeer("read", "regular-output", "/not-an-asset/lsp-readiness.json");
       assert.strictEqual(result.code, 0, fixtureOutcome(result));
-      assert.deepStrictEqual(result.receipts, [{ event: "failure", reason: "StdoutForm" }]);
+      assert.deepStrictEqual(
+        result.receipts.filter((receipt) => receipt.event === "failure"),
+        [{ event: "failure", reason: "StdoutForm" }],
+      );
+      assert.isFalse(result.receipts.some((receipt) => receipt.event === "acquired"));
+      assert.isFalse(result.receipts.some((receipt) => receipt.bytes !== undefined));
+      assert.isTrue(result.receipts.some((receipt) => receipt.event === "fixture-scope-exited"));
       assert.strictEqual(result.regularOutputUnchanged, true);
       assert.strictEqual(result.stdoutBytes, 0);
     }).pipe(Effect.provide(BunServices.layer)),
@@ -146,7 +152,7 @@ describe("Linux native LSP boundary", () => {
       assert.strictEqual(result.code, 0, fixtureOutcome(result));
       assert.deepStrictEqual(
         result.receipts.map((r) => r.event),
-        ["acquired", "result", "result", "released"],
+        ["acquired", "result", "result", "fixture-scope-exited"],
       );
       const saturated = result.receipts.find((receipt) => receipt.stage === "sink-prefill");
       assert.strictEqual(saturated?.sinkKind, "fifo");
@@ -167,7 +173,7 @@ describe("Linux native LSP boundary", () => {
       assert.strictEqual(result.code, 0);
       assert.deepStrictEqual(
         result.receipts.map((r) => r.event),
-        ["acquired", "result", "released"],
+        ["acquired", "result", "fixture-scope-exited"],
       );
       assert.deepStrictEqual(result.receipts.find((r) => r.event === "result")?.checks, [
         "broken-pipe",
