@@ -10,3 +10,5 @@ Require launch-time LSP authority for executable config. Add source-relative `ex
 Extend the compiler frontend boundary for immutable source snapshots and observed reads. The private `@effx/frontend-ts` package (currently `0.0.0`) supplies the TypeScript implementation bundled into `@effx/cli`; it has no independent public release. The affected public packages currently use `0.1.0`.
 
 Document finite session, observer, transport, and open-text admission; owned shutdown; exact-directory output locks; and the limits of config trust and executable observation.
+
+Qualify `effx lsp` for declared Linux-x64/glibc targets with packaged, audited POSIX readiness code loaded through public Bun dlopen. Require exclusive stdin ownership and cooperative trusted config stdio. Unsupported targets fail explicitly before unsafe IO. Other CLI commands and `effx dev` retain existing runtime/platform behavior; arbitrary trusted effects remain outside sandbox containment.

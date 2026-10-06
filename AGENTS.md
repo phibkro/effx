@@ -57,6 +57,12 @@ EX-0033 records read-only evaluated module-cache inventory data, not authority f
 outside-packages process root and supply a narrow inventory capability. Physical
 keys supplement complete caller-declared logical coverage; they are neither full
 provenance nor a sandbox. The legacy package acquisition remains unaccepted.
+EX-0035 owns the approved qualified Linux LSP root boundary in scripts/lsp-linux.ts
+and its trusted build-time readiness asset, not package-owned native imports.
+EX-0036 owns unstable Effect ChildProcess only in scripts/build-lsp-native.ts.
+Both open records, examined versions, verification and retirement triggers live
+in docs/research/0018-watch-editor-design.md §10. No implementation gate is claimed.
+EX-0034 remains reserved for the separate 0019 lift reflection boundary.
 
 ## Commands
 

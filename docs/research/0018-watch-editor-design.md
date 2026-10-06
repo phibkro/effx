@@ -954,9 +954,11 @@ Runtime cc remains experimental and its target libc linkage was not repaired.
 macOS SDK/toolchain and Windows handle/readiness support were not established.
 No portability, latency, performance or cleanup guarantee follows from this table.
 
-### Proposed exact platform amendment — awaiting operator choice
+### Exact platform amendment — Linux selected 2026-10-06
 
-This is proposed contract text, not an approved platform-scope change:
+The operator wrote **"Linux"**. Frozen spec amendment `88f04e2` records this
+approval; `50911ae` clarifies prototype byte-count provenance. The alternatives
+below remain historical design choices. Linux selection does not prove shipment.
 
 - **Option A — qualified native LSP root (recommended):** `effx lsp` uses the
   external Bun composition root on declared Linux-x64/glibc targets, with a trusted
@@ -989,7 +991,49 @@ the actual packed command launched by a maintained Node client. A synthetic tabl
 does not satisfy this gate. Native code, ABI compatibility and asset integrity
 remain explicit shipping/security costs; no OS waiver or portability is inferred.
 
-No root implementation or platform-scope change resumes until the operator
-approves the amendment. No further basic capability probe is requested. Reachable
-portable/session/output-custody/membership work remains intact and may continue;
-main landing, complete feature acceptance and the final code/docs gate stay held.
+The approved Linux implementation may proceed in independent backend modules,
+assets and tests. The 0019 workstream owns the first common root/caller cutover.
+Director integration order remains required before adoption and injection.
+Main landing, complete feature acceptance and the final code/docs gate stay held.
+
+### Linux implementation exceptions — open, not verified
+
+**EX-0035 — qualified Linux root readiness and IO boundary.**
+
+- Owner: repository root (`AGENTS.md`); `scripts/lsp-linux.ts`.
+- Scope: public Bun dlopen, audited `tools/native/lsp-readiness.c`, packaged native
+  asset, bounded raw IO, stdout completion, PID probe and scoped callback bridge.
+  Own Node APIs remain forbidden in packages.
+- Rules: FX002 native-first, FX003 runtime boundary, FX004 decoded boundaries,
+  FX006 resource ownership, FX009 finite admission and FX012 retirement.
+- Missing capability: installed Stdio/Bun stdin does not establish bounded raw
+  socket adoption. Sections 9–10 record alternatives and capability evidence.
+- Examined versions: Effect/platform-bun 4.0.0, Bun 1.3.13, JSON-RPC 9.0.3 and
+  the GCC 16.2.0/glibc 2.44 synthetic build. The shipped asset must derive its own
+  target/minimum libc; research versions do not establish that result.
+- Verification: native host tests must cover ABI/integrity/startup limits, actual
+  socket/FIFO/file/PTY, bounded reads/writes, EOF/SIGINT/client death, PID probe,
+  release, stdout purity and no calls after Closed. Packed client acceptance and
+  the final committed-reference gate remain required; no implementation pass.
+- Retirement: installed Effect/Bun provides equivalent bounded raw readiness/IO
+  and cleanup across the declared matrix. Upgrades reopen this record; actual
+  parity/release evidence precedes removal.
+
+**EX-0036 — native-asset build-tool boundary.**
+
+- Owner: repository root (`AGENTS.md`); `scripts/build-lsp-native.ts`.
+- Scope: unstable Effect ChildProcess for owned build-time compiler/ELF tools.
+  No runtime compiler or package process API.
+- Rules: FX002 native-first, FX003 root ownership, FX004 manifest decoding,
+  FX006 subprocess cleanup and FX012 retirement.
+- Missing capability: native compilation/ELF qualification needs external
+  binaries. Native ChildProcess preserves custody but remains unstable in
+  installed Effect/platform-bun 4.0.0.
+- Verification: actual builds must derive ABI/needed libraries/minimum GLIBC,
+  reject stale RPATH/Nix dependencies, and produce identical bytes with manifest
+  integrity. Prototype hashes cannot replace shipped-asset evidence.
+- Retirement: the native Effect process API becomes stable, or a maintained
+  tool replaces this helper with equivalent artifact/custody evidence.
+
+Main/lift records were searched before reservation. EX-0034 remains reserved
+for lift reflection. These open records waive no package rule or verification.
