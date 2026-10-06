@@ -20,24 +20,33 @@ From a checkout, use `bun run effx lsp` with the same arguments.
 Do not send terminal commands into this process. Effx-owned messages use framed JSON-RPC on stdout and operational logs on stderr.
 There is no HTTP transport or bundled editor extension.
 
-## Qualified platform and stdin ownership
+## Qualified platform and stdio ownership
 
-The LSP backend targets declared Linux-x64/glibc systems. Unsupported targets
-fail explicitly before unsafe IO. Other CLI commands and `effx dev` retain
-their existing runtime/platform behavior. This is not portable certification.
+The frozen LSP contract targets declared Linux-x64/glibc systems with Bun 1.3.13.
+Unsupported targets must fail explicitly before unsafe IO.
+Other CLI commands and `effx dev` retain their existing runtime/platform behavior.
+The original four defaults and executable-coverage amendment A remain unchanged.
+This qualification does not certify Ubuntu or an unexercised runtime.
+The native root exists; CLI adoption and packed-client acceptance remain pending.
 
-The package includes trusted audited POSIX readiness code. The build compiles
-that code against declared headers/toolchain and records the actual source and
-artifact hashes, target ABI, minimum glibc and required libraries. Public Bun
-dlopen loads the asset; no runtime compiler or header discovery is required.
-The prototype was 511 bytes, not a normative source-size limit. Native C has
-process authority and no memory-safety containment.
+The native root loads trusted POSIX readiness code through public Bun dlopen.
+The build compiles `tools/native/lsp-readiness.c`; runtime compilation is unsupported.
+`scripts/lsp-native-manifest.ts` defines the actual ABI 2 contract.
+Source and artifact hashes, minimum glibc, and required libraries derive from each actual build.
+An ELF symbol floor is not distribution certification.
+The 511-byte prototype does not limit the current source size.
+Native C has process authority and no memory-safety containment.
 
-One root exclusively owns stdin. The qualified forms are standard maintained
-Node-client sockets, FIFO, regular files and PTY. Unusual devices and unsupported
-forms receive explicit limits or failure. Readiness precedes raw reads with at
-most 64KiB of data/backing storage. Regular-file storage latency remains possible.
-A competing stdin reader violates this ownership premise.
+The root exclusively owns stdin. The qualified input forms remain maintained Node-client sockets, FIFO, regular files, and PTY.
+Readiness precedes each raw read, with at most 64 KiB of data and backing storage.
+Regular-input storage latency remains possible; competing stdin readers violate the ownership premise.
+Unusual devices and unsupported forms require explicit limits or failure.
+
+Amendment B requires classified startup refusal for **regular-file stdout**, before protocol writes or native writer acquisition.
+Thus `effx lsp > protocol.log` is unsupported; the target receives no protocol bytes.
+There is no regular-output writer, fallback, or storage-latency exception.
+Maintained Node-client sockets, FIFO, and PTY remain the qualified output forms, with the existing two-second stalled-writer/close budget.
+This output restriction does not remove regular-file stdin support.
 
 Cooperative trusted config neither reads stdin nor bypasses native reporting.
 Effx-owned Console, logger, config-fault, usage/help and error output uses stderr
@@ -45,7 +54,8 @@ or framed protocol messages, before and after initialization. Arbitrary trusted
 code that writes a raw stdout descriptor or uses the global console is outside
 containment. There is no global console monkeypatch or sandbox.
 
-Source: spec 0018 Linux amendment, design §10 and `scripts/lsp-linux.ts`.
+Source: `docs/specs/0018-watch-editor.md`, amendment B (frozen `B3cffc85`, lines 678–712), Linux amendment, design §10, `scripts/lsp-linux.ts`, and `tools/native/lsp-readiness.c`.
+Native smoke evidence alone does not establish full §8, packed-client, or final committed-reference acceptance.
 
 ## Project selection and trust
 
@@ -156,4 +166,4 @@ EOF, client disappearance when `processId` is supplied, transport failure, SIGIN
 Exit before shutdown is unsuccessful. No analysis, observer, or late publication survives its owner.
 No output locks are acquired because LSP never calls the artifact writer.
 
-Source: `docs/specs/0018-watch-editor.md` (including amendment A), `packages/cli/src/lsp.ts`, `lsp-model.ts`, `lsp-transport.ts`, `documents.ts`, `project-session.ts`, `watch-files.ts`, and `commands.ts`.
+Source: `docs/specs/0018-watch-editor.md` (including amendments A and B), `packages/cli/src/lsp.ts`, `lsp-model.ts`, `lsp-transport.ts`, `documents.ts`, `project-session.ts`, `watch-files.ts`, and `commands.ts`.

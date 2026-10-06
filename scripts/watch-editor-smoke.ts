@@ -1,9 +1,10 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Path, Schema, Stdio, Stream } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
-import { acquirePeer } from "../packages/cli/test/lsp-transport-peer.ts";
+import { acquirePeer } from "./lsp-test-peer.ts";
 import type { PackedCommand } from "../packages/cli/test/packed-watch-peer.ts";
-import type { PeerError } from "../packages/cli/test/lsp-transport-peer.ts";
+import type { PeerError } from "./lsp-test-peer.ts";
+import { PackedStdoutReceipt, regularStdoutSentinel } from "./packed-lsp-stdout.ts";
 
 /**
  * After the committed-reference gate and pack: bun scripts/watch-editor-smoke.ts <final-SHA>
@@ -279,6 +280,42 @@ export default defineConfig({ outDir: ".effx/custom", generators: { http: true }
 
     return entries.sort().join("\n");
   });
+
+  // Amendment B: an actual maintained Node topology passes an owned regular
+  // descriptor as the installed CLI's fd1. No stdin bytes or EOF can cause the
+  // refusal. This fails on late rejection, accidental output, or config/artifact
+  // writes; native writer exclusion remains the separate Root acquisition law.
+  const regularStdoutFile = path.join(owned, "protocol.log");
+  yield* fs.writeFileString(regularStdoutFile, regularStdoutSentinel);
+  const beforeRegularStdout = yield* snapshotInputs();
+  const beforeRegularConfig = yield* digest(cfgSentinel);
+
+  const regularStdoutPeer = yield* run("node", [
+    path.join(root, "scripts", "packed-lsp-stdout.ts"),
+    cli,
+    consumer,
+    regularStdoutFile,
+  ]);
+
+  yield* requireThat(regularStdoutPeer.code === 0, "packed regular-stdout peer joins successfully");
+
+  const regularStdout = yield* Schema.decodeEffect(Schema.fromJsonString(PackedStdoutReceipt), {
+    onExcessProperty: "error",
+  })(regularStdoutPeer.text.trim());
+
+  yield* requireThat(
+    regularStdout.fileUnchanged &&
+      regularStdout.fd1Before.device === regularStdout.fd1After.device &&
+      regularStdout.fd1Before.inode === regularStdout.fd1After.inode &&
+      (yield* fs.readFileString(regularStdoutFile)) === regularStdoutSentinel,
+    "packed regular fd1 preserves identity and receives zero protocol bytes",
+  );
+  yield* requireThat(
+    (yield* snapshotInputs()) === beforeRegularStdout &&
+      (yield* digest(cfgSentinel)) === beforeRegularConfig &&
+      !(yield* fs.exists(path.join(consumer, ".effx"))),
+    "regular-stdout refusal preserves config receipt and all consumer bytes",
+  );
 
   const defaultSnapshot = yield* snapshotInputs();
   let cycles = 0;
@@ -681,13 +718,15 @@ export default defineConfig({ strictAccess: !enabled || !computed.enabled,
         "writer-refusal",
         "manifest-obsolete",
         "trust",
+        "lsp-regular-stdout-refusal",
         "lsp-overlays",
         "static-package-alias",
         "external-computed-alias",
       ],
       cycles,
       diagnosticCount,
-      noWrite: { defaultDev: true, lsp: true },
+      noWrite: { defaultDev: true, lsp: true, regularStdout: true },
+      regularStdout,
       protocolErrorCount: 0,
       tarballs: packages.length,
     })) + "\n",
