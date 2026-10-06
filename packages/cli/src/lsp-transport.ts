@@ -785,7 +785,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
     }
     // Join cancelled domain finalizers without interrupting native frame writes.
 
-    yield* Effect.forEach(handlerFibers, (fiber) => Fiber.interrupt(fiber), { concurrency: 32 });
+    yield* Effect.forEach(handlerFibers, (fiber) => Fiber.interrupt(fiber), {
+      concurrency: 32,
+      discard: true,
+    });
 
     if (activeWrite) {
       const frame = activeWrite;
