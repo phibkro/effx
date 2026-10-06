@@ -44,7 +44,10 @@ export const collectGroupBinding = (
     return;
   }
 
-  const entries = new Map<string, ts.Expression>();
+  const entries = new Map<
+    string,
+    { readonly expression: ts.Expression; readonly symbol: ts.Symbol | undefined }
+  >();
 
   for (const field of fields.properties) {
     if (
@@ -57,7 +60,13 @@ export const collectGroupBinding = (
       return;
     }
 
-    entries.set(field.name.text, ts.isPropertyAssignment(field) ? field.initializer : field.name);
+    const expression = ts.isPropertyAssignment(field) ? field.initializer : field.name;
+
+    const symbol = ts.isShorthandPropertyAssignment(field)
+      ? resolver.project.checker.getShorthandAssignmentValueSymbol(field)
+      : resolver.project.checker.getSymbolAtLocation(expression);
+
+    entries.set(field.name.text, { expression, symbol });
   }
 
   if (
@@ -72,17 +81,17 @@ export const collectGroupBinding = (
 
   const references = new Map<string, GroupBinding["handlers"]>();
 
-  for (const [key, expression] of entries) {
-    const symbol = resolver.project.checker.getSymbolAtLocation(expression);
-    const exported = symbol === undefined ? undefined : exportedSymbol(resolver, symbol);
+  for (const [key, value] of entries) {
+    const exported =
+      value.symbol === undefined ? undefined : exportedSymbol(resolver, value.symbol);
 
     const callable = resolver.project.checker.getSignaturesOfType(
-      resolver.project.checker.getTypeAtLocation(expression),
+      resolver.project.checker.getTypeAtLocation(value.expression),
       ts.SignatureKind.Call,
     );
 
     if (exported === undefined || callable.length === 0) {
-      diagnostics.push(HttpDiagnostics.EFFX2421.emit({ subject: `${subject}.${key}` }, options));
+      diagnostics.push(HttpDiagnostics.EFFX2421.emit({ subject: subject + "." + key }, options));
 
       return;
     }

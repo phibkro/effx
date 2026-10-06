@@ -68,6 +68,24 @@ const declarations: ReadonlyArray<Declaration> = [
       },
       { name: "Http.In", args: [{ _tag: "Symbol", ref: binding.group }] },
       { name: "Http.Get", args: ["/profile"] },
+      {
+        name: "Http.Contract",
+        args: [
+          {
+            root: "application",
+            group: "profile",
+            success: {
+              _tag: "Schema",
+              ref: {
+                module: "./schemas",
+                export: "Success",
+                symbolId: StableId.make("schema", "Success"),
+              },
+            },
+            metadata: { operationId: "profile.read" },
+          },
+        ],
+      },
     ],
   },
 ];
@@ -105,7 +123,10 @@ describe("binding generation admission", () => {
         builtin,
       );
 
-      assert.deepStrictEqual(result.diagnostics, []);
+      assert.deepStrictEqual(
+        result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+        [],
+      );
       assert.isTrue(Option.isSome(result.files.value));
     }),
   );

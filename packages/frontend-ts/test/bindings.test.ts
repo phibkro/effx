@@ -18,16 +18,24 @@ import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { Http, Operation } from "@effx/runtime";
 export const Success = Schema.String;
 export const Input = Schema.Void;
-export const Api = HttpApi.make("binding").add(HttpApiGroup.make("binding").add(
-  HttpApiEndpoint.get("read", "/binding", { success: Success }),
-  HttpApiEndpoint.get("native", "/native", { success: Success }),
-));
+export const Api = HttpApi.make("binding")
+  .add(HttpApiGroup.make("binding").add(
+    HttpApiEndpoint.get("read", "/binding", { success: Success }),
+    HttpApiEndpoint.get("native", "/native", { success: Success }),
+  ))
+  .add(HttpApiGroup.make("local").add(HttpApiEndpoint.get("read", "/local", { success: Success })));
 export const Group = Http.group({ root: Api, group: "binding" });
 export const read = Operation.query({ name: "binding.read", input: Input, success: Success })
-  .in(Group).http.get("/binding").declare();
+  .in(Group)
+  .http.get("/binding")
+  .http.contract({ root: "binding", group: "binding", success: Success, metadata: { operationId: "binding.read" } })
+  .declare();
 export const LocalGroup = Http.group({ root: Api, group: "local" });
 export const local = Operation.query({ name: "local.read", input: Input, success: Success })
-  .in(LocalGroup).http.get("/local").handler(() => Effect.succeed("local"));
+  .in(LocalGroup)
+  .http.get("/local")
+  .http.contract({ root: "binding", group: "local", success: Success, metadata: { operationId: "local.read" } })
+  .handler(() => Effect.succeed("local"));
 export const EmptyGroup = Http.group({ root: Api, group: "empty" });
 `;
 
@@ -253,7 +261,17 @@ export const Incomplete = BindingApiHandlers("bound")((handlers) => handlers);
         const path = yield* Path.Path;
         yield* fs.writeFileString(
           path.join(directory, "src", "_binding-declarations.ts"),
-          declarations.replace(".in(LocalGroup)", ".in(Group)"),
+          declarations
+            .replace(
+              'HttpApiEndpoint.get("native", "/native", { success: Success }),',
+              'HttpApiEndpoint.get("native", "/native", { success: Success }),\n    HttpApiEndpoint.get("local", "/local", { success: Success }),',
+            )
+            .replace(".in(LocalGroup)", ".in(Group)")
+            .replace('name: "local.read"', 'name: "binding.local"')
+            .replace(
+              'group: "local", success: Success, metadata: { operationId: "local.read" }',
+              'group: "binding", success: Success, metadata: { operationId: "binding.local" }',
+            ),
         );
         const result = yield* run(config, "handlers");
         assert.include(
