@@ -929,8 +929,10 @@ errors or deadline kills. The socket had four writer acknowledgments. Buffered
 data was drained before EOF; HUP-alone supplied FIFO EOF. Synthetic completion
 called lib.close. The original procfd/socket ENXIO and blocked raw-empty-read
 results remain valid: procfd alone still cannot implement this backend.
-The separate FileReader flood’s measured 131011/262144-byte chunks prove
-unbounded growth in that path; this readiness probe does not erase that result.
+The separate 1MiB flood measured a 131011-byte chunk and a 262144-byte backing
+buffer: both exceed 64KiB. Finite measurements do not prove unbounded growth;
+the inspected source/control flow does not establish our required finite producer
+bound. Raw receipts are unchanged; the prior report’s stronger claim is withdrawn.
 Full protocol, raw JSON, source, build/header trace and runtime log are preserved
 outside the repo in `/srv/share/projects/effx-watch-editor-0018-evidence/` as
 `native-readiness-*`. These are synthetic receipts, not an implementation gate.
@@ -952,19 +954,42 @@ Runtime cc remains experimental and its target libc linkage was not repaired.
 macOS SDK/toolchain and Windows handle/readiness support were not established.
 No portability, latency, performance or cleanup guarantee follows from this table.
 
-### Operator-owned boundary choice
+### Proposed exact platform amendment — awaiting operator choice
 
-The smallest now-executable choice is the qualified Linux public dlopen wrapper
-in the external scripts root, retaining Bun config semantics and requiring the
-explicit exclusive-reader premise and actual target artifact packaging. Choosing
-it does not silently waive any required platform acceptance. If that qualification
-is insufficient, the maintained portable alternative remains Node 24.21.0 public
-paused/readable stdio plus vscode-jsonrpc 9.0.3 in the same external composition
-root. It requires preserving Bun config loader/module-cache semantics with actual
-loader and installed-consumer verification, not claiming Node alone is a drop-in
-Bun config replacement. No future upstream feature is asserted.
+This is proposed contract text, not an approved platform-scope change:
 
-The native-capability investigation is closed at this evidence boundary. No root
-implementation or broad cutover resumes before the contract/backend choice is
-settled. Reachable portable/session/output-custody work remains intact; main
-landing, complete feature acceptance and the final code/docs gate remain held.
+- **Option A — qualified native LSP root (recommended):** `effx lsp` uses the
+  external Bun composition root on declared Linux-x64/glibc targets, with a trusted
+  511-byte C readiness shim compiled before distribution and loaded by public
+  dlopen. The root exclusively owns fd0; cooperative trusted config neither reads
+  stdin nor bypasses the native stderr/framed-output reporting policy. Arbitrary
+  trusted effects are not sandboxed. Other CLI commands and `effx dev` retain
+  their existing runtime/platform behavior. Unsupported OS, architecture or libc
+  must fail explicitly before unsafe IO, without a stub or fake backend.
+- **Option B — maintained portable root:** use maintained public paused/readable
+  stdio and vscode-jsonrpc behind the same external root/capability boundary.
+  Preserve and actually verify Bun config evaluation, loader and module-cache
+  semantics across the selected runtime arrangement. Node 24.21.0 stdio is an
+  executable transport alternative, not evidence that Node configuration loading
+  already preserves Bun semantics or that all platform acceptance has passed.
+
+Option A’s shipping gate MUST declare target ABI and minimum glibc from the built
+artifact and compatibility evidence, not infer a minimum from the local glibc
+2.44 probe. It MUST use a deterministic trusted build, an integrity manifest,
+packaged native asset and root entry, and no runtime experimental cc compilation
+or shipped raw Nix-store paths/stale Nix RPATH dependency. Build/pack, scripts,
+test/example/workflow callers and executable entries MUST undergo a clean cutover
+with no obsolete shim. Target identification and unsupported-target failure must
+precede descriptor acquisition/readiness/read operations.
+
+The acceptance gate MUST exercise owned library close, shutdown/SIGINT/EOF/client
+exit, timers/fibers and PID liveness, effx-owned stdout framing before and after
+initialize, cooperative config logging/throwing, CLI usage/help/error paths, and
+the actual packed command launched by a maintained Node client. A synthetic table
+does not satisfy this gate. Native code, ABI compatibility and asset integrity
+remain explicit shipping/security costs; no OS waiver or portability is inferred.
+
+No root implementation or platform-scope change resumes until the operator
+approves the amendment. No further basic capability probe is requested. Reachable
+portable/session/output-custody/membership work remains intact and may continue;
+main landing, complete feature acceptance and the final code/docs gate stay held.
