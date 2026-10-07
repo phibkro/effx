@@ -46,18 +46,6 @@ const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolR
   let node: ts.Node | undefined = declaration;
 
   while (node !== undefined) {
-    if (ts.isModuleDeclaration(node)) {
-      if (!ts.isIdentifier(node.name) || !isExported(node)) return undefined;
-
-      segments.unshift(node.name.text);
-
-      if (ts.isSourceFile(node.parent)) return ownerRef(resolver, node.parent.fileName, segments);
-
-      node = node.parent;
-
-      continue;
-    }
-
     if (ts.isPropertyDeclaration(node) && ts.isClassDeclaration(node.parent)) {
       const owner = exportedOwner(resolver, node.parent);
 
