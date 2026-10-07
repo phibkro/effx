@@ -7,6 +7,7 @@ import {
 } from "../project/bound-generic/.effx/generated/content-handlers.js";
 import { ContentApiHandlers as DefaultedGuardHandlers } from "../project/bound-generic-defaulted-guard/.effx/generated/content-handlers.js";
 import { ContentApiHandlers as TypeOnlyHandlers } from "../project/bound-generic-type-only/.effx/generated/content-handlers.js";
+import { ContentApiHandlers as NamespaceValueHandlers } from "../project/bound-generic-namespace-value/.effx/generated/content-handlers.js";
 import { ExternalContentApi } from "./content-root.js";
 import { makeGenericGuards, makeGenericRawHandlers } from "./content-bound-generic.js";
 import { PersonSecurity } from "./profile-support.js";
@@ -21,6 +22,8 @@ export interface GenericBehaviorObservations {
    * context module throws while loading, so this observation also proves it is never executed.
    */
   readonly typeOnlyContext: { readonly status: number; readonly body: string };
+  /** A raw factory whose mirrored constraint names a namespace-owned value through `typeof`. */
+  readonly namespaceValue: { readonly status: number; readonly body: string };
 }
 
 const Security = Layer.succeed(PersonSecurity, { sessionCookie: (effect) => effect });
@@ -132,6 +135,25 @@ export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservati
         );
         const typeOnlyBody = yield* Effect.promise(() => typeOnlyResponse.text());
 
+        const namespaceValueHost = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(ExternalContentApi).pipe(
+                Layer.provide(NamespaceValueHandlers({ maxBodyBytes: 4096 })),
+                Layer.provide(Security),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (host) => Effect.promise(() => host.dispose()),
+        );
+
+        const namespaceValueResponse = yield* Effect.promise(() =>
+          namespaceValueHost.handler(publishRequest()),
+        );
+        const namespaceValueBody = yield* Effect.promise(() => namespaceValueResponse.text());
+
         return {
           success: { status: successResponse.status, body: successBody },
           denial: { status: denialResponse.status, body: denialBody },
@@ -140,6 +162,7 @@ export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservati
             body: defaultedGuardBody,
           },
           typeOnlyContext: { status: typeOnlyResponse.status, body: typeOnlyBody },
+          namespaceValue: { status: namespaceValueResponse.status, body: namespaceValueBody },
         };
       }),
     ),

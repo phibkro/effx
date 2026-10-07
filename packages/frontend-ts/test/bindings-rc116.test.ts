@@ -57,6 +57,7 @@ const GenericObservations = Schema.Struct({
       denial: { status: number; body: string };
       defaultedGuard: { status: number; body: string };
       typeOnlyContext: { status: number; body: string };
+      namespaceValue: { status: number; body: string };
     }> => Predicate.isFunction(value),
   ),
 });
@@ -286,6 +287,10 @@ describe("bound Profile and Content against installed rc.116", () => {
         // handler's own body proves the bound factory still runs the real endpoint.
         assert.strictEqual(observed.typeOnlyContext.status, 200);
         assert.strictEqual(observed.typeOnlyContext.body, "publish:128");
+        // A namespace-owned value named through `typeof` is owned by its namespace, so the generated
+        // clause imports that namespace and the bound factory still runs the real endpoint.
+        assert.strictEqual(observed.namespaceValue.status, 200);
+        assert.strictEqual(observed.namespaceValue.body, "publish:4096");
       }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );
