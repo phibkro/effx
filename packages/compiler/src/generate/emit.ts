@@ -373,10 +373,10 @@ export const errorsBuilt = (errors: ReadonlyArray<SchemaRef>): ErrorSchemaBuilt 
 
   if (single === undefined) return { term: member(ref(schema), "Never"), references: [schema] };
 
-  if (errors.length === 1) return { term: ref(single), references: [single] };
+  if (errors.length === 1) return { term: refTerm(single), references: [single] };
 
   return {
-    term: call(member(ref(schema), "Union"), [arr(errors.map((error) => ref(error)))]),
+    term: call(member(ref(schema), "Union"), [arr(errors.map((error) => refTerm(error)))]),
     references: [...errors, schema],
   };
 };

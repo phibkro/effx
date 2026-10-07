@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src/errors-static-behaviors.ts",
+    "project/errors-static/src/errors-support.ts",
+    "project/errors-static/.effx/generated/errors-static-contract.ts"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "../contract/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  },
+  "include": ["./src/errors-static.effx.ts"]
+}
