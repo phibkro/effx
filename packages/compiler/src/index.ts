@@ -9,8 +9,9 @@ export type {
   Expansion,
   EndpointFragment,
   EndpointFragmentPart,
-  FragmentImports,
 } from "./Extension.ts";
+
+export type { MethodCall } from "./generate/term.ts";
 
 export { Contribution } from "./Extension.ts";
 

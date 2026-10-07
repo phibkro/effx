@@ -17,6 +17,18 @@ import {
   type GenerationContext,
 } from "../Extension.ts";
 import { moduleSpecifier } from "./target.ts";
+import {
+  type MethodCall,
+  type NameOf,
+  type RefLike,
+  type Term,
+  arr,
+  call,
+  member,
+  printTerm,
+  ref,
+  refKey,
+} from "./term.ts";
 
 /*
  * Shared, pure string building for the generators (ADR 0008). Nothing here touches
@@ -226,22 +238,154 @@ export const schemaName = (ref: SchemaRef): string => {
 };
 
 /** Preserve the original symbol and static-member suffix while resolving a collision-free local import. */
-export const schemaExpr = (imports: Imports, ref: SchemaRef): string => {
-  const local = imports.add(ref.module, ref.export);
+export const schemaExpr = (imports: Imports, reference: SchemaRef): string => {
+  const local = imports.add(reference.module, reference.export);
 
-  return local + schemaName(ref).slice(ref.export.length);
+  return local + schemaName(reference).slice(reference.export.length);
+};
+
+/** The static-member path a reference adds to its imported local (`Namespace.User`, `Access.annotator`). */
+const refPath = (reference: RefLike): string =>
+  "symbolId" in reference
+    ? schemaName(reference).slice(reference.export.length)
+    : reference.member === undefined
+      ? ""
+      : `.${reference.member}`;
+
+/** A reference as a term: the imported symbol plus its member path as structural access. */
+export const refTerm = (reference: RefLike): Term =>
+  refPath(reference)
+    .split(".")
+    .filter((segment) => segment.length > 0)
+    .reduce((term, segment) => member(term, segment), ref(reference));
+
+/** Registers `reference` once (first occurrence wins) and returns its collision-free local. */
+export const bindRef = (
+  imports: Imports,
+  names: Map<string, string>,
+  reference: RefLike,
+): string => {
+  const key = refKey(reference);
+  const existing = names.get(key);
+
+  if (existing !== undefined) return existing;
+  const local = imports.add(reference.module, reference.export);
+
+  names.set(key, local);
+
+  return local;
+};
+
+/** The local-name table for a reference list, in first-occurrence order. */
+export const bindRefs = (
+  imports: Imports,
+  references: ReadonlyArray<RefLike>,
+): ReadonlyMap<string, string> => {
+  const names = new Map<string, string>();
+
+  for (const reference of references) bindRef(imports, names, reference);
+
+  return names;
+};
+
+/** The pure name resolver a printer receives: the registered import local for a reference. */
+export const nameOf =
+  (names: ReadonlyMap<string, string>): NameOf =>
+  (reference) =>
+    Option.getOrThrow(Option.fromUndefinedOr(names.get(refKey(reference))));
+
+/** Registers every reference a method-call suffix prints, in print order. */
+export const bindCallRefs = (
+  imports: Imports,
+  names: Map<string, string>,
+  suffix: MethodCall,
+): void => {
+  for (const arg of suffix.args) bindTermRefs(imports, names, arg);
+};
+
+/** Registers every reference a term prints, in print order (deduplicated by `bindRef`). */
+export const bindTermRefs = (imports: Imports, names: Map<string, string>, term: Term): void => {
+  switch (term._tag) {
+    case "Lit":
+      return;
+    case "Ref":
+      bindRef(imports, names, term.ref);
+
+      return;
+    case "Call":
+      bindTermRefs(imports, names, term.callee);
+
+      for (const arg of term.args) bindTermRefs(imports, names, arg);
+
+      return;
+    case "Chain":
+      bindTermRefs(imports, names, term.head);
+
+      for (const suffix of term.calls) bindCallRefs(imports, names, suffix);
+
+      return;
+    case "Member":
+    case "OptionalMember":
+    case "Paren":
+      bindTermRefs(imports, names, term.term);
+
+      return;
+    case "Nullish":
+      bindTermRefs(imports, names, term.head);
+
+      for (const part of term.tail) bindTermRefs(imports, names, part);
+
+      return;
+    case "StrictEqual":
+      bindTermRefs(imports, names, term.left);
+      bindTermRefs(imports, names, term.right);
+
+      return;
+    case "Cond":
+      bindTermRefs(imports, names, term.test);
+      bindTermRefs(imports, names, term.consequent);
+      bindTermRefs(imports, names, term.alternate);
+
+      return;
+    case "Obj":
+      for (const entry of term.entries) bindTermRefs(imports, names, entry.value);
+
+      return;
+    case "Arr":
+      for (const item of term.items) bindTermRefs(imports, names, item);
+
+      return;
+  }
+};
+
+/**
+ * The `error:` schema expression plus the references its string form registers, in that exact order: the
+ * several-schema case registers the member schemas before `Schema`, as the historical builder did.
+ */
+export interface ErrorSchemaBuilt {
+  readonly term: Term;
+  readonly references: ReadonlyArray<RefLike>;
+}
+
+export const errorsBuilt = (errors: ReadonlyArray<SchemaRef>): ErrorSchemaBuilt => {
+  const [single] = errors;
+  const schema: RefLike = { module: "effect", export: "Schema" };
+
+  if (single === undefined) return { term: member(ref(schema), "Never"), references: [schema] };
+
+  if (errors.length === 1) return { term: ref(single), references: [single] };
+
+  return {
+    term: call(member(ref(schema), "Union"), [arr(errors.map((error) => ref(error)))]),
+    references: [...errors, schema],
+  };
 };
 
 /** `Schema.Never` for none, the schema itself for one, `Schema.Union([...])` for several. */
 export const errorsExpr = (imports: Imports, errors: ReadonlyArray<SchemaRef>): string => {
-  const [single] = errors;
+  const built = errorsBuilt(errors);
 
-  if (single === undefined) return `${imports.add("effect", "Schema")}.Never`;
-
-  if (errors.length === 1) return schemaExpr(imports, single);
-  const members = errors.map((ref) => schemaExpr(imports, ref));
-
-  return `${imports.add("effect", "Schema")}.Union([${members.join(", ")}])`;
+  return printTerm(nameOf(bindRefs(imports, built.references)), built.term);
 };
 
 /** Calls a handler by SymbolRef; a supplied guard thunk stays lazy until the handler calls it. */

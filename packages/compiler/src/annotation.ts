@@ -27,6 +27,8 @@ import {
   type InterpretContext,
 } from "./Extension.ts";
 import { printable } from "./print-args.ts";
+import { member, methodCall } from "./generate/term.ts";
+import { refTerm } from "./generate/emit.ts";
 import type { DefinitionEntry } from "./SourceFrontend.ts";
 
 /**
@@ -351,21 +353,14 @@ const endpointFragment =
     const written = Option.flatMap(declarativeNode(definition, ir, operation.id), decodeWritten);
 
     if (Option.isNone(written)) return [];
-    const ref = written.value.definition;
+    const owner = written.value.definition;
 
-    if (ref === undefined) return [];
+    if (owner === undefined) return [];
 
     return Result.match(printable(writtenValue(written.value.args)), {
       onFailure: () => [],
       onSuccess: (value) => [
-        {
-          render: (imports) => {
-            const name = imports.add(ref.module, ref.export);
-            const owner = ref.member === undefined ? name : `${name}.${ref.member}`;
-
-            return `.annotate(${owner}.effect.key, ${value(imports)})`;
-          },
-        },
+        { call: methodCall("annotate", [member(member(refTerm(owner), "effect"), "key"), value]) },
       ],
     });
   };

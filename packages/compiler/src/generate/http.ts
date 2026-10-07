@@ -13,17 +13,40 @@ import {
   type Exposed,
   type RpcTransport,
   Imports,
-  errorsExpr,
+  bindCallRefs,
+  bindRef,
+  errorsBuilt,
   exposed,
   generated,
   handlerCall,
   header,
   identifier,
   indent,
+  nameOf,
   pathParams,
+  refTerm,
   render,
-  schemaExpr,
 } from "./emit.ts";
+import {
+  type MethodCall,
+  type ObjEntry,
+  type RefLike,
+  type Term,
+  arr,
+  call,
+  chain,
+  cond,
+  lit,
+  member,
+  methodCall,
+  nullish,
+  obj,
+  optionalMember,
+  paren,
+  printMethodCall,
+  printTerm,
+  strictEqual,
+} from "./term.ts";
 import {
   type HttpGroup,
   type HttpItem,
@@ -42,52 +65,110 @@ import { groupNeedsGuards, isProtected } from "./guards.ts";
 
 const isRpc = Predicate.isTagged("rpc");
 
-/** Legacy projections keep their original query-as-payload convention. */
-const legacyPayload = (imports: Imports, item: HttpItem): string => {
-  const input = schemaExpr(imports, item.operation.input);
+/** Import registration plus the local-name table the printer resolves against; one per generated file. */
+interface Scope {
+  readonly imports: Imports;
+  readonly names: Map<string, string>;
+}
 
-  return item.transport.method === "GET" ? `${input}.fields` : input;
+const scopeOf = (imports: Imports): Scope => ({ imports, names: new Map() });
+
+/** Registers a reference at the boundary and returns it as a term: a builder's only touch of the imports. */
+const use =
+  (scope: Scope) =>
+  (reference: RefLike): Term => {
+    bindRef(scope.imports, scope.names, reference);
+
+    return refTerm(reference);
+  };
+
+/** Registers a module export the generator names directly (`HttpApiSchema`, `SchemaAST`, …) as a term. */
+const symbol =
+  (scope: Scope) =>
+  (module: string, exported: string): Term =>
+    use(scope)({ module, export: exported });
+
+const print = (scope: Scope, term: Term): string => printTerm(nameOf(scope.names), term);
+
+/** Legacy projections keep their original query-as-payload convention. */
+const legacyPayload = (scope: Scope, item: HttpItem): Term => {
+  const input = use(scope)(item.operation.input);
+
+  return item.transport.method === "GET" ? member(input, "fields") : input;
 };
 
-const problemErrors = (imports: Imports, item: HttpItem): string => {
+const problemErrors = (scope: Scope, item: HttpItem): Term => {
   const problems = item.problems;
 
-  if (problems === undefined) return errorsExpr(imports, item.operation.errors.values);
-  const registry = imports.add(problems.registry.module, problems.registry.export);
+  if (problems === undefined) {
+    const built = errorsBuilt(item.operation.errors.values);
 
-  const derivation =
-    problems.registry.member === undefined ? registry : `${registry}.${problems.registry.member}`;
+    for (const reference of built.references) bindRef(scope.imports, scope.names, reference);
 
-  const codes = problems.codes.map((code) => JSON.stringify(code)).join(", ");
+    return built.term;
+  }
 
-  return `${derivation}(${JSON.stringify(problems.identifier ?? `${endpointKey(item)}Problem`)}, [${codes}])`;
+  const registry = use(scope)(problems.registry);
+  const codes = problems.codes.map((code) => lit(code));
+
+  return call(registry, [lit(problems.identifier ?? `${endpointKey(item)}Problem`), arr(codes)]);
 };
 
-const contractSuccess = (imports: Imports, item: HttpItem): string => {
+const contractSuccess = (scope: Scope, item: HttpItem): Term => {
   const contract = item.contract;
 
-  if (contract === undefined) return schemaExpr(imports, item.operation.success);
-  let success = schemaExpr(imports, contract.success);
+  if (contract === undefined) return use(scope)(item.operation.success);
+  let success = use(scope)(contract.success);
 
   if (contract.responseHeaders !== undefined) {
-    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-    success = `${apiSchema}.WithHeaders(${success}, ${schemaExpr(imports, contract.responseHeaders)})`;
+    const apiSchema = symbol(scope)("effect/http-api", "HttpApiSchema");
+
+    success = call(member(apiSchema, "WithHeaders"), [
+      success,
+      use(scope)(contract.responseHeaders),
+    ]);
 
     if (contract.status !== undefined)
-      success = `${success}.pipe(${apiSchema}.status(${contract.status}))`;
+      success = call(member(success, "pipe"), [
+        call(member(apiSchema, "status"), [lit(contract.status)]),
+      ]);
   } else if (contract.status === 200) {
-    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-    const ast = imports.add("effect", "SchemaAST");
-    success = `((${ast}.resolve(${success}.ast)?.httpApiStatus ?? 200) === 200 ? ${success} : ${apiSchema}.status(200)(${success}))`;
+    const apiSchema = symbol(scope)("effect/http-api", "HttpApiSchema");
+    const ast = symbol(scope)("effect", "SchemaAST");
+
+    const observed = nullish(
+      optionalMember(call(member(ast, "resolve"), [member(success, "ast")]), "httpApiStatus"),
+      [lit(200)],
+    );
+
+    success = paren(
+      cond(
+        strictEqual(paren(observed), lit(200)),
+        success,
+        call(call(member(apiSchema, "status"), [lit(200)]), [success]),
+      ),
+    );
   } else if (contract.status !== undefined) {
-    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-    success = `${success}.pipe(${apiSchema}.status(${contract.status}))`;
+    const apiSchema = symbol(scope)("effect/http-api", "HttpApiSchema");
+
+    success = call(member(success, "pipe"), [
+      call(member(apiSchema, "status"), [lit(contract.status)]),
+    ]);
   }
 
   if (contract.conditional && contract.responseHeaders !== undefined) {
-    const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-    const headers = schemaExpr(imports, contract.responseHeaders);
-    success = `[${success}, ${apiSchema}.WithHeaders(${apiSchema}.NoContent.pipe(${apiSchema}.status(304)), ${headers})]`;
+    const apiSchema = symbol(scope)("effect/http-api", "HttpApiSchema");
+    const headers = use(scope)(contract.responseHeaders);
+
+    success = arr([
+      success,
+      call(member(apiSchema, "WithHeaders"), [
+        call(member(member(apiSchema, "NoContent"), "pipe"), [
+          call(member(apiSchema, "status"), [lit(304)]),
+        ]),
+        headers,
+      ]),
+    ]);
   }
 
   return success;
@@ -96,111 +177,138 @@ const contractSuccess = (imports: Imports, item: HttpItem): string => {
 /** The fragments the extensions contribute to one endpoint (spec 0020 §6), in extension-list order. */
 type EndpointFragments = (item: HttpItem) => ReadonlyArray<EndpointFragmentPart>;
 
-const endpointExpr = (imports: Imports, item: HttpItem, fragments: EndpointFragments): string => {
+const endpointTerm = (scope: Scope, item: HttpItem, fragments: EndpointFragments): Term => {
   const name = endpointKey(item);
   const contract = item.contract;
-  const options: Array<string> = [];
+  const options: Array<ObjEntry> = [];
 
   if (contract === undefined) {
     const params = pathParams(item.transport.path);
 
     if (params.length > 0) {
-      const schema = imports.add("effect", "Schema");
-      options.push(
-        `params: { ${params.map((param) => `${param}: ${schema}.String`).join(", ")} },`,
-      );
+      const schema = symbol(scope)("effect", "Schema");
+
+      options.push({
+        key: "params",
+        value: obj(
+          params.map((param): ObjEntry => ({ key: param, value: member(schema, "String") })),
+        ),
+      });
     }
 
-    options.push(`payload: ${legacyPayload(imports, item)},`);
+    options.push({ key: "payload", value: legacyPayload(scope, item) });
   } else {
     for (const channel of ["params", "query", "headers"] as const) {
-      const ref = contract[channel];
+      const reference = contract[channel];
 
-      if (ref !== undefined) options.push(`${channel}: ${schemaExpr(imports, ref)},`);
+      if (reference !== undefined) options.push({ key: channel, value: use(scope)(reference) });
     }
 
     if (contract.payload !== undefined) {
-      let payload = schemaExpr(imports, contract.payload);
+      let payload = use(scope)(contract.payload);
 
       if (contract.mediaType !== undefined) {
-        const apiSchema = imports.add("effect/http-api", "HttpApiSchema");
-        payload = `${payload}.pipe(${apiSchema}.asJson({ contentType: ${JSON.stringify(contract.mediaType)} }))`;
+        const apiSchema = symbol(scope)("effect/http-api", "HttpApiSchema");
+
+        payload = call(member(payload, "pipe"), [
+          call(member(apiSchema, "asJson"), [
+            obj([{ key: "contentType", value: lit(contract.mediaType) }]),
+          ]),
+        ]);
       }
 
-      options.push(`payload: ${payload},`);
+      options.push({ key: "payload", value: payload });
     }
   }
 
-  options.push(`success: ${contractSuccess(imports, item)},`);
-  options.push(`error: ${problemErrors(imports, item)},`);
-  const endpoint = imports.add("effect/http-api", "HttpApiEndpoint");
-  let expression = `${endpoint}.${item.transport.method.toLowerCase()}(${JSON.stringify(name)}, ${JSON.stringify(item.transport.path)}, {\n${indent(options).join("\n")}\n})`;
+  options.push({ key: "success", value: contractSuccess(scope, item) });
+  options.push({ key: "error", value: problemErrors(scope, item) });
+
+  const endpoint = symbol(scope)("effect/http-api", "HttpApiEndpoint");
+  const suffixes: Array<MethodCall> = [];
 
   if (contract !== undefined) {
-    for (const marker of contract.middleware) {
-      const symbol = imports.add(marker.module, marker.export);
-      expression += `.middleware(${marker.member === undefined ? symbol : `${symbol}.${marker.member}`})`;
-    }
+    for (const marker of contract.middleware)
+      suffixes.push(methodCall("middleware", [use(scope)(marker)]));
 
     if (contract.metadata !== undefined) {
       const metadata = contract.metadata;
-      const annotations: Array<string> = [];
+      const annotations: Array<ObjEntry> = [];
 
       if (metadata.operationId !== undefined)
-        annotations.push(`identifier: ${JSON.stringify(metadata.operationId)}`);
+        annotations.push({ key: "identifier", value: lit(metadata.operationId) });
 
       if (metadata.summary !== undefined)
-        annotations.push(`summary: ${JSON.stringify(metadata.summary)}`);
+        annotations.push({ key: "summary", value: lit(metadata.summary) });
 
       if (metadata.description !== undefined)
-        annotations.push(`description: ${JSON.stringify(metadata.description)}`);
+        annotations.push({ key: "description", value: lit(metadata.description) });
 
       if (metadata.tags !== undefined)
-        annotations.push(`override: { tags: ${JSON.stringify(metadata.tags)} }`);
-      const openApi = imports.add("effect/http-api", "OpenApi");
-      expression += `.annotateMerge(${openApi}.annotations({ ${annotations.join(", ")} }))`;
+        annotations.push({
+          key: "override",
+          value: obj([{ key: "tags", value: lit(metadata.tags) }]),
+        });
+
+      const openApi = symbol(scope)("effect/http-api", "OpenApi");
+
+      suffixes.push(
+        methodCall("annotateMerge", [
+          call(member(openApi, "annotations"), [obj(annotations, "inline")]),
+        ]),
+      );
 
       if (metadata.annotator !== undefined) {
-        const ref = metadata.annotator;
-        const imported = imports.add(ref.module, ref.export);
-        const annotator = ref.member === undefined ? imported : `${imported}.${ref.member}`;
-        const values: Array<string> = [];
+        const annotator = use(scope)(metadata.annotator);
+        const values: Array<ObjEntry> = [];
 
         for (const key of ["operationId", "summary", "description", "tags"] as const) {
           const value = metadata[key];
 
-          if (value !== undefined) values.push(`${key}: ${JSON.stringify(value)}`);
+          if (value !== undefined) values.push({ key, value: lit(value) });
         }
 
-        const args = values.length === 0 ? "{}" : `{ ${values.join(", ")} }`;
-        expression += `.annotateMerge(${annotator}(${args}))`;
+        suffixes.push(methodCall("annotateMerge", [call(annotator, [obj(values)])]));
       }
     }
   }
 
   if (item.access !== undefined) {
     const data = item.access;
-    const annotatorExport = imports.add(data.annotator.module, data.annotator.export);
+    const annotator = use(scope)(data.annotator);
+    const resolver = use(scope)(data.canonicalScopeResolver);
 
-    const annotator =
-      data.annotator.member === undefined
-        ? annotatorExport
-        : `${annotatorExport}.${data.annotator.member}`;
-
-    const resolverExport = imports.add(
-      data.canonicalScopeResolver.module,
-      data.canonicalScopeResolver.export,
+    suffixes.push(
+      methodCall("annotateMerge", [
+        call(annotator, [
+          obj([
+            { key: "exposure", value: lit(data.exposure) },
+            { key: "acceptedCredentials", value: lit(data.acceptedCredentials) },
+            { key: "principalKinds", value: lit(data.principalKinds) },
+            { key: "capabilities", value: lit(data.capabilities) },
+            { key: "requirements", value: lit(data.requirements) },
+            { key: "canonicalScopeResolver", value: resolver },
+            { key: "concealment", value: lit(data.concealment) },
+            { key: "decisionTime", value: lit(data.decisionTime) },
+          ]),
+        ]),
+      ]),
     );
-
-    const resolver =
-      data.canonicalScopeResolver.member === undefined
-        ? resolverExport
-        : `${resolverExport}.${data.canonicalScopeResolver.member}`;
-
-    expression += `.annotateMerge(${annotator}({ exposure: ${JSON.stringify(data.exposure)}, acceptedCredentials: ${JSON.stringify(data.acceptedCredentials)}, principalKinds: ${JSON.stringify(data.principalKinds)}, capabilities: ${JSON.stringify(data.capabilities)}, requirements: ${JSON.stringify(data.requirements)}, canonicalScopeResolver: ${resolver}, concealment: ${JSON.stringify(data.concealment)}, decisionTime: ${JSON.stringify(data.decisionTime)} }))`;
   }
 
-  return fragments(item).reduce((chain, part) => chain + part.render(imports), expression);
+  for (const part of fragments(item)) {
+    bindCallRefs(scope.imports, scope.names, part.call);
+    suffixes.push(part.call);
+  }
+
+  return chain(
+    call(member(endpoint, item.transport.method.toLowerCase()), [
+      lit(name),
+      lit(item.transport.path),
+      obj(options, "block"),
+    ]),
+    suffixes,
+  );
 };
 
 const handlerLine = (imports: Imports, item: HttpItem): string => {
@@ -231,36 +339,45 @@ const handlerLine = (imports: Imports, item: HttpItem): string => {
   return `${JSON.stringify(name)}: (${request}) => ${handlerCall(imports, Option.getOrThrow(Option.fromUndefinedOr(item.operation.handler)), args, guard)},`;
 };
 
-const groupAnnotation = (imports: Imports, group: HttpGroup): string => {
+const groupAnnotation = (scope: Scope, group: HttpGroup): Option.Option<MethodCall> => {
   const metadata = group.metadata;
 
-  if (metadata === undefined) return "";
-  const fields: Array<string> = [];
+  if (metadata === undefined) return Option.none();
+  const fields: Array<ObjEntry> = [];
 
-  if (metadata.title !== undefined) fields.push(`title: ${JSON.stringify(metadata.title)}`);
+  if (metadata.title !== undefined) fields.push({ key: "title", value: lit(metadata.title) });
 
   if (metadata.description !== undefined)
-    fields.push(`description: ${JSON.stringify(metadata.description)}`);
+    fields.push({ key: "description", value: lit(metadata.description) });
 
   if (metadata.displayName !== undefined)
-    fields.push(`override: { "x-displayName": ${JSON.stringify(metadata.displayName)} }`);
+    fields.push({
+      key: "override",
+      value: obj([{ key: '"x-displayName"', value: lit(metadata.displayName) }]),
+    });
 
-  return fields.length === 0
-    ? ""
-    : `.annotateMerge(${imports.add("effect/http-api", "OpenApi")}.annotations({ ${fields.join(", ")} }))`;
+  if (fields.length === 0) return Option.none();
+  const openApi = symbol(scope)("effect/http-api", "OpenApi");
+
+  return Option.some(
+    methodCall("annotateMerge", [call(member(openApi, "annotations"), [obj(fields)])]),
+  );
 };
 
 const groupLines = (
-  imports: Imports,
+  scope: Scope,
   group: HttpGroup,
   fragments: EndpointFragments,
 ): ReadonlyArray<string> => {
-  const groupType = imports.add("effect/http-api", "HttpApiGroup");
+  const groupType = symbol(scope)("effect/http-api", "HttpApiGroup");
 
   return [
-    `export class ${groupClassName(group.root, group.group)} extends ${groupType}.make(${JSON.stringify(group.group)}).add(`,
-    ...indent(group.items.map((item) => `${endpointExpr(imports, item, fragments)},`)),
-    `)${groupAnnotation(imports, group)} {}`,
+    `export class ${groupClassName(group.root, group.group)} extends ${print(scope, groupType)}.make(${JSON.stringify(group.group)}).add(`,
+    ...indent(group.items.map((item) => `${print(scope, endpointTerm(scope, item, fragments))},`)),
+    `)${Option.match(groupAnnotation(scope, group), {
+      onNone: () => "",
+      onSome: (annotation) => printMethodCall(nameOf(scope.names), annotation),
+    })} {}`,
   ];
 };
 
@@ -300,22 +417,22 @@ const handlersLines = (imports: Imports, group: HttpGroup): ReadonlyArray<string
 
 /** A standalone group contract has no root or executable implementation imports. */
 const contractLines = (
-  imports: Imports,
+  scope: Scope,
   group: HttpGroup,
   fragments: EndpointFragments,
 ): ReadonlyArray<string> => {
-  const groupType = imports.add("effect/http-api", "HttpApiGroup");
+  const groupType = symbol(scope)("effect/http-api", "HttpApiGroup");
   const name = groupApiName(group.group);
 
   const expressions = new Map(
-    group.items.map((item) => [item, endpointExpr(imports, item, fragments)] as const),
+    group.items.map((item) => [item, print(scope, endpointTerm(scope, item, fragments))] as const),
   );
 
-  const annotation = groupAnnotation(imports, group);
+  const annotation = groupAnnotation(scope, group);
 
   // The collector's import bindings occupy the same module scope as the exports.
   const imported = new Set(
-    imports.render().flatMap((line) => {
+    scope.imports.render().flatMap((line) => {
       const match = /^import \{ ([^}]+) \} from /.exec(line);
 
       return match === null ? [] : match[1]!.split(", ");
@@ -355,9 +472,12 @@ const contractLines = (
       `export const ${constants.get(item)} = ${expressions.get(item)};`,
       "",
     ]),
-    `export const ${name} = ${groupType}.make(${JSON.stringify(group.group)}).add(`,
+    `export const ${name} = ${print(scope, groupType)}.make(${JSON.stringify(group.group)}).add(`,
     ...indent(group.items.map((item) => `${constants.get(item)},`)),
-    `)${annotation};`,
+    `)${Option.match(annotation, {
+      onNone: () => "",
+      onSome: (suffix) => printMethodCall(nameOf(scope.names), suffix),
+    })};`,
   ];
 };
 
@@ -515,6 +635,7 @@ const body = (
 ): ReadonlyArray<string> => {
   if (items.length === 0 && rpcs.length === 0) return [];
 
+  const scope = scopeOf(imports);
   const groups = httpGroups(items, ir);
   const guardedGroups = groups.filter(groupNeedsGuards);
 
@@ -572,7 +693,7 @@ const body = (
 
   return [
     ...guardImports,
-    ...groups.flatMap((group) => [...groupLines(imports, group, fragments), ""]),
+    ...groups.flatMap((group) => [...groupLines(scope, group, fragments), ""]),
     ...roots.map((root) => rootLines(imports, root, groups)),
     "",
     ...groups.flatMap((group) => [...handlersLines(imports, group), ""]),
@@ -638,7 +759,7 @@ export const httpGenerator: Generator = (ir, index, context = defaultGenerationC
         files.push(
           generated(
             filename(group, "contract"),
-            render(header(group.items), imports, contractLines(imports, group, fragments)),
+            render(header(group.items), imports, contractLines(scopeOf(imports), group, fragments)),
           ),
         );
       }

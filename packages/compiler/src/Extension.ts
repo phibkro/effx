@@ -7,6 +7,7 @@ import type { EmitMode, TargetProfile } from "./Collected.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
 import type { DiagnosticEntry } from "@effx/diagnostics";
+import type { MethodCall } from "./generate/term.ts";
 
 /** What one annotation on one declaration contributes to the IR. Never behaviour. */
 export interface Contribution {
@@ -70,20 +71,15 @@ export interface GeneratedFile {
   readonly contents: string;
 }
 
-/** The import collector a fragment renders into: registers `name` from `module`, returns the local name. */
-export interface FragmentImports {
-  add(module: string, name: string): string;
-}
-
-/** One rendered method-call suffix of a generated endpoint (it starts with `.`, e.g. `.annotate(K, v)`). */
+/** One method-call suffix of a generated endpoint (it starts with `.`, e.g. `.annotate(K, v)`). */
 export interface EndpointFragmentPart {
-  readonly render: (imports: FragmentImports) => string;
+  readonly call: MethodCall;
 }
 
 /**
  * What an extension appends to the generated HTTP endpoint of an operation (spec 0020 §6): zero or more
- * method-call suffixes, appended after the generator's own annotations. Pure and total; any import is
- * registered only by `render`, so computing the parts does no work on the generated file.
+ * method-call suffixes, appended after the generator's own annotations. Pure and total: a part carries the
+ * neutral term of its suffix, so the generator registers the imports it needs when it prints the file.
  */
 export type EndpointFragment = (
   operation: OperationNode,
