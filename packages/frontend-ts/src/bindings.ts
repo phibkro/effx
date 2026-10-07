@@ -49,9 +49,14 @@ const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolR
     if (ts.isPropertyDeclaration(node) && ts.isClassDeclaration(node.parent)) {
       const owner = exportedOwner(resolver, node.parent);
 
-      return owner === undefined || owner.member !== undefined
-        ? undefined
-        : { ...owner, member: node.name.getText() };
+      if (owner === undefined) return undefined;
+
+      const member = node.name.getText();
+
+      return {
+        ...owner,
+        member: owner.member === undefined ? member : `${owner.member}.${member}`,
+      };
     }
 
     if (ts.isModuleDeclaration(node)) {
@@ -82,8 +87,18 @@ const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolR
 
       segments.unshift(name.text);
 
-      if (ts.isModuleDeclaration(node.parent) || ts.isModuleBlock(node.parent)) {
-        node = ts.isModuleBlock(node.parent) ? node.parent.parent : node.parent;
+      // `export const x` sits in a VariableDeclarationList inside a VariableStatement, so the container
+      // that decides ownership is the statement's container, not the declarator's.
+      const declarator: ts.Node = node;
+
+      const owner: ts.Node =
+        ts.isVariableDeclarationList(declarator.parent) &&
+        ts.isVariableStatement(declarator.parent.parent)
+          ? declarator.parent.parent.parent
+          : declarator.parent;
+
+      if (ts.isModuleDeclaration(owner) || ts.isModuleBlock(owner)) {
+        node = ts.isModuleBlock(owner) ? owner.parent : owner;
 
         continue;
       }

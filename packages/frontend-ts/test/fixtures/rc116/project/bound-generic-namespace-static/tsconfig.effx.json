@@ -1,0 +1,7 @@
+{
+  "extends": "../handlers/tsconfig.effx.json",
+  "effx": {
+    "projectRoot": "../.."
+  },
+  "include": ["../../src/content-actions.effx.ts", "../../src/generic-namespace-static.bind.ts"]
+}
