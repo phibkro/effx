@@ -11,6 +11,8 @@
     "src/generic-behaviors.ts",
     "src/content-bound-type-only.ts",
     "src/type-only-context.ts",
+    "src/content-bound-nested.ts",
+    "project/bound-generic-nested/.effx/generated/content-handlers.ts",
     "project/bound-generic-type-only/.effx/generated/content-handlers.ts",
     "project/bound-generic-defaulted-guard/.effx/generated/content-handlers.ts",
     "project/bound-generic-expr/.effx/generated/content-handlers.ts",

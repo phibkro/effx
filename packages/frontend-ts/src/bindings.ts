@@ -66,6 +66,20 @@ const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolR
         : { ...owner, member: node.name.getText() };
     }
 
+    if (ts.isModuleDeclaration(node)) {
+      if (!ts.isIdentifier(node.name) || !isExported(node)) return undefined;
+
+      segments.unshift(node.name.text);
+
+      const container: ts.Node = ts.isModuleBlock(node.parent) ? node.parent.parent : node.parent;
+
+      if (ts.isSourceFile(container)) return ownerRef(resolver, container.fileName, segments);
+
+      node = container;
+
+      continue;
+    }
+
     if (
       ts.isInterfaceDeclaration(node) ||
       ts.isTypeAliasDeclaration(node) ||

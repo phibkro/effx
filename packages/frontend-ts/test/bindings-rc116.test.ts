@@ -94,6 +94,7 @@ const generatedFixture = Effect.fnUntraced(function* () {
     "generic-expr",
     "generic-defaulted-guard",
     "generic-type-only",
+    "generic-nested",
   ] as const) {
     const config = path.join(directory, "project", `bound-${group}`, "tsconfig.effx.json");
     const contract = yield* compile({ tsconfigPath: config, emit: "contract" }, Extensions.builtin);
