@@ -100,15 +100,15 @@ const exportedOwner = (resolver: Resolver, declaration: ts.Declaration): SymbolR
 };
 
 /**
- * A name written in a mirrored constraint/default resolves to the public export that owns it —
- * a type reference or the value named by `typeof` — with the exact span of the written name, so the
- * generated clause imports that export and replaces that span precisely. Type parameters of the
- * same declaration need no import.
+ * A name written in a mirrored constraint/default resolves to the public export that owns it — a type
+ * reference or the value named by `typeof` — with the exact span of the written name, so the generated
+ * clause can import that export and replace that span precisely. The clause is a type position, so the
+ * import is type-only whichever symbol category the name resolves to. Type parameters of the same
+ * declaration need no import.
  */
 const referenceOf = (
   resolver: Resolver,
   name: ts.EntityName,
-  value: boolean,
   where: "constraint" | "default",
   base: number,
 ): GroupBindingReference | undefined => {
@@ -124,7 +124,7 @@ const referenceOf = (
 
   if (ref === undefined) return undefined;
 
-  return { ref, value, where, start: name.getStart() - base, end: name.getEnd() - base };
+  return { ref, where, start: name.getStart() - base, end: name.getEnd() - base };
 };
 
 const typeParameterOf = (
@@ -138,14 +138,14 @@ const typeParameterOf = (
 
     const visit = (child: ts.Node): void => {
       if (ts.isTypeReferenceNode(child)) {
-        const reference = referenceOf(resolver, child.typeName, false, where, base);
+        const reference = referenceOf(resolver, child.typeName, where, base);
 
         if (reference !== undefined)
           references.set(`${where}\0${reference.ref.module}\0${reference.start}`, reference);
       }
 
       if (ts.isTypeQueryNode(child)) {
-        const reference = referenceOf(resolver, child.exprName, true, where, base);
+        const reference = referenceOf(resolver, child.exprName, where, base);
 
         if (reference !== undefined)
           references.set(`${where}\0${reference.ref.module}\0${reference.start}`, reference);

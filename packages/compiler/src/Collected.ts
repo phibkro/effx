@@ -166,8 +166,6 @@ export type SpreadSource = typeof SpreadSource.Type;
 /** A type reference inside a mirrored constraint/default, addressed by its source span. */
 export const GroupBindingReference = Schema.Struct({
   ref: SymbolRef,
-  /** True when the clause needs the value binding (`typeof`); false when a type-only import suffices. */
-  value: Schema.Boolean,
   where: Schema.Literals(["constraint", "default"]),
   /** Offsets of the whole resolved type-reference name inside its text, so printing replaces it exactly. */
   start: Schema.Finite,

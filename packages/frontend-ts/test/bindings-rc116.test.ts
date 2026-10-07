@@ -56,6 +56,7 @@ const GenericObservations = Schema.Struct({
       success: { status: number; body: string };
       denial: { status: number; body: string };
       defaultedGuard: { status: number; body: string };
+      typeOnlyContext: { status: number; body: string };
     }> => Predicate.isFunction(value),
   ),
 });
@@ -90,6 +91,9 @@ const generatedFixture = Effect.fnUntraced(function* () {
     "generic-defaulted",
     "generic-alias",
     "generic-qualified",
+    "generic-expr",
+    "generic-defaulted-guard",
+    "generic-type-only",
   ] as const) {
     const config = path.join(directory, "project", `bound-${group}`, "tsconfig.effx.json");
     const contract = yield* compile({ tsconfigPath: config, emit: "contract" }, Extensions.builtin);
@@ -274,6 +278,11 @@ describe("bound Profile and Content against installed rc.116", () => {
         // parameter still authorizes and completes the handler Effect.
         assert.strictEqual(observed.defaultedGuard.status, 200);
         assert.strictEqual(observed.defaultedGuard.body, "publish:256");
+        // A `typeof` constraint on a type-only imported value must not execute that module: the module
+        // throws while loading, so reaching this assertion already proves it stayed unexecuted, and the
+        // handler's own body proves the bound factory still runs the real endpoint.
+        assert.strictEqual(observed.typeOnlyContext.status, 200);
+        assert.strictEqual(observed.typeOnlyContext.body, "publish:128");
       }).pipe(Effect.scoped, Effect.provide(Services)),
     120_000,
   );

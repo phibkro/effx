@@ -42,10 +42,9 @@ export const boundHandlersLines = (
         .toSorted((left, right) => right.start - left.start);
 
       for (const span of spans) {
-        // A `typeof` reference needs the value binding; a type reference needs a type-only import.
-        const local = span.value
-          ? imports.addAliased(span.ref.module, span.ref.export, span.ref.export)
-          : imports.addTypeAliased(span.ref.module, span.ref.export, span.ref.export);
+        // Every mirrored constraint/default is a type position — including `typeof`, whose operand may
+        // legitimately arrive through a type-only import — so the clause never forces a runtime import.
+        const local = imports.addTypeAliased(span.ref.module, span.ref.export, span.ref.export);
 
         const owner = local + (span.ref.member === undefined ? "" : `.${span.ref.member}`);
 

@@ -6,6 +6,7 @@ import {
   ContentApiHandlersWith,
 } from "../project/bound-generic/.effx/generated/content-handlers.js";
 import { ContentApiHandlers as DefaultedGuardHandlers } from "../project/bound-generic-defaulted-guard/.effx/generated/content-handlers.js";
+import { ContentApiHandlers as TypeOnlyHandlers } from "../project/bound-generic-type-only/.effx/generated/content-handlers.js";
 import { ExternalContentApi } from "./content-root.js";
 import { makeGenericGuards, makeGenericRawHandlers } from "./content-bound-generic.js";
 import { PersonSecurity } from "./profile-support.js";
@@ -15,6 +16,11 @@ export interface GenericBehaviorObservations {
   readonly denial: { readonly status: number; readonly body: string };
   /** The same raw factory paired with a guards factory that adds an extra defaulted type parameter. */
   readonly defaultedGuard: { readonly status: number; readonly body: string };
+  /**
+   * A raw factory whose mirrored constraint names a `typeof` of a type-only imported value: the
+   * context module throws while loading, so this observation also proves it is never executed.
+   */
+  readonly typeOnlyContext: { readonly status: number; readonly body: string };
 }
 
 const Security = Layer.succeed(PersonSecurity, { sessionCookie: (effect) => effect });
@@ -107,6 +113,25 @@ export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservati
         );
         const defaultedGuardBody = yield* Effect.promise(() => defaultedGuardResponse.text());
 
+        const typeOnlyHost = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(ExternalContentApi).pipe(
+                Layer.provide(TypeOnlyHandlers({ maxBodyBytes: 128 })),
+                Layer.provide(Security),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (host) => Effect.promise(() => host.dispose()),
+        );
+
+        const typeOnlyResponse = yield* Effect.promise(() =>
+          typeOnlyHost.handler(publishRequest()),
+        );
+        const typeOnlyBody = yield* Effect.promise(() => typeOnlyResponse.text());
+
         return {
           success: { status: successResponse.status, body: successBody },
           denial: { status: denialResponse.status, body: denialBody },
@@ -114,6 +139,7 @@ export const observeGenericBoundBehaviors = (): Promise<GenericBehaviorObservati
             status: defaultedGuardResponse.status,
             body: defaultedGuardBody,
           },
+          typeOnlyContext: { status: typeOnlyResponse.status, body: typeOnlyBody },
         };
       }),
     ),
