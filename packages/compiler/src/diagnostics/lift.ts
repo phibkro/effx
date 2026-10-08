@@ -68,7 +68,7 @@ const d3001 = defineDiagnostic(
   renderUnsupported,
 );
 
-const RefactorChannel = Schema.Literals(["params", "query", "headers", "payload"]);
+const RefactorChannel = Schema.Literals(["params", "query", "headers", "payload", "success"]);
 
 const RefactorForm = Schema.Literals(["inline-fields", "fields-access", "schema-call"]);
 
@@ -76,11 +76,11 @@ const d3002 = defineDiagnostic(
   {
     code: "EFFX3002",
     owner: "lift",
-    title: "Request schema must be an exported named schema",
+    title: "Channel schema must be an exported named schema",
     severity: "error",
     severityPolicy: { kind: "fixed" },
     explanation:
-      "A request channel written as inline fields, as the bare fields of another schema, or as an inline Schema.Struct call has no exported name. An effx declaration references schemas by exported name, so lift suggests a wire-preserving refactor that exports a named Schema.Struct and points the channel at it. The diagnostic carries the source edit; it blocks --check unless the overlay applies it.",
+      "A request channel or the success of an endpoint is written as inline fields, as the bare fields of another schema, or as an inline Schema expression, so it has no exported name. An effx declaration references schemas by exported name, so lift suggests a wire-preserving refactor that exports a named schema and points the channel at it. The diagnostic carries the source edits; it blocks --check unless the overlay applies it.",
     examples: [
       {
         before: "query: ScopeQuery.fields",
@@ -98,7 +98,7 @@ const d3002 = defineDiagnostic(
     planned: Schema.String,
   }),
   ({ subject, channel, form, planned }) =>
-    `${subject}: ${channel} is ${form === "inline-fields" ? "inline fields" : form === "fields-access" ? "bare .fields" : "an inline Schema.Struct call"}; export ${planned} and reference it`,
+    `${subject}: ${channel} is ${form === "inline-fields" ? "inline fields" : form === "fields-access" ? "bare .fields" : "an inline Schema expression"}; export ${planned} and reference it`,
 );
 
 const d3003 = defineDiagnostic(
@@ -231,6 +231,7 @@ const d3007 = defineDiagnostic(
 
 const RootParams = Schema.TaggedUnion({
   NotFound: { group: Schema.String },
+  AmbiguousGroup: { group: Schema.String, declarations: Schema.Array(Schema.String) },
   NoRoot: { group: Schema.String },
   AmbiguousRoots: { group: Schema.String, roots: Schema.Array(Schema.String) },
 });
@@ -255,6 +256,8 @@ const d3008 = defineDiagnostic(
   RootParams,
   RootParams.match({
     NotFound: ({ group }) => `group ${group} matches no HttpApiGroup.make declaration`,
+    AmbiguousGroup: ({ group, declarations }) =>
+      `group ${group} matches several HttpApiGroup.make declarations: ${declarations.join(", ")}`,
     NoRoot: ({ group }) => `group ${group} is not added to any HttpApi root`,
     AmbiguousRoots: ({ group, roots }) =>
       `group ${group} is added to several HttpApi roots: ${roots.join(", ")}`,

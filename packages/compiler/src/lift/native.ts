@@ -109,3 +109,10 @@ export const nativeCalleeOf = (
           isNativeModule(target, entry.kind, entry.ref.module),
       );
 };
+
+/**
+ * The member a claim names: the static member of a namespace reference (`HttpApiEndpoint` + `get`), or the
+ * export itself when the frontend resolved the declaring module's export directly (`get` of
+ * `HttpApiEndpoint.ts`). Both spellings of one native value answer with the same name.
+ */
+export const nativeName = (callee: NativeCallee): string => callee.member ?? callee.ref.export;

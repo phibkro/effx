@@ -38,9 +38,22 @@ export const SourceEdit = Schema.TaggedUnion({
 
 export type SourceEdit = typeof SourceEdit.Type;
 
-/** One export a refactor introduces and the real reference the suggestion uses for it. */
+/**
+ * One export a refactor introduces and the real reference the suggestion uses for it. `key` is the key of
+ * `LiftInput.names` it answers to (`<group>.<endpointKey>#<role>`, `<module>#<export>#codes` or
+ * `<module>#<export>#headers`), so a pinned name and a derived name are told apart by `source` alone.
+ */
 export const PlannedExport = Schema.Struct({
-  role: Schema.String,
+  key: Schema.String,
+  role: Schema.Literals([
+    "params",
+    "query",
+    "headers",
+    "payload",
+    "success",
+    "codes",
+    "responseHeaders",
+  ]),
   name: Schema.String,
   source: NameSource,
   ref: PlannedRef,
@@ -121,6 +134,14 @@ export const BindingReport = Schema.Struct({
 
 export type BindingReport = typeof BindingReport.Type;
 
+/**
+ * The exported code tuple a problem identifier's codes are referenced by: an existing export the union
+ * already uses, or the export a EFFX3004 refactor plans. The suggestion prints `codes: <ref>` instead of a copy.
+ */
+export const CodeReference = Schema.Struct({ identifier: Schema.String, ref: SymbolRef });
+
+export type CodeReference = typeof CodeReference.Type;
+
 /** The complete outcome of lifting one group. Lifting never throws; every problem is a diagnostic here. */
 export const LiftResult = Schema.Struct({
   group: Schema.String,
@@ -129,6 +150,7 @@ export const LiftResult = Schema.Struct({
   decisions: Schema.Array(Decision),
   unsupported: Schema.Array(UnsupportedSite),
   adapterPrerequisites: Schema.Array(AdapterPrerequisite),
+  codeReferences: Schema.Array(CodeReference),
   bindings: Schema.Array(BindingReport),
   diagnostics: Schema.Array(Diagnostic),
 });

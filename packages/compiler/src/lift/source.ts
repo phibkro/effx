@@ -70,11 +70,17 @@ export const FindingKind = Schema.Literals([
 
 export type FindingKind = typeof FindingKind.Type;
 
-/** One node the frontend could not lower: its kind, how the source names the construct, and where it is. */
+/**
+ * One node the frontend could not lower: its kind, how the source names the construct, and where it is.
+ * `enclosingCall` is the callee of the innermost enclosing call whose callee lowered to an exported symbol:
+ * a whole call cannot be a term when one argument is unlowerable, and this keeps "a registered helper with a
+ * non-literal argument" distinguishable from "an unregistered helper" without ever guessing.
+ */
 export const Finding = Schema.Struct({
   kind: FindingKind,
   construct: Schema.String,
   range: SourceRange,
+  enclosingCall: Schema.optionalKey(Schema.Struct({ callee: SymbolRef })),
 });
 
 export type Finding = typeof Finding.Type;

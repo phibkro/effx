@@ -1928,7 +1928,7 @@ export default defineConfig({
 | [EFFX2901](#EFFX2901) | Example operation is deprecated | warning |
 | [EFFX2902](#EFFX2902) | Example deprecated annotation is malformed | error |
 | [EFFX3001](#EFFX3001) | Unsupported Effect construct | error |
-| [EFFX3002](#EFFX3002) | Request schema must be an exported named schema | error |
+| [EFFX3002](#EFFX3002) | Channel schema must be an exported named schema | error |
 | [EFFX3003](#EFFX3003) | Response header schema must be an exported named schema | error |
 | [EFFX3004](#EFFX3004) | Problem codes must be an exported const tuple | error |
 | [EFFX3005](#EFFX3005) | Access annotation is not a registered builder call with literal arguments | error |
@@ -3611,7 +3611,7 @@ HttpApiEndpoint.get("list", "/items", { success: ItemsResponse })
 
 Remove the unsupported step or move the behavior into a registered wrapper; lift reports the construct instead of dropping it.
 
-## EFFX3002 — Request schema must be an exported named schema [#EFFX3002]
+## EFFX3002 — Channel schema must be an exported named schema [#EFFX3002]
 
 Owner: lift
 
@@ -3619,7 +3619,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-A request channel written as inline fields, as the bare fields of another schema, or as an inline Schema.Struct call has no exported name. An effx declaration references schemas by exported name, so lift suggests a wire-preserving refactor that exports a named Schema.Struct and points the channel at it. The diagnostic carries the source edit; it blocks --check unless the overlay applies it.
+A request channel or the success of an endpoint is written as inline fields, as the bare fields of another schema, or as an inline Schema expression, so it has no exported name. An effx declaration references schemas by exported name, so lift suggests a wire-preserving refactor that exports a named schema and points the channel at it. The diagnostic carries the source edits; it blocks --check unless the overlay applies it.
 
 ### Example 1
 

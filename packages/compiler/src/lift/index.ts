@@ -1,5 +1,7 @@
 export * from "./causes.ts";
 
+export { lift } from "./engine.ts";
+
 export * from "./frontend.ts";
 
 export * from "./model.ts";

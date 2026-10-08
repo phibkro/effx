@@ -101,6 +101,8 @@ export type AccessEmit = typeof AccessEmit.Type;
  * - `SuccessWrapper`: `callee(S)` stands for success `S` plus the response headers, status and conditional
  *   flag of the helper. With `schema` set the helper takes no schema argument and stands for that schema
  *   (spec 0019 §0.5: the body-less `HttpApiSchema.NoContent` family).
+ * - `NoSchemaSuccess`: `callee(...)` is a success helper whose body has no Schema (spec 0019 §3.3: the
+ *   document body of a runtime content type). It makes EFFX3007 the cause of its endpoint, not EFFX3006.
  * - `ProblemRegistry`: `response(union)` where `union` is `union(identifier, [codes])` stands for
  *   `Http.Problems { registry, codes, identifier }`. The generated spelling `registry(identifier, [codes])`
  *   is recognized through the same rule.
@@ -117,6 +119,7 @@ export const LiftRule = Schema.TaggedUnion({
     conditional: Schema.optionalKey(Schema.Literal(true)),
     status: Schema.optionalKey(Schema.Int),
   },
+  NoSchemaSuccess: { callee: SymbolRef },
   ProblemRegistry: { response: SymbolRef, union: SymbolRef, registry: SymbolRef },
   Metadata: {
     callee: SymbolRef,
@@ -136,11 +139,13 @@ export const LiftRule = Schema.TaggedUnion({
 export type LiftRule = typeof LiftRule.Type;
 
 /**
- * Everything the pure core needs besides the model. `names` pins the real exports that enter the IR hash:
- * a resolver id (the value an access builder passes as its resolver) maps to the exported resolver symbol,
- * and a planned-export key `<group>.<endpointKey>#<role>` maps to the symbol the human lift chose. A name
- * that is not pinned is derived deterministically; one that cannot be resolved is a diagnostic, never a
- * placeholder.
+ * Everything the pure core needs besides the model. `names` pins the real exports that enter the IR hash. Its
+ * keys are exactly: a resolver id (the value an access builder passes as its resolver), which maps to the
+ * exported resolver symbol; `<group>.<endpointKey>#<role>` with role `params|query|headers|payload|success`,
+ * which maps to the export planned for an inline request or success schema; `<module>#<export>#codes` for the
+ * code tuple planned for a problem union; and `<module>#<export>#headers` for the header schema planned for
+ * a success wrapper. A name that is not pinned is derived deterministically; one that cannot be resolved is a
+ * diagnostic, never a placeholder.
  */
 export const LiftInput = Schema.Struct({
   group: Schema.String,
