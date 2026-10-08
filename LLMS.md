@@ -1927,6 +1927,21 @@ export default defineConfig({
 | [EFFX2807](#EFFX2807) | Emit mode has no wiring to check | info |
 | [EFFX2901](#EFFX2901) | Example operation is deprecated | warning |
 | [EFFX2902](#EFFX2902) | Example deprecated annotation is malformed | error |
+| [EFFX3001](#EFFX3001) | Unsupported Effect construct | error |
+| [EFFX3002](#EFFX3002) | Request schema must be an exported named schema | error |
+| [EFFX3003](#EFFX3003) | Response header schema must be an exported named schema | error |
+| [EFFX3004](#EFFX3004) | Problem codes must be an exported const tuple | error |
+| [EFFX3005](#EFFX3005) | Access annotation is not a registered builder call with literal arguments | error |
+| [EFFX3006](#EFFX3006) | No lifter rule for callee | error |
+| [EFFX3007](#EFFX3007) | Success has no schema | error |
+| [EFFX3008](#EFFX3008) | Group not found, or not in exactly one root | error |
+| [EFFX3009](#EFFX3009) | No request channel to serve as operation input | error |
+| [EFFX3010](#EFFX3010) | Lift decision requires review | warning |
+| [EFFX3101](#EFFX3101) | Wire contracts differ | error |
+| [EFFX3102](#EFFX3102) | Check passed | info |
+| [EFFX3103](#EFFX3103) | Check could not run | error |
+| [EFFX3201](#EFFX3201) | Binding keys differ from the group's endpoint keys | error |
+| [EFFX3202](#EFFX3202) | Binding needs hand adaptation | error |
 | [EFFX3401](#EFFX3401) | Persistence method must be declaration-only | error |
 | [EFFX3402](#EFFX3402) | Persistence port method has transport exposure | error |
 | [EFFX3403](#EFFX3403) | Persistence port shape or identity invalid | error |
@@ -3569,6 +3584,400 @@ After:
 ```
 
 Supply a string reason and apply the annotation to a Query or Command.
+
+## EFFX3001 — Unsupported Effect construct [#EFFX3001]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+Lift reads only the exact declaration grammar of the spec: literal keys, paths and option objects; registered application wrappers; registered metadata calls with literal arguments; registered annotation keys. A computed key, path or option object, a spread, an unknown endpoint step, an unknown pipe step, an unregistered annotation key, a form-encoded inline payload, a group prefix, group middleware or group addError, and a registered metadata call with a non-literal argument are all reported with the construct named. The endpoint is omitted from every suggestion: lift never guesses and never evaluates source.
+
+### Example 1
+
+Before:
+
+```text
+HttpApiEndpoint.get("list", "/items", { success: ItemsResponse }).setHeaders(CustomHeaders)
+```
+
+After:
+
+```text
+HttpApiEndpoint.get("list", "/items", { success: ItemsResponse })
+```
+
+Remove the unsupported step or move the behavior into a registered wrapper; lift reports the construct instead of dropping it.
+
+## EFFX3002 — Request schema must be an exported named schema [#EFFX3002]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+A request channel written as inline fields, as the bare fields of another schema, or as an inline Schema.Struct call has no exported name. An effx declaration references schemas by exported name, so lift suggests a wire-preserving refactor that exports a named Schema.Struct and points the channel at it. The diagnostic carries the source edit; it blocks --check unless the overlay applies it.
+
+### Example 1
+
+Before:
+
+```text
+query: ScopeQuery.fields
+```
+
+After:
+
+```text
+export const ScopeQuerySchema = Schema.Struct(ScopeQuery.fields);
+// query: ScopeQuerySchema
+```
+
+The bare fields are not the schema itself, because the named schema carries an identifier annotation that would add an OpenAPI component.
+
+## EFFX3003 — Response header schema must be an exported named schema [#EFFX3003]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+A registered success wrapper builds its response headers inline, so no exported schema names them. Lift suggests exporting the header schema from the wrapper's module and making the wrapper use it, a wire-preserving refactor that the overlay check proves. The diagnostic carries the source edits.
+
+### Example 1
+
+Before:
+
+```text
+export const privateRead = (success) => HttpApiSchema.WithHeaders(success, { cache: Cache })
+```
+
+After:
+
+```text
+export const PrivateReadHeaders = Schema.Struct({ cache: Cache });
+export const privateRead = (success) => HttpApiSchema.WithHeaders(success, PrivateReadHeaders)
+```
+
+Export the headers once and reference the export from the wrapper.
+
+## EFFX3004 — Problem codes must be an exported const tuple [#EFFX3004]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The code list of a problem union is written inline, so the effx declaration would duplicate it. Lift suggests extracting the list into an exported const tuple that both the union and the declaration reference. A list that is not a literal array of string literals cannot be read without evaluating source and is unliftable until it is named.
+
+### Example 1
+
+Before:
+
+```text
+problemUnion("ReadProblem", ["not-found", "forbidden"])
+```
+
+After:
+
+```text
+export const ReadProblemCodes = ["not-found", "forbidden"] as const;
+problemUnion("ReadProblem", ReadProblemCodes)
+```
+
+One exported tuple is the single source of truth for the codes.
+
+## EFFX3005 — Access annotation is not a registered builder call with literal arguments [#EFFX3005]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+Access is lifted only from a registered access builder called with literal arguments. A local closure, a named constant, a spread or a non-literal builder argument would require partial evaluation, which lift never performs. The endpoint is omitted from every suggestion.
+
+### Example 1
+
+Before:
+
+```text
+.pipe((endpoint) => annotateAccessSpec(endpoint, access(true)))
+```
+
+After:
+
+```text
+.pipe((endpoint) => annotateAccessSpec(endpoint, personNativeAccess({ capability: "profile.read-self", canonicalScopeResolver: "profile.current-person", decisionTime: "SnapshotRead" })))
+```
+
+Write the access with a registered builder and literal arguments.
+
+## EFFX3006 — No lifter rule for callee [#EFFX3006]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+An application helper is used as a success wrapper, metadata, access or problem helper, but no lifter rule registers it. Rules are data supplied through the definition-owned lift hook; lift never guesses a helper's meaning and never unfolds its body as authority.
+
+### Example 1
+
+Before:
+
+```text
+success: customResponse(UserResponse)
+```
+
+After:
+
+```text
+// register customResponse as a SuccessWrapper rule, or write the schema directly
+success: UserResponse
+```
+
+Register the helper with a lift rule so lift can map it.
+
+## EFFX3007 — Success has no schema [#EFFX3007]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The success of the endpoint is a document body of a runtime content type, or another construct with no Schema. effx declares a success only by a schema, so the endpoint is not liftable. A body-less success such as HttpApiSchema.NoContent is liftable and does not produce this diagnostic.
+
+### Example 1
+
+Before:
+
+```text
+success: documentMutationResponse("application/pdf")
+```
+
+After:
+
+```text
+success: ReceiptResponse
+```
+
+Declare the response with a schema, or keep the endpoint as handwritten Effect.
+
+## EFFX3008 — Group not found, or not in exactly one root [#EFFX3008]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The requested group id matches no HttpApiGroup.make declaration, or the group is not added to exactly one HttpApi root. The root is the unique HttpApi.make value whose .add contains the group; zero or several roots cannot select a unique root identity.
+
+### Example 1
+
+Before:
+
+```text
+effx lift --group profile  // the group is added to two roots
+```
+
+After:
+
+```text
+effx lift --group profile  // the group is added to one root
+```
+
+Add the group to exactly one root declaration.
+
+## EFFX3009 — No request channel to serve as operation input [#EFFX3009]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+An effx operation requires a fully resolved input. The endpoint declares no params, query, headers or payload schema, and no emptyInput schema is configured, so lift cannot choose an input without inventing one. Configure a real exported emptyInput schema.
+
+### Example 1
+
+Before:
+
+```text
+HttpApiEndpoint.get("health", "/health", { success: Health })
+```
+
+After:
+
+```text
+// configure emptyInput: an exported Schema for no input
+```
+
+Name a real exported schema as the lifter's emptyInput.
+
+## EFFX3010 — Lift decision requires review [#EFFX3010]
+
+Owner: lift
+
+Default severity: warning
+
+Severity policy: Fixed
+
+The effx IR contains facts with no Effect twin: the operation kind, the operation input and the real names of new exports. They cannot be validated by comparing wire contracts, so lift prints them as decisions to review and never reports them as verified.
+
+### Example 1
+
+Before:
+
+```text
+POST /search  // lifted as a Command
+```
+
+After:
+
+```text
+// review: the read-only POST may be a Query with payloadIsQuery
+```
+
+Review each decision before accepting the suggestion.
+
+## EFFX3101 — Wire contracts differ [#EFFX3101]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The check built the Reflection of the untouched original group and of the generated group and found a difference outside the closed set of tolerated deltas. The difference is the payload of the report.
+
+### Example 1
+
+Before:
+
+```text
+original summary: Read own profile
+```
+
+After:
+
+```text
+generated summary: Read my profile
+```
+
+Any difference in a wire-visible field fails the check.
+
+## EFFX3102 — Check passed [#EFFX3102]
+
+Owner: lift
+
+Default severity: info
+
+Severity policy: Fixed
+
+The Reflections of the original and the generated group are equal after the closed set of delta normalizers. The applied delta classes are listed.
+
+### Example 1
+
+Before:
+
+```text
+effx lift --check --group profile
+```
+
+After:
+
+```text
+PASS(ref-suffix)
+```
+
+The only tolerated differences were the named deltas.
+
+## EFFX3103 — Check could not run [#EFFX3103]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The overlay does not compile, a root cannot be built, a registered projection hook threw, or a trusted lifter-rule hook raised an exception. Lift stays total: a rule exception becomes this diagnostic and never an exit by exception. It is not a pass.
+
+### Example 1
+
+Before:
+
+```text
+effx lift --check  // the overlay has a type error
+```
+
+After:
+
+```text
+effx lift --check  // the overlay compiles
+```
+
+Fix the overlay or the hook, then run the check again.
+
+## EFFX3201 — Binding keys differ from the group's endpoint keys [#EFFX3201]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+The handler keys registered by the application's HttpApiBuilder.group call are not exactly the endpoint keys of the group. The key sets are compared statically without executing source.
+
+### Example 1
+
+Before:
+
+```text
+h.handleRaw("read", fn)  // the group also declares update
+```
+
+After:
+
+```text
+h.handleRaw("read", fn).handleRaw("update", fn)
+```
+
+Register exactly the group's endpoint keys.
+
+## EFFX3202 — Binding needs hand adaptation [#EFFX3202]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+A handler calls the application's authorization function directly, decodes the payload itself, or registers with .handle instead of .handleRaw. Moving an authorization call behind the lazy authorize callback cannot be mechanical. Lift lists each site and never invents handler code.
+
+### Example 1
+
+Before:
+
+```text
+yield* authorize(request)  // inside the handler
+```
+
+After:
+
+```text
+(input, authorize) => ... // lazy authorize callback
+```
+
+Adapt the site by hand; the binding report stays unverified until then.
 
 ## EFFX3401 — Persistence method must be declaration-only [#EFFX3401]
 

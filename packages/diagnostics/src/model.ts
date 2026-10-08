@@ -79,6 +79,9 @@ const numericOwners = {
   "26": "foldkit",
   "27": "project",
   "28": "surface",
+  "30": "lift",
+  "31": "lift",
+  "32": "lift",
   "34": "persistence",
   "41": "cedar",
 };

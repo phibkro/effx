@@ -11,7 +11,14 @@ export type {
   EndpointFragmentPart,
 } from "./Extension.ts";
 
-export type { MethodCall } from "./generate/term.ts";
+export type { MethodCall, NameOf, ObjEntry, ObjLayout, RefLike, Term } from "./generate/term.ts";
+
+// The one neutral expression algebra the HTTP generator prints and the lifter reads (spec 0019 S2):
+// constructors and printer are exposed once, so no frontend imports a private package path.
+export * as Terms from "./generate/term.ts";
+
+// Lift (spec 0019 §3.1, §8 S7): the Schema-defined model, rules and result shared by frontend and core.
+export * from "./lift/index.ts";
 
 export { Contribution } from "./Extension.ts";
 
@@ -35,6 +42,7 @@ export {
   DiagnosticDefinitions,
   CoreDiagnostics,
   HttpDiagnostics,
+  LiftDiagnostics,
 } from "./diagnostics/index.ts";
 
 export { ProjectConfig, EmitMode, TargetProfile } from "./Collected.ts";
