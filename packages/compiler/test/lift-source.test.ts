@@ -1,8 +1,11 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Option, Result } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import {
+  EffectModel,
   Extensions,
+  LiftInput,
+  bundledDiagnosticEntries,
   compileCollected,
   lift,
   printSuggestion,
@@ -281,5 +284,47 @@ describe("the negative inventory: one endpoint per way a declaration is unsuppor
       shuffled.unsupported.toSorted(bySubject),
       result.unsupported.toSorted(bySubject),
     );
+  });
+});
+
+describe("the core is pure and every diagnostic it emits is registered", () => {
+  const negative = lift(modelOf(negativeFiles, negativeUniverse), sourceInput("negative"));
+  const registry = new Map(bundledDiagnosticEntries.map((entry) => [entry.code, entry] as const));
+
+  it.effect("never mutates its model or its rules, and the model is plain serializable data", () =>
+    Effect.gen(function* () {
+      const encodeModel = Schema.encodeEffect(Schema.toCodecJson(EffectModel));
+      const encodeInput = Schema.encodeEffect(Schema.toCodecJson(LiftInput));
+      const before = [yield* encodeModel(model), yield* encodeInput(input)];
+
+      const again = lift(model, input);
+
+      assert.deepStrictEqual([yield* encodeModel(model), yield* encodeInput(input)], before);
+      assert.deepStrictEqual(again, lifted);
+    }),
+  );
+
+  it("emits only codes of the lift family, with the severity the registry fixes for each", () => {
+    const emitted = [...lifted.diagnostics, ...negative.diagnostics];
+
+    assert.isAbove(new Set(emitted.map((diagnostic) => diagnostic.code)).size, 6);
+
+    for (const diagnostic of emitted) {
+      const entry = registry.get(diagnostic.code);
+
+      assert.strictEqual(entry?.owner, "lift", `${diagnostic.code} is owned by lift`);
+      assert.strictEqual(
+        diagnostic.severity,
+        entry?.severity,
+        `${diagnostic.code} keeps its severity`,
+      );
+    }
+  });
+
+  it("reports every unsupported site as an error and never as a fault", () => {
+    for (const site of negative.unsupported) {
+      assert.strictEqual(site.primary.severity, "error");
+      assert.isDefined(site.primary.location);
+    }
   });
 });
