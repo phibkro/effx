@@ -2,7 +2,7 @@ import type { Diagnostic } from "../Diagnostic.ts";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import type { ChosenInput } from "./collect.ts";
 import { isQuery } from "./collect.ts";
-import type { Decision, PlannedExport } from "./result.ts";
+import type { Decision, PlannedExport, Refactor } from "./result.ts";
 import { locationOf, type SourceRange } from "./source.ts";
 import type { Recognized } from "./types.ts";
 
@@ -109,3 +109,20 @@ export const groupDecision = (
     { location: locationOf(at) },
   ),
 });
+
+/** The export-name decisions of a refactor planned outside any one endpoint (a wrapper's header schema). */
+export const refactorDecisions = (refactor: Refactor): ReadonlyArray<Reviewed> =>
+  refactor.planned.map((planned) => ({
+    decision: {
+      _tag: "ExportName",
+      subject: refactor.subject,
+      role: planned.role,
+      name: planned.name,
+      source: planned.source,
+      module: planned.ref.module,
+    },
+    diagnostic: LiftDiagnostics.EFFX3010.emit(
+      { subject: refactor.subject, decision: "export", value: planned.name },
+      refactor.cause.location === undefined ? undefined : { location: refactor.cause.location },
+    ),
+  }));

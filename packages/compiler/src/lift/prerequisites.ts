@@ -74,8 +74,14 @@ const order: Order.Order<AdapterPrerequisite> = Order.combine(
   ),
 );
 
-/** The unresolved symbols of the rules, the resolver names and the configured empty input. */
-export const adapterPrerequisites = (ctx: Context): ReadonlyArray<AdapterPrerequisite> => {
+/**
+ * The unresolved symbols of the rules, the resolver names and the configured empty input. A symbol a
+ * refactor plans (`planned`) is not a prerequisite: the patch creates it.
+ */
+export const adapterPrerequisites = (
+  ctx: Context,
+  planned: ReadonlyArray<SymbolRef>,
+): ReadonlyArray<AdapterPrerequisite> => {
   const input = ctx.input;
 
   const resolvers = Object.entries(input.names).flatMap(([key, ref]) =>
@@ -89,7 +95,9 @@ export const adapterPrerequisites = (ctx: Context): ReadonlyArray<AdapterPrerequ
   ];
 
   const unresolved = named.filter(
-    (item) => ctx.filesByModule.get(item.ref.module)?.exports.includes(item.ref.export) !== true,
+    (item) =>
+      ctx.filesByModule.get(item.ref.module)?.exports.includes(item.ref.export) !== true &&
+      !planned.some((ref) => ref.module === item.ref.module && ref.export === item.ref.export),
   );
 
   return unresolved

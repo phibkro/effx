@@ -1,10 +1,11 @@
-import { Option, Schema } from "effect";
-import type { SchemaRef, SymbolRef } from "@effx/ir";
+import { Data, Option, Schema } from "effect";
+import { StableId, type SchemaRef, type SymbolRef } from "@effx/ir";
 import {
   Terms,
   type EffectModel,
   type EndpointRecord,
-  type GeneratedFile,
+  type Finding,
+  type FindingKind,
   type GroupRecord,
   type MiddlewareFact,
   type NativeCallee,
@@ -20,15 +21,19 @@ import {
   type Term,
   type TermSlot,
   type TermSpan,
+  type ValueRecord,
+  type WrapperFact,
 } from "@effx/compiler";
-import { Imports } from "../src/generate/target.ts";
 import { defaultGenerationContext } from "../src/Extension.ts";
+import { Imports } from "../src/generate/target.ts";
 
 /*
- * A test-only frontend: it lowers the source the generator printed (the exact grammar of `printTerm`) back
- * into the neutral `Term` model, with the resolution a real frontend does from declarations (imports become
- * `SchemaRef`/`SymbolRef`, native Effect imports become typed claims). It exists so the laws of spec 0019 §2.5
- * run over REAL generator output: generate → print → lower (here) → lift → compile. It parses nothing else.
+ * A test-only frontend: it lowers TypeScript source text (the grammar of `printTerm` plus the hand-written
+ * forms of spec 0019 §3.3: `.pipe((e) => W(e, …))`, spreads, computed keys, local constants) into the
+ * neutral `Term` model, the way a real frontend resolves declarations: imports become `SchemaRef` or
+ * `SymbolRef` by what the imported module exports, native Effect imports become typed claims, and a
+ * construct it cannot lower becomes an `Unlowered` slot with a `Finding`, never a partial term. It exists so
+ * the laws of spec 0019 §2.5 and the negative fixtures of §10 run over real text with real offsets.
  */
 
 interface Token {
@@ -44,7 +49,7 @@ const patterns: ReadonlyArray<readonly [Token["kind"] | "skip", RegExp]> = [
   ["string", /"(?:[^"\\]|\\.)*"/uy],
   ["number", /-?\d+(?:\.\d+)?/uy],
   ["ident", /[A-Za-z_$][A-Za-z0-9_$]*/uy],
-  ["punct", /===|\?\.|\?\?|[{}()[\],:;.?=]/uy],
+  ["punct", /\.\.\.|===|=>|\?\.|\?\?|[{}()[\],:;.?=]/uy],
 ];
 
 const tokenize = (text: string): ReadonlyArray<Token> => {
@@ -60,9 +65,7 @@ const tokenize = (text: string): ReadonlyArray<Token> => {
     })[0];
 
     if (matched === undefined)
-      throw new Error(
-        `the test frontend cannot lex ${JSON.stringify(text.slice(index, index + 20))}`,
-      );
+      throw new Error(`the test frontend cannot lex ${text.slice(index, index + 20)}`);
 
     if (matched.kind !== "skip")
       tokens.push({
@@ -98,6 +101,7 @@ type Node = Span &
     | { readonly tag: "array"; readonly items: ReadonlyArray<Node> }
     | { readonly tag: "object"; readonly entries: ReadonlyArray<ObjectEntry> }
     | { readonly tag: "paren"; readonly inner: Node }
+    | { readonly tag: "arrow"; readonly param: string; readonly body: Node }
     | { readonly tag: "nullish"; readonly head: Node; readonly tail: ReadonlyArray<Node> }
     | { readonly tag: "equal"; readonly left: Node; readonly right: Node }
     | {
@@ -108,21 +112,28 @@ type Node = Span &
       }
   );
 
-interface ObjectEntry extends Span {
-  readonly key: string;
-  readonly value: Node;
-}
+type ObjectEntry = Span &
+  (
+    | {
+        readonly kind: "property";
+        readonly key: string;
+        readonly keyText: string;
+        readonly value: Node;
+      }
+    | { readonly kind: "spread"; readonly value: Node }
+    | { readonly kind: "computed"; readonly value: Node }
+  );
 
 const jsonString = Schema.fromJsonString(Schema.String);
 
 const decodeKey = (text: string): string =>
   text.startsWith('"') ? Option.getOrThrow(Schema.decodeOption(jsonString)(text)) : text;
 
-/** Recursive descent over the printed grammar: ternary, `??`, `===`, postfix member/call, primaries. */
+/** Recursive descent: ternary, `??`, `===`, postfix member/call, arrows, object/array literals. */
 const parser = (tokens: ReadonlyArray<Token>) => {
   const state = { index: 0 };
 
-  const peek = (): Token | undefined => tokens[state.index];
+  const peek = (ahead = 0): Token | undefined => tokens[state.index + ahead];
 
   const take = (): Token => {
     const token = tokens[state.index];
@@ -134,7 +145,8 @@ const parser = (tokens: ReadonlyArray<Token>) => {
     return token;
   };
 
-  const is = (text: string): boolean => peek()?.text === text && peek()?.kind === "punct";
+  const is = (text: string, ahead = 0): boolean =>
+    peek(ahead)?.text === text && peek(ahead)?.kind === "punct";
 
   const expect = (text: string): Token => {
     const token = take();
@@ -144,6 +156,8 @@ const parser = (tokens: ReadonlyArray<Token>) => {
 
     return token;
   };
+
+  const lastEnd = (fallback: number): number => tokens[state.index - 1]?.end ?? fallback;
 
   const list = <A>(close: string, item: () => A): ReadonlyArray<A> => {
     const items: Array<A> = [];
@@ -159,6 +173,44 @@ const parser = (tokens: ReadonlyArray<Token>) => {
     return items;
   };
 
+  const entry = (): ObjectEntry => {
+    const head = peek();
+
+    if (is("...")) {
+      const dots = take();
+      const value = expression();
+
+      return { kind: "spread", value, start: dots.start, end: value.end };
+    }
+
+    if (is("[")) {
+      const open = take();
+      expression();
+
+      expect("]");
+      expect(":");
+
+      const target = expression();
+
+      return { kind: "computed", value: target, start: open.start, end: target.end };
+    }
+
+    const key = take();
+
+    expect(":");
+
+    const value = expression();
+
+    return {
+      kind: "property",
+      key: decodeKey(key.text),
+      keyText: key.text,
+      value,
+      start: head?.start ?? key.start,
+      end: value.end,
+    };
+  };
+
   const primary = (): Node => {
     const token = take();
 
@@ -172,7 +224,7 @@ const parser = (tokens: ReadonlyArray<Token>) => {
         };
       case "number":
         return { tag: "literal", json: Number(token.text), start: token.start, end: token.end };
-      case "ident":
+      case "ident": {
         if (token.text === "true" || token.text === "false")
           return {
             tag: "literal",
@@ -184,9 +236,32 @@ const parser = (tokens: ReadonlyArray<Token>) => {
         if (token.text === "null")
           return { tag: "literal", json: null, start: token.start, end: token.end };
 
+        if (is("=>")) {
+          take();
+
+          const body = expression();
+
+          return { tag: "arrow", param: token.text, body, start: token.start, end: body.end };
+        }
+
         return { tag: "ident", name: token.text, start: token.start, end: token.end };
-      case "punct":
+      }
+
+      case "punct": {
         if (token.text === "(") {
+          const lone = peek()?.kind === "ident" && is(")", 1) && is("=>", 2);
+
+          if (lone) {
+            const param = take();
+
+            take();
+            take();
+
+            const body = expression();
+
+            return { tag: "arrow", param: param.text, body, start: token.start, end: body.end };
+          }
+
           const inner = expression();
           const close = expect(")");
 
@@ -196,33 +271,17 @@ const parser = (tokens: ReadonlyArray<Token>) => {
         if (token.text === "[") {
           const items = list("]", expression);
 
-          return {
-            tag: "array",
-            items,
-            start: token.start,
-            end: tokens[state.index - 1]?.end ?? token.end,
-          };
+          return { tag: "array", items, start: token.start, end: lastEnd(token.end) };
         }
 
         if (token.text === "{") {
-          const entries = list("}", () => {
-            const key = take();
+          const entries = list("}", entry);
 
-            expect(":");
-            const value = expression();
-
-            return { key: decodeKey(key.text), value, start: key.start, end: value.end };
-          });
-
-          return {
-            tag: "object",
-            entries,
-            start: token.start,
-            end: tokens[state.index - 1]?.end ?? token.end,
-          };
+          return { tag: "object", entries, start: token.start, end: lastEnd(token.end) };
         }
 
         throw new Error(`unexpected ${token.text} at ${token.start}`);
+      }
     }
   };
 
@@ -240,7 +299,7 @@ const parser = (tokens: ReadonlyArray<Token>) => {
           callee: node,
           args,
           start: node.start,
-          end: tokens[state.index - 1]?.end ?? node.end,
+          end: lastEnd(node.end),
         };
       } else {
         const name = take();
@@ -288,8 +347,19 @@ const parser = (tokens: ReadonlyArray<Token>) => {
       : { tag: "nullish", head, tail, start: head.start, end: last.end };
   };
 
+  /** `as const` is a TypeScript-only wrapper: transparent, like parentheses. */
+  const transparent = (node: Node): Node => {
+    if (peek()?.text === "as" && peek(1)?.text === "const") {
+      take();
+
+      return { ...node, end: take().end };
+    }
+
+    return node;
+  };
+
   const expression = (): Node => {
-    const test = nullish();
+    const test = transparent(nullish());
 
     if (!is("?")) return test;
 
@@ -304,35 +374,44 @@ const parser = (tokens: ReadonlyArray<Token>) => {
     return { tag: "cond", test, consequent, alternate, start: test.start, end: alternate.end };
   };
 
-  return { expression, peek, take, expect, is, state };
+  return { expression, peek, take, expect, is };
 };
 
-type Statement =
-  | {
-      readonly tag: "import";
-      readonly module: string;
-      readonly names: ReadonlyArray<readonly [string, string]>;
-      readonly end: number;
-    }
-  | { readonly tag: "export"; readonly name: string; readonly value: Node };
+interface Statement extends Span {
+  readonly tag: "import" | "const";
+  readonly exported: boolean;
+  readonly name: string;
+  readonly module: string;
+  readonly names: ReadonlyArray<readonly [string, string]>;
+  readonly value: Node | undefined;
+}
 
-/** `import { A, B as C } from "m";` and `export const X = <expression>;`: the only statements generated. */
+/** `import { A, B as C } from "m";`, `export const X = e;` and `const X = e;`: the only statements read. */
 const statements = (text: string): ReadonlyArray<Statement> => {
-  const tokens = tokenize(text);
-  const parse = parser(tokens);
+  const parse = parser(tokenize(text));
   const found: Array<Statement> = [];
 
   while (parse.peek() !== undefined) {
     const head = parse.take();
+    const exported = head.text === "export";
+    const word = exported ? parse.take() : head;
 
-    if (head.text === "import") {
+    if (word.text === "import") {
       parse.expect("{");
 
       const names: Array<readonly [string, string]> = [];
 
       while (!parse.is("}")) {
         const imported = parse.take().text;
-        const local = parse.peek()?.text === "as" ? (parse.take(), parse.take().text) : imported;
+
+        const local =
+          parse.peek()?.text === "as"
+            ? (() => {
+                parse.take();
+
+                return parse.take().text;
+              })()
+            : imported;
 
         names.push([imported, local]);
 
@@ -343,21 +422,37 @@ const statements = (text: string): ReadonlyArray<Statement> => {
       parse.take();
 
       const module = Option.getOrThrow(Schema.decodeOption(jsonString)(parse.take().text));
-      const end = parse.expect(";").end;
 
-      found.push({ tag: "import", module, names, end });
-    } else if (head.text === "export") {
-      parse.take();
-
+      found.push({
+        tag: "import",
+        exported: false,
+        name: "",
+        module,
+        names,
+        value: undefined,
+        start: head.start,
+        end: parse.expect(";").end,
+      });
+    } else if (word.text === "const") {
       const name = parse.take().text;
 
       parse.expect("=");
 
       const value = parse.expression();
 
-      parse.expect(";");
-      found.push({ tag: "export", name, value });
-    } else throw new Error(`the test frontend cannot read the statement starting ${head.text}`);
+      found.push({
+        tag: "const",
+        exported,
+        name,
+        module: "",
+        names: [],
+        value,
+        start: head.start,
+        end: parse.expect(";").end,
+      });
+    } else {
+      throw new Error(`the test frontend cannot read the statement starting ${head.text}`);
+    }
   }
 
   return found;
@@ -376,51 +471,92 @@ const nativeKinds: ReadonlySet<string> = new Set<NativeKind>([
 
 const isNativeKind = (name: string): name is NativeKind => nativeKinds.has(name);
 
-/** What the test frontend knows about the application: which exports are Effect Schemas, and their facts. */
+/** What the test frontend is told about the application beyond its source. */
 export interface Universe {
   readonly target: TargetProfile;
+  /** Schema exports of modules that are not part of the source text (bare package modules). */
   readonly schemas: ReadonlyArray<SchemaRef>;
   readonly facts: ReadonlyArray<SchemaFact>;
   readonly markers: ReadonlyArray<MiddlewareFact>;
+  /** The root added when the source declares none: every group is `.add`ed to it. */
   readonly root: { readonly symbol: SymbolRef; readonly id: string };
+}
+
+export interface SourceFile {
+  readonly path: string;
+  readonly contents: string;
 }
 
 const identity = (ref: { readonly module: string; readonly export: string }): string =>
   `${ref.module}\u0000${ref.export}`;
 
-interface Lowering {
+const moduleOfPath = (path: string): string => `./${path.replace(/\.tsx?$/u, "")}`;
+
+/** The module key an import specifier names from the module `from`; bare specifiers are their own key. */
+const resolveSpecifier = (from: string, specifier: string): string => {
+  if (!specifier.startsWith(".")) return specifier;
+
+  const names = from.replace(/^\.\//u, "").split("/").slice(0, -1);
+  let ups = 0;
+
+  for (const part of specifier.replace(/\.(?:js|ts|tsx|mjs)$/u, "").split("/")) {
+    if (part === "." || part === "") continue;
+
+    if (part !== "..") names.push(part);
+    else if (names.length > 0) names.pop();
+    else ups += 1;
+  }
+
+  return `${ups > 0 ? "../".repeat(ups) : "./"}${names.join("/")}`;
+};
+
+/** A node the frontend cannot lower: thrown while lowering, turned into a `Finding` at the slot boundary. */
+class Unlowerable extends Data.TaggedError("Unlowerable")<{
+  readonly kind: FindingKind;
+  readonly construct: string;
+  readonly span: Span;
+  readonly enclosing: SymbolRef | undefined;
+}> {}
+
+const unlowerable = (
+  kind: FindingKind,
+  construct: string,
+  span: Span,
+  enclosing?: SymbolRef,
+): Unlowerable => new Unlowerable({ kind, construct, span, enclosing });
+
+interface Scope {
   readonly file: string;
   readonly module: string;
   readonly target: TargetProfile;
-  readonly resolve: (name: string) => SchemaRef | SymbolRef;
+  readonly resolve: (name: string, at: Span) => SchemaRef | SymbolRef;
   readonly claims: Map<string, NativeCallee>;
   readonly position: (offset: number) => { offset: number; line: number; col: number };
 }
 
-const rangeOf = (lowering: Lowering, span: Span): SourceRange => ({
-  file: lowering.file,
-  start: lowering.position(span.start),
-  end: lowering.position(span.end),
+const rangeOf = (scope: Scope, span: Span): SourceRange => ({
+  file: scope.file,
+  start: scope.position(span.start),
+  end: scope.position(span.end),
 });
 
-const claim = (lowering: Lowering, ref: SchemaRef | SymbolRef, member?: string): void => {
+const claim = (
+  scope: Pick<Scope, "target" | "claims">,
+  ref: SchemaRef | SymbolRef,
+  member?: string,
+): void => {
   if (!isNativeKind(ref.export)) return;
 
-  const callee: NativeCallee =
-    member === undefined
-      ? {
-          kind: ref.export,
-          target: lowering.target,
-          ref: { module: ref.module, export: ref.export },
-        }
-      : {
-          kind: ref.export,
-          target: lowering.target,
-          ref: { module: ref.module, export: ref.export },
-          member,
-        };
+  const base = {
+    kind: ref.export,
+    target: scope.target,
+    ref: { module: ref.module, export: ref.export },
+  };
 
-  lowering.claims.set(`${identity(ref)}\u0000${member ?? ""}`, callee);
+  scope.claims.set(
+    `${identity(ref)}\u0000${member ?? ""}`,
+    member === undefined ? base : { ...base, member },
+  );
 };
 
 interface Lowered {
@@ -429,26 +565,31 @@ interface Lowered {
 }
 
 const under = (
-  lowering: Lowering,
+  scope: Scope,
   prefix: ReadonlyArray<string | number>,
   node: Node,
 ): ReadonlyArray<TermSpan> =>
-  lower(lowering, node).spans.map((span) => ({
+  lower(scope, node).spans.map((span) => ({
     path: [...prefix, ...span.path],
     range: span.range,
   }));
 
-const lower = (lowering: Lowering, node: Node): Lowered => {
+const symbolOf = (ref: SchemaRef | SymbolRef): SymbolRef => ({
+  module: ref.module,
+  export: ref.export,
+});
+
+const lower = (scope: Scope, node: Node): Lowered => {
   const here = (term: Term, children: ReadonlyArray<TermSpan>): Lowered => ({
     term,
-    spans: [{ path: [], range: rangeOf(lowering, node) }, ...children],
+    spans: [{ path: [], range: rangeOf(scope, node) }, ...children],
   });
 
   switch (node.tag) {
     case "ident": {
-      const reference = lowering.resolve(node.name);
+      const reference = scope.resolve(node.name, node);
 
-      claim(lowering, reference);
+      claim(scope, reference);
 
       return here(Terms.ref(reference), []);
     }
@@ -456,20 +597,41 @@ const lower = (lowering: Lowering, node: Node): Lowered => {
     case "literal":
       return here(Terms.lit(node.json), []);
     case "member": {
-      const object = lower(lowering, node.object);
+      const object = lower(scope, node.object);
 
-      if (object.term._tag === "Ref") claim(lowering, object.term.ref, node.name);
+      if (object.term._tag === "Ref") claim(scope, object.term.ref, node.name);
 
       const term = node.optional
         ? Terms.optionalMember(object.term, node.name)
         : Terms.member(object.term, node.name);
 
-      return here(term, under(lowering, ["term"], node.object));
+      return here(term, under(scope, ["term"], node.object));
     }
 
     case "call": {
-      const callee = lower(lowering, node.callee);
-      const args = node.args.map((arg) => lower(lowering, arg));
+      const callee = lower(scope, node.callee);
+
+      const callerRef =
+        callee.term._tag === "Ref"
+          ? symbolOf(callee.term.ref)
+          : callee.term._tag === "Member" && callee.term.term._tag === "Ref"
+            ? { ...symbolOf(callee.term.term.ref), member: callee.term.member }
+            : undefined;
+
+      const args = node.args.map((arg) => {
+        try {
+          return lower(scope, arg);
+        } catch (error) {
+          if (
+            error instanceof Unlowerable &&
+            error.enclosing === undefined &&
+            callerRef !== undefined
+          )
+            throw unlowerable(error.kind, error.construct, error.span, callerRef);
+
+          throw error;
+        }
+      });
 
       return here(
         Terms.call(
@@ -477,29 +639,33 @@ const lower = (lowering: Lowering, node: Node): Lowered => {
           args.map((arg) => arg.term),
         ),
         [
-          ...under(lowering, ["callee"], node.callee),
-          ...node.args.flatMap((arg, index) => under(lowering, ["args", index], arg)),
+          ...under(scope, ["callee"], node.callee),
+          ...node.args.flatMap((arg, index) => under(scope, ["args", index], arg)),
         ],
       );
     }
 
     case "array": {
-      const items = node.items.map((item) => lower(lowering, item));
+      const items = node.items.map((item) => lower(scope, item));
       const literals = items.flatMap((item) => (item.term._tag === "Lit" ? [item.term.json] : []));
 
       return literals.length === items.length
         ? here(Terms.lit(literals), [])
         : here(
             Terms.arr(items.map((item) => item.term)),
-            node.items.flatMap((item, index) => under(lowering, ["items", index], item)),
+            node.items.flatMap((item, index) => under(scope, ["items", index], item)),
           );
     }
 
     case "object": {
-      const entries = node.entries.map((entry) => ({
-        entry,
-        lowered: lower(lowering, entry.value),
-      }));
+      const entries = node.entries.map((entry) => {
+        if (entry.kind === "spread") throw unlowerable("spread", "object spread", entry, undefined);
+
+        if (entry.kind === "computed")
+          throw unlowerable("computed-key", "computed property key", entry, undefined);
+
+        return { entry, lowered: lower(scope, entry.value) };
+      });
 
       const literals = entries.flatMap(({ entry, lowered }) =>
         lowered.term._tag === "Lit" ? [[entry.key, lowered.term.json] as const] : [],
@@ -510,88 +676,193 @@ const lower = (lowering: Lowering, node: Node): Lowered => {
         : here(
             Terms.obj(
               entries.map(({ entry, lowered }) => ({
-                key: JSON.stringify(entry.key),
+                key: entry.keyText,
                 value: lowered.term,
               })),
               "inline",
             ),
             node.entries.flatMap((entry, index) =>
-              under(lowering, ["entries", index, "value"], entry.value),
+              entry.kind === "property"
+                ? under(scope, ["entries", index, "value"], entry.value)
+                : [],
             ),
           );
     }
 
     case "paren":
-      return here(
-        Terms.paren(lower(lowering, node.inner).term),
-        under(lowering, ["term"], node.inner),
-      );
+      return here(Terms.paren(lower(scope, node.inner).term), under(scope, ["term"], node.inner));
+    case "arrow":
+      throw unlowerable("closure", "arrow function", node, undefined);
     case "nullish":
       return here(
         Terms.nullish(
-          lower(lowering, node.head).term,
-          node.tail.map((tail) => lower(lowering, tail).term),
+          lower(scope, node.head).term,
+          node.tail.map((tail) => lower(scope, tail).term),
         ),
         [
-          ...under(lowering, ["head"], node.head),
-          ...node.tail.flatMap((tail, index) => under(lowering, ["tail", index], tail)),
+          ...under(scope, ["head"], node.head),
+          ...node.tail.flatMap((tail, index) => under(scope, ["tail", index], tail)),
         ],
       );
     case "equal":
-      return here(
-        Terms.strictEqual(lower(lowering, node.left).term, lower(lowering, node.right).term),
-        [...under(lowering, ["left"], node.left), ...under(lowering, ["right"], node.right)],
-      );
+      return here(Terms.strictEqual(lower(scope, node.left).term, lower(scope, node.right).term), [
+        ...under(scope, ["left"], node.left),
+        ...under(scope, ["right"], node.right),
+      ]);
     case "cond":
       return here(
         Terms.cond(
-          lower(lowering, node.test).term,
-          lower(lowering, node.consequent).term,
-          lower(lowering, node.alternate).term,
+          lower(scope, node.test).term,
+          lower(scope, node.consequent).term,
+          lower(scope, node.alternate).term,
         ),
         [
-          ...under(lowering, ["test"], node.test),
-          ...under(lowering, ["consequent"], node.consequent),
-          ...under(lowering, ["alternate"], node.alternate),
+          ...under(scope, ["test"], node.test),
+          ...under(scope, ["consequent"], node.consequent),
+          ...under(scope, ["alternate"], node.alternate),
         ],
       );
   }
 };
 
-const slot = (lowering: Lowering, node: Node): TermSlot => {
-  const lowered = lower(lowering, node);
+const findingOf = (scope: Scope, error: Unlowerable): Finding => {
+  const finding = {
+    kind: error.kind,
+    construct: error.construct,
+    range: rangeOf(scope, error.span),
+  } satisfies Finding;
 
-  return {
-    _tag: "Lowered",
-    term: lowered.term,
-    range: rangeOf(lowering, node),
-    spans: lowered.spans,
-  };
+  return error.enclosing === undefined
+    ? finding
+    : { ...finding, enclosingCall: { callee: error.enclosing } };
 };
 
-const optionsOf = (lowering: Lowering, node: Node | undefined): OptionsSlot =>
-  node === undefined
-    ? { _tag: "Absent" }
-    : node.tag !== "object"
-      ? { _tag: "Entries", entries: [], range: rangeOf(lowering, node) }
-      : {
-          _tag: "Entries",
-          range: rangeOf(lowering, node),
-          entries: node.entries.map((entry): OptionEntry => ({
-            _tag: "Property",
-            name: entry.key,
-            value: slot(lowering, entry.value),
-            range: rangeOf(lowering, entry),
-          })),
+/** One expression position: lowered completely, or unlowered with the finding that prevented it. */
+const slot = (scope: Scope, node: Node): TermSlot => {
+  try {
+    const lowered = lower(scope, node);
+
+    return {
+      _tag: "Lowered",
+      term: lowered.term,
+      range: rangeOf(scope, node),
+      spans: lowered.spans,
+    };
+  } catch (error) {
+    if (!(error instanceof Unlowerable)) throw error;
+
+    return { _tag: "Unlowered", range: rangeOf(scope, node), findings: [findingOf(scope, error)] };
+  }
+};
+
+const optionsOf = (scope: Scope, node: Node | undefined): OptionsSlot => {
+  if (node === undefined) return { _tag: "Absent" };
+
+  if (node.tag !== "object")
+    return {
+      _tag: "Unlowered",
+      range: rangeOf(scope, node),
+      findings: [
+        {
+          kind: "non-literal",
+          construct: "an options argument that is not an object literal",
+          range: rangeOf(scope, node),
+        },
+      ],
+    };
+
+  return {
+    _tag: "Entries",
+    range: rangeOf(scope, node),
+    entries: node.entries.map((entry): OptionEntry => {
+      if (entry.kind === "property")
+        return {
+          _tag: "Property",
+          name: entry.key,
+          value: slot(scope, entry.value),
+          range: rangeOf(scope, entry),
         };
+
+      return {
+        _tag: "Unsupported",
+        finding: {
+          kind: entry.kind === "spread" ? "spread" : "computed-key",
+          construct: entry.kind === "spread" ? "options spread" : "computed options key",
+          range: rangeOf(scope, entry),
+        },
+      };
+    }),
+  };
+};
 
 interface Chain {
   readonly base: Node & { readonly tag: "call" };
   readonly steps: ReadonlyArray<StepRecord>;
 }
 
+/** Does the node mention the identifier `name` anywhere (so a closure over its parameter is not `W(e, …)`)? */
+const mentions = (node: Node, name: string): boolean => {
+  switch (node.tag) {
+    case "ident":
+      return node.name === name;
+    case "literal":
+      return false;
+    case "member":
+      return mentions(node.object, name);
+    case "call":
+      return mentions(node.callee, name) || node.args.some((arg) => mentions(arg, name));
+    case "array":
+      return node.items.some((item) => mentions(item, name));
+    case "object":
+      return node.entries.some((entry) => mentions(entry.value, name));
+    case "paren":
+      return mentions(node.inner, name);
+    case "arrow":
+      return node.param !== name && mentions(node.body, name);
+    case "nullish":
+      return mentions(node.head, name) || node.tail.some((tail) => mentions(tail, name));
+    case "equal":
+      return mentions(node.left, name) || mentions(node.right, name);
+    case "cond":
+      return (
+        mentions(node.test, name) ||
+        mentions(node.consequent, name) ||
+        mentions(node.alternate, name)
+      );
+  }
+};
+
+/** `W(e, a, b)` where `e` is the arrow parameter, used exactly once and first: the application step. */
+const applyOf = (
+  scope: Scope,
+  arrow: Node & { readonly tag: "arrow" },
+  range: SourceRange,
+): StepRecord => {
+  const body = arrow.body;
+
+  if (
+    body.tag === "call" &&
+    body.args[0]?.tag === "ident" &&
+    body.args[0].name === arrow.param &&
+    !mentions(body.callee, arrow.param) &&
+    !body.args.slice(1).some((arg) => mentions(arg, arrow.param))
+  )
+    return {
+      _tag: "Apply",
+      form: "pipe",
+      callee: slot(scope, body.callee),
+      args: body.args.slice(1).map((arg) => slot(scope, arg)),
+      range,
+    };
+
+  return {
+    _tag: "Unsupported",
+    finding: { kind: "closure", construct: "a closure that is not W(e, …)", range },
+  };
+};
+
 /** Splits `X.make(...).a(...).b(...)` into the base call and its postfix method steps. */
-const chainOf = (lowering: Lowering, node: Node): Chain => {
+const chainOf = (scope: Scope, node: Node): Chain => {
   const steps: Array<StepRecord> = [];
   let current = node;
 
@@ -601,12 +872,20 @@ const chainOf = (lowering: Lowering, node: Node): Chain => {
     !current.callee.optional &&
     current.callee.object.tag === "call"
   ) {
-    steps.unshift({
-      _tag: "Method",
-      name: current.callee.name,
-      args: current.args.map((arg) => slot(lowering, arg)),
-      range: rangeOf(lowering, { start: current.callee.dot, end: current.end }),
-    });
+    const range = rangeOf(scope, { start: current.callee.dot, end: current.end });
+    const [only] = current.args;
+
+    steps.unshift(
+      current.callee.name === "pipe" && current.args.length === 1 && only?.tag === "arrow"
+        ? applyOf(scope, only, range)
+        : {
+            _tag: "Method",
+            name: current.callee.name,
+            args: current.args.map((arg) => slot(scope, arg)),
+            range,
+          },
+    );
+
     current = current.callee.object;
   }
 
@@ -615,23 +894,105 @@ const chainOf = (lowering: Lowering, node: Node): Chain => {
   return { base: current, steps };
 };
 
-const baseOf = (node: Node): string =>
-  node.tag === "call" && node.callee.tag === "member" && node.callee.object.tag === "ident"
-    ? `${node.callee.object.name}.${node.callee.name}`
-    : "";
+const baseOf = (scope: Scope, node: Node): string => {
+  if (node.tag !== "call" || node.callee.tag !== "member" || node.callee.object.tag !== "ident")
+    return "";
 
-/** The model of generated contract files: one `SourceFileRecord`, its endpoints and its groups. */
-export const modelOf = (files: ReadonlyArray<GeneratedFile>, universe: Universe): EffectModel => {
+  const reference = scope.resolve(node.callee.object.name, node.callee.object);
+
+  return isNativeKind(reference.export) ? `${reference.export}.${node.callee.name}` : "";
+};
+
+const keysOf = (node: Node | undefined): ReadonlyArray<string> | undefined =>
+  node?.tag === "object"
+    ? node.entries.flatMap((entry) => (entry.kind === "property" ? [entry.key] : []))
+    : undefined;
+
+/** The model of source files: records for every file, endpoint, group, root and exported value. */
+export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): EffectModel => {
   const profile = Imports({ ...defaultGenerationContext, target: universe.target });
-  const schemas = new Map(universe.schemas.map((ref) => [identity(ref), ref] as const));
   const claims = new Map<string, NativeCallee>();
+  const claimScope = { target: universe.target, claims };
+
+  const parsed = files.map((file) => ({
+    file,
+    module: moduleOfPath(file.path),
+    statements: statements(file.contents),
+  }));
+
+  // An export is a Schema when its initializer calls a member of the native `Schema` namespace.
+  const schemaRefs = new Map<string, SchemaRef>(
+    universe.schemas.map((ref) => [identity(ref), ref] as const),
+  );
+
+  const facts = new Map<string, SchemaFact>(
+    universe.facts.map((fact) => [identity(fact.ref), fact]),
+  );
+
+  for (const unit of parsed) {
+    const imported = new Map(
+      unit.statements.flatMap((statement) =>
+        statement.tag === "import"
+          ? statement.names.map(
+              ([name, local]) => [local, { module: statement.module, export: name }] as const,
+            )
+          : [],
+      ),
+    );
+
+    for (const statement of unit.statements) {
+      const value = statement.value;
+
+      if (!statement.exported || value === undefined || value.tag !== "call") continue;
+
+      const head = value.callee.tag === "member" ? value.callee.object : undefined;
+      const namespace = head?.tag === "ident" ? imported.get(head.name) : undefined;
+
+      if (namespace?.export !== "Schema") continue;
+
+      const ref: SchemaRef = {
+        module: unit.module,
+        export: statement.name,
+        symbolId: StableId.make("schema", `${unit.module.replace(/^\.\//u, "")}/${statement.name}`),
+      };
+
+      schemaRefs.set(identity(ref), ref);
+
+      const fields =
+        value.callee.tag === "member" && value.callee.name === "Struct" ? value.args[0] : undefined;
+
+      const all = keysOf(fields);
+
+      if (all !== undefined && fields?.tag === "object")
+        facts.set(identity(ref), {
+          ref,
+          allKeys: all,
+          requiredKeys: fields.entries.flatMap((entry) =>
+            entry.kind === "property" &&
+            !(
+              entry.value.tag === "call" &&
+              entry.value.callee.tag === "member" &&
+              entry.value.callee.name.startsWith("optional")
+            )
+              ? [entry.key]
+              : [],
+          ),
+        });
+    }
+  }
+
+  const refOf = (module: string, name: string): SchemaRef | SymbolRef =>
+    schemaRefs.get(identity({ module, export: name })) ?? { module, export: name };
+
   const records: Array<SourceFileRecord> = [];
   const endpoints: Array<EndpointRecord> = [];
   const groups: Array<GroupRecord> = [];
+  const roots: Array<RootRecord> = [];
+  const values: Array<ValueRecord> = [];
+  const wrappers: Array<WrapperFact> = [];
 
-  for (const generated of files.filter((file) => file.contents.includes("HttpApiEndpoint."))) {
-    const text = generated.contents;
-    const module = `generated/${generated.path.replace(/\.ts$/u, "")}`;
+  for (const unit of parsed) {
+    const text = unit.file.contents;
     const lineStarts = [0, ...Array.from(text.matchAll(/\n/gu), (match) => match.index + 1)];
 
     const position = (offset: number) => {
@@ -640,75 +1001,110 @@ export const modelOf = (files: ReadonlyArray<GeneratedFile>, universe: Universe)
       return { offset, line: line + 1, col: offset - (lineStarts[line] ?? 0) + 1 };
     };
 
-    const parsed = statements(text);
     const locals = new Map<string, SchemaRef | SymbolRef>();
+    const nonExported = new Set<string>();
 
-    for (const statement of parsed)
+    for (const statement of unit.statements) {
       if (statement.tag === "import")
-        for (const [imported, local] of statement.names) {
-          const base = { module: statement.module, export: imported };
+        for (const [imported, local] of statement.names)
+          locals.set(local, refOf(resolveSpecifier(unit.module, statement.module), imported));
+      else if (statement.exported) locals.set(statement.name, refOf(unit.module, statement.name));
+      else nonExported.add(statement.name);
+    }
 
-          locals.set(local, schemas.get(identity(base)) ?? base);
-        }
-
-    const declared = parsed.flatMap((statement) =>
-      statement.tag === "export" ? [statement.name] : [],
-    );
-
-    for (const name of declared) locals.set(name, { module, export: name });
-
-    const lowering: Lowering = {
-      file: generated.path,
-      module,
+    const scope: Scope = {
+      file: unit.file.path,
+      module: unit.module,
       target: universe.target,
       position,
       claims,
-      resolve: (name) => {
+      resolve: (name, at) => {
         const found = locals.get(name);
 
-        if (found === undefined) throw new Error(`the test frontend cannot resolve ${name}`);
+        if (found !== undefined) return found;
 
-        return found;
+        throw unlowerable(
+          nonExported.has(name) ? "local-reference" : "unresolved",
+          name,
+          at,
+          undefined,
+        );
       },
     };
 
-    const imports = parsed.flatMap((statement) =>
-      statement.tag === "import"
-        ? statement.names.map(([imported, local]) => ({
-            local,
-            ref: { module: statement.module, export: imported },
-          }))
-        : [],
+    const declared = unit.statements.flatMap((statement) =>
+      statement.tag === "const" && statement.exported ? [statement.name] : [],
     );
 
-    const importsEnd = Math.max(
-      0,
-      ...parsed.flatMap((statement) => (statement.tag === "import" ? [statement.end] : [])),
-    );
+    const importStatements = unit.statements.filter((statement) => statement.tag === "import");
 
     records.push({
-      file: generated.path,
-      module,
-      idPath: module,
+      file: unit.file.path,
+      module: unit.module,
+      idPath: unit.module.replace(/^\.\//u, ""),
       sha256: new Bun.CryptoHasher("sha256").update(text).digest("hex"),
       exports: declared,
-      topLevel: declared,
-      imports,
-      importsEnd: position(importsEnd),
+      topLevel: [
+        ...declared,
+        ...unit.statements.flatMap((statement) =>
+          statement.tag === "const" && !statement.exported ? [statement.name] : [],
+        ),
+      ],
+      imports: importStatements.flatMap((statement) =>
+        statement.names.map(([imported, local]) => ({
+          local,
+          ref: { module: resolveSpecifier(unit.module, statement.module), export: imported },
+        })),
+      ),
+      importsEnd: position(Math.max(0, ...importStatements.map((statement) => statement.end))),
     });
 
-    for (const statement of parsed) {
-      if (statement.tag !== "export") continue;
+    for (const statement of unit.statements) {
+      const node = statement.value;
 
-      const chain = chainOf(lowering, statement.value);
-      const base = baseOf(chain.base);
+      if (statement.tag !== "const" || !statement.exported || node === undefined) continue;
 
-      const statementRange = rangeOf(lowering, {
-        start: statement.value.start,
-        end: statement.value.end,
-      });
+      const symbol = { module: unit.module, export: statement.name };
+      const range = rangeOf(scope, statement);
 
-      const symbol = { module, export: statement.name };
+      if (schemaRefs.has(identity(symbol))) continue;
+
+      if (node.tag === "arrow") {
+        const body = node.body;
+
+        const headersNode =
+          body.tag === "call" &&
+          body.callee.tag === "member" &&
+          body.callee.name === "WithHeaders" &&
+          body.callee.object.tag === "ident" &&
+          locals.get(body.callee.object.name)?.export === "HttpApiSchema" &&
+          body.args[0]?.tag === "ident" &&
+          body.args[0].name === node.param
+            ? body.args[1]
+            : undefined;
+
+        if (headersNode !== undefined) {
+          const expression = slot(scope, headersNode);
+          const named = expression._tag === "Lowered" ? expression.term : undefined;
+
+          wrappers.push({
+            helper: symbol,
+            range,
+            headers:
+              named?._tag === "Ref" && "symbolId" in named.ref
+                ? { _tag: "Named", ref: named.ref }
+                : { _tag: "Inline", expression },
+          });
+        }
+      }
+
+      if (node.tag !== "call") {
+        values.push({ symbol, range, init: slot(scope, node) });
+        continue;
+      }
+
+      const chain = chainOf(scope, node);
+      const base = baseOf(scope, chain.base);
 
       if (base.startsWith("HttpApiEndpoint.")) {
         const [key, path, options] = chain.base.args;
@@ -718,11 +1114,11 @@ export const modelOf = (files: ReadonlyArray<GeneratedFile>, universe: Universe)
 
         endpoints.push({
           symbol,
-          range: statementRange,
-          callee: slot(lowering, chain.base.callee),
-          key: slot(lowering, key),
-          path: slot(lowering, path),
-          options: optionsOf(lowering, options),
+          range,
+          callee: slot(scope, chain.base.callee),
+          key: slot(scope, key),
+          path: slot(scope, path),
+          options: optionsOf(scope, options),
           steps: chain.steps,
         });
       } else if (base === "HttpApiGroup.make") {
@@ -733,75 +1129,78 @@ export const modelOf = (files: ReadonlyArray<GeneratedFile>, universe: Universe)
         groups.push({
           symbol,
           form: "const",
-          range: statementRange,
-          callee: slot(lowering, chain.base.callee),
-          id: slot(lowering, id),
-          options: optionsOf(lowering, options),
+          range,
+          callee: slot(scope, chain.base.callee),
+          id: slot(scope, id),
+          options: optionsOf(scope, options),
           steps: chain.steps,
         });
-      }
+      } else if (base === "HttpApi.make") {
+        const [id] = chain.base.args;
+
+        if (id === undefined) throw new Error("a root needs an id");
+
+        roots.push({
+          symbol,
+          form: "const",
+          range,
+          callee: slot(scope, chain.base.callee),
+          id: slot(scope, id),
+          steps: chain.steps,
+        });
+      } else values.push({ symbol, range, init: slot(scope, node) });
     }
   }
 
   const httpApi: SymbolRef = { module: profile.httpApi, export: "HttpApi" };
 
-  const rootRange: SourceRange = {
+  const synthetic: SourceRange = {
     file: "root.ts",
     start: { offset: 0, line: 1, col: 1 },
     end: { offset: 0, line: 1, col: 1 },
   };
 
-  const make = Terms.member(Terms.ref(httpApi), "make");
+  claim(claimScope, httpApi);
+  claim(claimScope, httpApi, "make");
 
   const lowered = (term: Term): TermSlot => ({
     _tag: "Lowered",
     term,
-    range: rootRange,
+    range: synthetic,
     spans: [],
   });
 
-  for (const [ref, member] of [
-    [httpApi, undefined],
-    [httpApi, "make"],
-  ] as const)
-    claim(
-      {
-        file: "",
-        module: "",
-        target: universe.target,
-        resolve: () => ref,
-        claims,
-        position: () => ({ offset: 0, line: 1, col: 1 }),
-      },
-      ref,
-      member,
-    );
-
-  const root: RootRecord = {
-    symbol: universe.root.symbol,
-    form: "class",
-    range: rootRange,
-    callee: lowered(make),
-    id: lowered(Terms.lit(universe.root.id)),
-    steps: [
-      {
-        _tag: "Method",
-        name: "add",
-        args: groups.map((group) => lowered(Terms.ref(group.symbol))),
-        range: rootRange,
-      },
-    ],
-  };
+  // Source without a root of its own is mounted on the universe's root, which adds every group.
+  const allRoots: ReadonlyArray<RootRecord> =
+    roots.length > 0
+      ? roots
+      : [
+          {
+            symbol: universe.root.symbol,
+            form: "class",
+            range: synthetic,
+            callee: lowered(Terms.member(Terms.ref(httpApi), "make")),
+            id: lowered(Terms.lit(universe.root.id)),
+            steps: [
+              {
+                _tag: "Method",
+                name: "add",
+                args: groups.map((group) => lowered(Terms.ref(group.symbol))),
+                range: synthetic,
+              },
+            ],
+          },
+        ];
 
   return {
     target: universe.target,
     files: records,
     natives: [...claims.values()],
-    schemas: universe.facts,
+    schemas: [...facts.values()],
     markers: universe.markers,
-    values: [],
-    wrappers: [],
-    roots: [root],
+    values,
+    wrappers,
+    roots: allRoots,
     groups,
     endpoints,
     bindings: [],

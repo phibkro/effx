@@ -31,7 +31,7 @@ import type {
 import { refOf, stringOf } from "./view.ts";
 import type { Context } from "./context.ts";
 import type { EndpointRecord } from "./model.ts";
-import type { SchemaRef } from "@effx/ir";
+import type { SchemaRef, SymbolRef } from "@effx/ir";
 
 /*
  * Recognition of one endpoint: the exact inverse of `generate/http.ts` `endpointTerm` (spec 0019 §3.4) plus
@@ -66,6 +66,7 @@ interface Draft {
   status: number | undefined;
   responseHeaders: SchemaRef | undefined;
   conditional: boolean;
+  wrapper: SymbolRef | undefined;
   middleware: Array<MiddlewareUse>;
   metadata: MetadataUse | undefined;
   problems: ProblemsUse | undefined;
@@ -171,6 +172,7 @@ export const recognizeEndpoint = (
     status: undefined,
     responseHeaders: undefined,
     conditional: false,
+    wrapper: undefined,
     middleware: [],
     metadata: undefined,
     problems: undefined,
@@ -291,6 +293,7 @@ export const recognizeEndpoint = (
             draft.status = read.value.status;
             draft.responseHeaders = read.value.responseHeaders;
             draft.conditional = read.value.conditional;
+            draft.wrapper = read.value.wrapper;
           }
 
           break;
@@ -372,8 +375,17 @@ export const recognizeEndpoint = (
     (channel) => channel !== undefined,
   );
 
-  if (!hasChannel && ctx.input.emptyInput === undefined && scope.causes.length === 0)
-    fail(scope, optionsRange, LiftDiagnostics.EFFX3009.emit({ subject: scope.subject }));
+  if (!hasChannel && scope.causes.length === 0) {
+    if (ctx.input.emptyInput === undefined)
+      fail(scope, optionsRange, LiftDiagnostics.EFFX3009.emit({ subject: scope.subject }));
+    else if (draft.method === "POST" || draft.method === "PUT" || draft.method === "PATCH")
+      // The 0013 pre-pass gives every such Command a payload from its input, so no declaration can say "no body".
+      failUnrecognized(
+        scope,
+        optionsRange,
+        `a ${draft.method} endpoint without a request channel (effx derives its payload from the operation input)`,
+      );
+  }
 
   const { method, key: keyText, path: pathText, success } = draft;
 
@@ -397,6 +409,7 @@ export const recognizeEndpoint = (
           status: draft.status,
           responseHeaders: draft.responseHeaders,
           conditional: draft.conditional,
+          wrapper: draft.wrapper,
           middleware: draft.middleware,
           metadata: {
             annotator: draft.metadata?.annotator,

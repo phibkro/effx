@@ -67,6 +67,8 @@ export interface Recognized {
   readonly status: number | undefined;
   readonly responseHeaders: SchemaRef | undefined;
   readonly conditional: boolean;
+  /** The registered success wrapper the endpoint is written through (its header refactor is planned once). */
+  readonly wrapper: SymbolRef | undefined;
   readonly middleware: ReadonlyArray<MiddlewareUse>;
   readonly metadata: ContractMetadata;
   readonly problems: ProblemsUse | undefined;

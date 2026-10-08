@@ -1,5 +1,5 @@
 import { Option, Predicate } from "effect";
-import type { SchemaRef } from "@effx/ir";
+import type { SchemaRef, SymbolRef } from "@effx/ir";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import type { Term } from "../generate/term.ts";
 import { nameOfSymbol, type SuccessRule } from "./context.ts";
@@ -36,6 +36,8 @@ export interface SuccessRead {
   readonly status: number | undefined;
   readonly responseHeaders: SchemaRef | undefined;
   readonly conditional: boolean;
+  /** The registered wrapper the success is written through, when it is. */
+  readonly wrapper: SymbolRef | undefined;
 }
 
 const plain = (schema: SchemaUse): SuccessRead => ({
@@ -43,6 +45,7 @@ const plain = (schema: SchemaUse): SuccessRead => ({
   status: undefined,
   responseHeaders: undefined,
   conditional: false,
+  wrapper: undefined,
 });
 
 /** `HttpApiSchema.status(n)` applied to nothing yet: the status it carries. */
@@ -232,6 +235,7 @@ const readRule = (
       status: rule.status,
       responseHeaders: rule.responseHeaders,
       conditional: rule.conditional === true,
+      wrapper: rule.callee,
     });
   }
 
@@ -250,6 +254,7 @@ const readRule = (
       status: wrapped.status ?? rule.status,
       responseHeaders: rule.responseHeaders,
       conditional: rule.conditional === true,
+      wrapper: rule.callee,
     }),
   );
 };

@@ -14,11 +14,17 @@ import {
   upperFirst,
   type Context,
 } from "./context.ts";
-import { groupDecision, operationDecisions, type Reviewed } from "./decisions.ts";
+import {
+  groupDecision,
+  operationDecisions,
+  refactorDecisions,
+  type Reviewed,
+} from "./decisions.ts";
 import { recognizeEndpoint } from "./endpoint.ts";
 import { selectGroup, type GroupFacts } from "./group.ts";
 import type { EffectModel, EndpointRecord } from "./model.ts";
 import { adapterPrerequisites } from "./prerequisites.ts";
+import { planWrapperHeaders } from "./wrappers.ts";
 import type { CodeReference, LiftResult, Refactor } from "./result.ts";
 import type { LiftInput } from "./rules.ts";
 import { schemaUseOf } from "./schema-use.ts";
@@ -218,7 +224,7 @@ const missingResult = (
   refactors: [],
   decisions: [],
   unsupported,
-  adapterPrerequisites: adapterPrerequisites(ctx),
+  adapterPrerequisites: adapterPrerequisites(ctx, []),
   codeReferences: [],
   bindings: [],
   diagnostics,
@@ -246,27 +252,38 @@ const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
     ),
   ];
 
-  const refactors: ReadonlyArray<Refactor> = accepted.flatMap(
-    (entry) => entry.processed.outcome.refactors,
+  const wrapperPlans = planWrapperHeaders(
+    ctx,
+    accepted.flatMap((entry) => Option.toArray(Option.fromUndefinedOr(entry.recognized.wrapper))),
   );
 
+  const refactors: ReadonlyArray<Refactor> = [
+    ...accepted.flatMap((entry) => entry.processed.outcome.refactors),
+    ...wrapperPlans.refactors,
+  ];
+
+  const decisions = [...built.decisions, ...wrapperPlans.refactors.flatMap(refactorDecisions)];
   const binding = bindingOutcome(ctx, facts);
 
   return {
     group: ctx.input.group,
     collected: collectedOf(ctx.input, built.declarations),
     refactors,
-    decisions: built.decisions.map((reviewed) => reviewed.decision),
+    decisions: decisions.map((reviewed) => reviewed.decision),
     unsupported: sites,
-    adapterPrerequisites: adapterPrerequisites(ctx),
+    adapterPrerequisites: adapterPrerequisites(
+      ctx,
+      refactors.flatMap((refactor) => refactor.planned.map((planned) => planned.ref)),
+    ),
     codeReferences: uniqueReferences(
       accepted.flatMap((entry) => entry.processed.outcome.codeReferences),
     ),
     bindings: binding.reports,
     diagnostics: [
       ...sites.map((site) => site.primary),
+      ...wrapperPlans.diagnostics,
       ...refactors.map((refactor) => refactor.cause),
-      ...built.decisions.map((reviewed) => reviewed.diagnostic),
+      ...decisions.map((reviewed) => reviewed.diagnostic),
       ...binding.diagnostics,
     ],
   };
