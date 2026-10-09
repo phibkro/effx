@@ -1,6 +1,6 @@
 /** @effect-diagnostics unstableApiUsage:off -- effect/cli is the only CLI framework; registered in AGENTS.md */
 import { DEFAULT_CEDAR_NAMESPACE, EmitMode, TargetProfile } from "@effx/compiler";
-import { TsSourceFrontend } from "@effx/frontend-ts";
+import { LiftTsSourceFrontend, TsSourceFrontend } from "@effx/frontend-ts";
 import { Console, Effect, Layer, Logger, Option, Runtime, Schema, Stdio, Stream } from "effect";
 import { Argument, CliConfig, Command, Flag, GlobalFlag } from "effect/cli";
 import effectPackage from "effect/package.json";
@@ -17,6 +17,8 @@ import { cedarCommand } from "./cedar.ts";
 import { CedarWasm } from "./cedar-validate.ts";
 import { surfaceCheck } from "./surface.ts";
 import { explain, explainUsage, ExplainFailed } from "./explain.ts";
+import { liftCommand } from "./lift-command.ts";
+import { LiftForm } from "./lift.ts";
 import { lsp, type LspOptions } from "./lsp.ts";
 import { dev } from "./watch.ts";
 
@@ -207,8 +209,30 @@ const cedarCli = Command.make(
   ),
 );
 
+const liftCli = Command.make(
+  "lift",
+  {
+    group: Flag.String("group"),
+    module: Flag.String("module").pipe(Flag.optional),
+    form: Flag.Literals("form", LiftForm.literals).pipe(Flag.withDefault("both")),
+    check: Flag.Boolean("check").pipe(Flag.withDefault(false)),
+    emitPatch: Flag.Boolean("emit-patch").pipe(Flag.withDefault(false)),
+    write: Flag.String("write").pipe(Flag.optional),
+    json: Flag.Boolean("json").pipe(Flag.withDefault(false)),
+  },
+  (options) => Effect.flatMap(selectedProject(), (resolved) => liftCommand(resolved, options)),
+).pipe(
+  Command.withDescription(
+    "Suggest effx declarations for a pure Effect HttpApiGroup; --check mechanically verifies them (spec 0019)",
+  ),
+);
+
 /** Portable compiler graph; the outside-packages process root supplies platform services. */
-export const Services = Layer.mergeAll(TsSourceFrontend.layer, CedarWasm);
+export const Services = Layer.mergeAll(
+  TsSourceFrontend.layer,
+  LiftTsSourceFrontend.layer,
+  CedarWasm,
+);
 
 const command = root.pipe(
   Command.withSubcommands([
@@ -220,6 +244,7 @@ const command = root.pipe(
     graphCli,
     surfaceCli,
     cedarCli,
+    liftCli,
     explainCli,
   ]),
   Command.run({ version: versions.effx }),

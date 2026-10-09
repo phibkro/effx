@@ -30,6 +30,18 @@ export { dev, type DevOptions } from "./watch.ts";
 
 export { lsp, type LspOptions } from "./lsp.ts";
 
+export {
+  LiftAnalysisFailed,
+  LiftExit,
+  liftCommand,
+  prepareLift,
+  type LiftCommandOptions,
+  type LiftSelection,
+  type PreparedLift,
+} from "./lift-command.ts";
+
+export { liftCheckPassed, runLiftCheck, type LiftCheckRequest } from "./lift-check.ts";
+
 export { ExecutableInventory } from "./config-runtime.ts";
 
 export {

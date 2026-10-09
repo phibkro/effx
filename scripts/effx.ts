@@ -4,7 +4,7 @@ import { LspPlatform, main, Services, TransportError } from "@effx/cli";
 import { Cause, Effect, Layer, Logger, Path, Runtime } from "effect";
 import { executableInventoryLayer } from "./executable-cache.ts";
 import { acquireLinuxLspIO } from "./lsp-linux.ts";
-import { liftCheckExecutionLayer } from "./lift-execution.ts";
+import { liftCheckExecutionLayer, liftToolchainLayer } from "./lift-execution.ts";
 
 // EX-0033 / EX-0035 / EX-0034: only this process root selects native inventory, descriptor IO and the
 // lift-check child adapter. Acquisition stays suspended until a command asks for it; the LSP session
@@ -12,6 +12,7 @@ import { liftCheckExecutionLayer } from "./lift-execution.ts";
 const Platform = Layer.mergeAll(
   executableInventoryLayer,
   liftCheckExecutionLayer,
+  liftToolchainLayer,
   Layer.effect(
     LspPlatform,
     Effect.gen(function* () {

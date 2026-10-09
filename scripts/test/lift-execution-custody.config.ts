@@ -37,7 +37,10 @@ export default defineConfig({
     alias: aliases,
   },
   test: {
-    include: ["scripts/test/lift-execution-custody.test.ts"],
+    include: [
+      "scripts/test/lift-execution-custody.test.ts",
+      "scripts/test/lift-check-native.test.ts",
+    ],
     fileParallelism: false,
     testTimeout: 60_000,
   },
