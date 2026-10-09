@@ -14,6 +14,7 @@ import {
   type EffectModel,
   type LiftResult,
   type LiftSite,
+  type LiftRecognitionError,
   type ReadArgs,
   type StepRecord,
   type Term,
@@ -203,6 +204,10 @@ describe("the definition-owned `.annotate` lift", () => {
 
       return Result.succeed(args);
     };
+
+    expectTypeOf<
+      ReturnType<NonNullable<DefinitionLift<typeof RateLimit>["recognize"]>>
+    >().toEqualTypeOf<Result.Result<ReadArgs<typeof RateLimit>, LiftRecognitionError>>();
 
     const result = liftWith(annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 60 }), [
       implement(RateLimit, { lift: { recognize } }),
