@@ -134,11 +134,12 @@ export const BindingReport = Schema.Struct({
 
 export type BindingReport = typeof BindingReport.Type;
 
-/**
- * The exported code tuple a problem identifier's codes are referenced by: an existing export the union
- * already uses, or the export a EFFX3004 refactor plans. The suggestion prints `codes: <ref>` instead of a copy.
- */
-export const CodeReference = Schema.Struct({ identifier: Schema.String, ref: SymbolRef });
+/** An exported tuple associated with its exact problem identifier and literal codes, never by name alone. */
+export const CodeReference = Schema.Struct({
+  identifier: Schema.String,
+  codes: Schema.Array(Schema.String),
+  ref: SymbolRef,
+});
 
 export type CodeReference = typeof CodeReference.Type;
 

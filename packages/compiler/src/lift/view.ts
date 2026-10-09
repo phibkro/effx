@@ -16,6 +16,9 @@ export interface Cursor {
   readonly slot: LoweredSlot;
   readonly term: Term;
   readonly path: TermPath;
+  readonly sourceRange?: SourceRange;
+  readonly exactRange?: boolean;
+  readonly jsonPath?: boolean;
 }
 
 /** The cursor at the root of a lowered slot. */
@@ -33,6 +36,7 @@ const isPrefix = (prefix: TermPath, path: TermPath): boolean =>
 
 /** The range of the deepest span that contains the cursor's path, else the slot's own range. */
 export const rangeOf = (cursor: Cursor): SourceRange =>
+  cursor.sourceRange ??
   cursor.slot.spans.reduce<{ readonly length: number; readonly range: SourceRange }>(
     (best, span) =>
       isPrefix(span.path, cursor.path) && span.path.length >= best.length
@@ -108,8 +112,10 @@ export interface CallView {
   readonly args: ReadonlyArray<Term>;
   /** Where each argument sits below the call, for `descend`. */
   readonly argPath: (index: number) => ReadonlyArray<string | number>;
-  /** Where the callee sits below the call. */
-  readonly calleePath: ReadonlyArray<string | number>;
+  /** A synthetic Chain prefix ends at the preceding method-call span. */
+  readonly receiverEndPath: ReadonlyArray<string | number> | undefined;
+  /** The real receiver position, even when the Member callee is synthetic for a Chain. */
+  readonly receiverPath: ReadonlyArray<string | number>;
 }
 
 /**
@@ -117,14 +123,21 @@ export interface CallView {
  * callee is the member of what precedes it. `undefined` for any other term.
  */
 export const callView = (term: Term): CallView | undefined => {
-  const inner = unwrap(term);
+  let inner = term;
+  const prefix: Array<string> = [];
+
+  while (inner._tag === "Paren") {
+    prefix.push("term");
+    inner = inner.term;
+  }
 
   if (inner._tag === "Call")
     return {
       callee: inner.callee,
       args: inner.args,
-      argPath: (index) => ["args", index],
-      calleePath: ["callee"],
+      argPath: (index) => [...prefix, "args", index],
+      receiverPath: [...prefix, "callee", "term"],
+      receiverEndPath: undefined,
     };
 
   if (inner._tag !== "Chain") return undefined;
@@ -141,7 +154,57 @@ export const callView = (term: Term): CallView | undefined => {
   return {
     callee: { _tag: "Member", term: receiver, member: call.name },
     args: call.args,
-    argPath: (index) => ["calls", last, "args", index],
-    calleePath: [],
+    argPath: (index) => [...prefix, "calls", last, "args", index],
+    receiverPath: last === 0 ? [...prefix, "head"] : prefix,
+    receiverEndPath: last === 0 ? undefined : [...prefix, "calls", last - 1],
   };
+};
+
+/** A method receiver keeps its recorded span; a virtual Chain prefix never authorizes a guessed edit. */
+export const receiverOf = (cursor: Cursor, view: CallView): Cursor => {
+  if (view.callee._tag !== "Member") return cursor;
+  const receiver = descend(cursor, view.callee.term, ...view.receiverPath);
+
+  if (view.receiverEndPath === undefined) return receiver;
+  const endPath = [...cursor.path, ...view.receiverEndPath];
+
+  const end = cursor.slot.spans.find(
+    (span) => span.path.length === endPath.length && isPrefix(endPath, span.path),
+  );
+
+  const chain = unwrap(view.callee.term);
+
+  const start =
+    chain._tag === "Chain"
+      ? rangeOf(descend(receiver, chain.head, "head")).start
+      : rangeOf(receiver).start;
+
+  return end === undefined
+    ? { ...receiver, exactRange: false }
+    : { ...receiver, sourceRange: { file: end.range.file, start, end: end.range.end } };
+};
+
+/** A literal object's field cursor retains the field's own source offset. */
+export const fieldOf = (cursor: Cursor, name: string): Cursor => {
+  if (cursor.term._tag === "Paren") return fieldOf(descend(cursor, cursor.term.term, "term"), name);
+
+  if (cursor.term._tag === "Lit" && isJsonObject(cursor.term.json)) {
+    const value = cursor.term.json[name];
+
+    if (value === undefined) return cursor;
+    const base = cursor.jsonPath === true ? cursor.path : [...cursor.path, "json"];
+
+    return {
+      slot: cursor.slot,
+      term: { _tag: "Lit", json: value },
+      path: [...base, name],
+      jsonPath: true,
+    };
+  }
+
+  if (cursor.term._tag !== "Obj") return cursor;
+  const index = cursor.term.entries.findIndex((entry) => keyName(entry.key) === name);
+  const entry = cursor.term.entries[index];
+
+  return entry === undefined ? cursor : descend(cursor, entry.value, "entries", index, "value");
 };

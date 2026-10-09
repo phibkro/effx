@@ -297,18 +297,21 @@ describe("the dense form is the same program (L4)", () => {
         IRArbitrary.arbitraryOf(GroupSpec),
         (spec) =>
           Effect.gen(function* () {
-            const { lifted } = yield* roundtrip(spec);
+            const { original, lifted } = yield* roundtrip(spec);
             const compact = dense(lifted.collected);
 
             if (Option.isNone(compact)) return false;
 
             const verbose = yield* canonicalOf(lifted.collected);
+            const authoritative = Option.map(original.ir.value, canonical);
             const rebuilt = expandGroupDefaults(compact.value);
 
             return (
               rebuilt.diagnostics.length === 0 &&
               Option.isSome(verbose) &&
-              Option.getOrUndefined(verbose) ===
+              Option.isSome(authoritative) &&
+              Option.getOrUndefined(authoritative) === Option.getOrUndefined(verbose) &&
+              Option.getOrUndefined(authoritative) ===
                 Option.getOrUndefined(yield* canonicalOf(compact.value))
             );
           }),

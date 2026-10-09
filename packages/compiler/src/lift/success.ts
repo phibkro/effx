@@ -17,6 +17,7 @@ import {
   isJsonObject,
   literalOf,
   rangeOf,
+  receiverOf,
   refOf,
   unwrap,
   type CallView,
@@ -26,9 +27,8 @@ import {
 /*
  * The success of an endpoint (spec 0019 §3.3, §0.5). It is read from the generator's own spellings (the
  * native `WithHeaders`, `status`, the S5 status-200 conditional and the conditional pair), from registered
- * application wrappers (`SuccessWrapper` rules), and from a named or inline schema. Only an explicit non-200
- * `status(n)` is recorded for hand-written source; the generator's status-200 conditional is the inverse of
- * `status: 200`, which keeps `lift(lower(x))` lossless.
+ * application wrappers (`SuccessWrapper` rules), and from a named or inline schema. Every explicit status,
+ * including 200, is preserved under the 2026-10-09 amendment. An outer status overrides the inner one.
  */
 
 export interface SuccessRead {
@@ -56,6 +56,7 @@ const statusOf = (scope: Scope, term: Term): Option.Option<number> => {
 
   return callee?.kind === "HttpApiSchema" &&
     nativeName(callee) === "status" &&
+    view?.args.length === 1 &&
     argument !== undefined
     ? Option.flatMap(literalOf(argument), (json) =>
         Predicate.isNumber(json) && Number.isInteger(json) ? Option.some(json) : Option.none(),
@@ -76,6 +77,26 @@ const isInlineSchema = (scope: Scope, term: Term): boolean => {
   const view = callView(inner);
 
   return view !== undefined && isInlineSchema(scope, view.callee);
+};
+
+/** Exactly the bodyless 304 branch emitted by the generator, not an arbitrary second response. */
+const isNotModified = (scope: Scope, term: Term | undefined): boolean => {
+  const view = term === undefined ? undefined : callView(term);
+
+  if (
+    view === undefined ||
+    view.callee._tag !== "Member" ||
+    view.callee.member !== "pipe" ||
+    view.args.length !== 1
+  )
+    return false;
+  const body = nativeOf(scope, view.callee.term);
+
+  return (
+    body?.kind === "HttpApiSchema" &&
+    nativeName(body) === "NoContent" &&
+    Option.exists(statusOf(scope, view.args[0] ?? view.callee.term), (status) => status === 304)
+  );
 };
 
 const isHeadersSchema = (term: Term): boolean => {
@@ -132,26 +153,23 @@ const readWrapped = (
     return Option.none();
   }
 
-  const view = callView(term);
+  const view = callView(cursor.term);
   const [step] = view?.args ?? [];
 
   if (
     view !== undefined &&
     view.callee._tag === "Member" &&
     view.callee.member === "pipe" &&
-    step !== undefined
+    step !== undefined &&
+    view.args.length === 1
   ) {
     const status = statusOf(scope, step);
 
     if (Option.isSome(status))
-      return Option.map(
-        readWrapped(scope, descend(cursor, view.callee.term, ...view.calleePath, "term")),
-        (wrapped) => ({
-          schema: wrapped.schema,
-          // An explicit status(200) is the dense default: lift emits only an explicit non-200 status.
-          status: status.value === 200 ? undefined : status.value,
-        }),
-      );
+      return Option.map(readWrapped(scope, receiverOf(cursor, view)), (wrapped) => ({
+        schema: wrapped.schema,
+        status: status.value,
+      }));
   }
 
   if (isInlineSchema(scope, term))
@@ -277,6 +295,8 @@ const read = (scope: Scope, cursor: Cursor): Option.Option<SuccessRead> => {
       if (
         secondCallee?.kind === "HttpApiSchema" &&
         nativeName(secondCallee) === "WithHeaders" &&
+        second?.args.length === 2 &&
+        isNotModified(scope, second?.args[0]) &&
         headers !== undefined &&
         Option.exists(secondHeaders, (reference) => sameRef(reference, headers))
       )
@@ -300,20 +320,25 @@ const read = (scope: Scope, cursor: Cursor): Option.Option<SuccessRead> => {
       return Option.some({ ...plain(schemaUseOf(scope.ctx, consequent.value)), status: 200 });
   }
 
-  const view = callView(term);
+  const view = callView(cursor.term);
 
   if (view !== undefined) {
     const callee = nativeOf(scope, view.callee);
     const [step] = view.args;
 
-    if (view.callee._tag === "Member" && view.callee.member === "pipe" && step !== undefined) {
+    if (
+      view.callee._tag === "Member" &&
+      view.callee.member === "pipe" &&
+      step !== undefined &&
+      view.args.length === 1
+    ) {
       const status = statusOf(scope, step);
 
       if (Option.isSome(status))
-        return Option.map(
-          read(scope, descend(cursor, view.callee.term, ...view.calleePath, "term")),
-          (value) => ({ ...value, status: status.value === 200 ? value.status : status.value }),
-        );
+        return Option.map(read(scope, receiverOf(cursor, view)), (value) => ({
+          ...value,
+          status: status.value,
+        }));
     }
 
     if (

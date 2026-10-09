@@ -1,0 +1,533 @@
+import { BunServices } from "@effect/platform-bun";
+import { assert, describe, it } from "@effect/vitest";
+import { Effect, Option, Result } from "effect";
+import { StableId, canonical } from "@effx/ir";
+import {
+  Extensions,
+  Terms,
+  compileCollected,
+  dense,
+  lift,
+  printSuggestion,
+  renderPatch,
+  type EffectModel,
+  type LiftInput,
+  type Term,
+} from "@effx/compiler";
+import { expandGroupDefaults } from "../src/group-defaults.ts";
+import { refIdentity, symbolRefOf } from "../src/lift/refs.ts";
+import { entriesOf, isObjectArg } from "../src/lift/arg.ts";
+import { sourceInput, sourceUniverse, supportFiles } from "./lift-fixtures.ts";
+import { modelOf, type SourceFile } from "./lift-source.ts";
+import { applyPatch } from "./lift-apply.ts";
+
+const source = (body: ReadonlyArray<string>): SourceFile => ({
+  path: "src/repair.ts",
+  contents: [
+    'import { Schema } from "effect";',
+    'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";',
+    'import { EmptyInput, UserProfileResponse, ProfileMergePatch } from "./v2-schemas.js";',
+    'import { ConditionalReadHeaders, EntityMutationResponseHeaders, endpointProblemResponses, entityMutationResponse } from "./http-semantics.js";',
+    'import { ProfileReadOwnProfileProblem, ProfileUpdateOwnProfileProblem } from "./endpoint-problems.js";',
+    'import { mysteryAnnotations } from "./mystery.js";',
+    "export const Body = Schema.String;",
+    ...body,
+    'export const Api = HttpApiGroup.make("repair").add(Read);',
+    'export const Root = HttpApi.make("repair-root").add(Api);',
+    "",
+  ].join("\n"),
+});
+
+const input = (): LiftInput => sourceInput("repair");
+
+const filesOf = (file: SourceFile): ReadonlyArray<SourceFile> => [...supportFiles, file];
+
+const model = (file: SourceFile): EffectModel =>
+  modelOf(filesOf(file), {
+    ...sourceUniverse,
+    schemas: [
+      {
+        module: "./src/repair",
+        export: "Body",
+        symbolId: StableId.make("schema", "src/repair/Body"),
+      },
+    ],
+    root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
+  });
+
+const outcome = (body: ReadonlyArray<string>, options: LiftInput = input()) =>
+  lift(model(source(body)), options);
+
+const unsupported = (body: ReadonlyArray<string>) => {
+  const result = outcome(body);
+  assert.strictEqual(result.collected.declarations.length, 0);
+  assert.strictEqual(result.unsupported.length, 1);
+  assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
+};
+
+const patchOf = Effect.fnUntraced(function* (file: SourceFile, result: ReturnType<typeof lift>) {
+  return yield* renderPatch({
+    refactors: result.refactors,
+    files: model(file).files,
+    texts: new Map(filesOf(file).map((entry) => [entry.path, entry.contents])),
+    allowImportingTsExtensions: false,
+  });
+});
+
+// Each case is a falsifier from the frozen-head independent review, not a pin of the buggy output.
+describe("lift repair: unsupported wire-loss shapes", () => {
+  it("rejects every unrepresentable endpoint OpenAPI override field", () => {
+    const result = outcome([
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: Schema.Never })',
+      '  .annotateMerge(OpenApi.annotations({ override: { "x-audit": true, security: [] } }));',
+    ]);
+
+    assert.deepStrictEqual(result.collected.declarations, []);
+    const [site] = result.unsupported;
+    assert.strictEqual(site?.primary.code, "EFFX3001");
+    const causes = site === undefined ? [] : [site.primary, ...(site.primary.related ?? [])];
+    assert.strictEqual(causes.length, 2);
+    assert.include(causes.map((cause) => cause.message).join(" "), "x-audit");
+    assert.isBelow(causes[0]?.location?.col ?? 0, causes[1]?.location?.col ?? 0);
+    assert.include(causes.map((cause) => cause.message).join(" "), "security");
+  });
+
+  it.each([
+    'Body.pipe(HttpApiSchema.asJson({ contentType: "application/example+json" }), HttpApiSchema.asText({ contentType: "text/plain" }))',
+    'Body.pipe(HttpApiSchema.asJson({ contentType: "application/example+json" }, "extra"))',
+  ])("rejects extra payload transformations and asJson arguments: %s", (payload) => {
+    unsupported([
+      `export const Read = HttpApiEndpoint.post("read", "/read", { payload: ${payload}, success: UserProfileResponse, error: Schema.Never });`,
+    ]);
+  });
+
+  it("retains missing-input and unknown-metadata causes together", () => {
+    const { emptyInput: _, ...withoutEmpty } = input();
+
+    const result = outcome(
+      [
+        'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: Schema.Never })',
+        '  .annotateMerge(mysteryAnnotations("Read"));',
+      ],
+      withoutEmpty,
+    );
+
+    const site = result.unsupported[0];
+    assert.deepStrictEqual(
+      site === undefined
+        ? []
+        : [site.primary.code, ...(site.primary.related ?? []).map((cause) => cause.code)],
+      ["EFFX3009", "EFFX3006"],
+    );
+  });
+
+  it.each([
+    "HttpApiSchema.WithHeaders(UserProfileResponse.pipe(HttpApiSchema.status(201)), EntityMutationResponseHeaders)",
+    "HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(201)), EntityMutationResponseHeaders)",
+    'HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), EntityMutationResponseHeaders, "extra")',
+  ])("rejects a conditional pair with the wrong second response: %s", (second) => {
+    unsupported([
+      `export const Read = HttpApiEndpoint.get("read", "/read", { success: [HttpApiSchema.WithHeaders(UserProfileResponse, EntityMutationResponseHeaders), ${second}], error: Schema.Never });`,
+    ]);
+  });
+
+  it("preserves an outer 200 over the wrapper's 201", () => {
+    const configured: LiftInput = {
+      ...input(),
+      rules: input().rules.map((rule) =>
+        rule._tag === "SuccessWrapper" && rule.callee.export === "entityMutationResponse"
+          ? { ...rule, status: 201 }
+          : rule,
+      ),
+    };
+
+    const result = outcome(
+      [
+        'export const Read = HttpApiEndpoint.get("read", "/read", { success: entityMutationResponse(UserProfileResponse).pipe(HttpApiSchema.status(200)), error: Schema.Never });',
+      ],
+      configured,
+    );
+
+    assert.deepStrictEqual(result.unsupported, []);
+
+    const contract = result.collected.declarations
+      .find((declaration) => declaration.export === "Read")
+      ?.annotations.find((annotation) => annotation.name === "Http.Contract")?.args[0];
+
+    assert.isDefined(contract);
+
+    if (contract !== undefined && isObjectArg(contract))
+      assert.strictEqual(entriesOf(contract).find(([name]) => name === "status")?.[1], 200);
+    else assert.fail("the explicit 200 contract must remain an object");
+  });
+});
+
+describe("lift repair: shared references and source ownership", () => {
+  it.effect.each([false, true])("reuses one shared-union extraction with a name pin=%s", (pinned) =>
+    Effect.gen(function* () {
+      const file = source([
+        'export const Other = HttpApiEndpoint.get("other", "/other", { success: UserProfileResponse, error: endpointProblemResponses(ProfileReadOwnProfileProblem) });',
+        'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: endpointProblemResponses(ProfileReadOwnProfileProblem) });',
+      ]);
+
+      const both = { ...file, contents: file.contents.replace(".add(Read)", ".add(Read, Other)") };
+
+      const result = lift(model(both), {
+        ...input(),
+        names: pinned
+          ? {
+              "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
+                module: "./src/endpoint-problems",
+                export: "ReadCodes",
+              },
+            }
+          : {},
+      });
+
+      assert.deepStrictEqual(result.unsupported, []);
+      assert.strictEqual(
+        result.refactors.filter((refactor) => refactor.code === "EFFX3004").length,
+        1,
+      );
+      const patch = yield* patchOf(both, result);
+      const after = applyPatch(filesOf(both), patch);
+      assert.strictEqual(
+        lift(
+          modelOf(after, {
+            ...sourceUniverse,
+            root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
+          }),
+          input(),
+        ).refactors.length,
+        0,
+      );
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it("preserves distinct static-schema members and their import holding export", () => {
+    const response = {
+      module: "./src/types",
+      export: "Schemas",
+      symbolId: StableId.make("schema", "src/types/Schemas.Response"),
+    };
+
+    const other = { ...response, symbolId: StableId.make("schema", "src/types/Schemas.Other") };
+    assert.notStrictEqual(refIdentity(response), refIdentity(other));
+    assert.deepStrictEqual(symbolRefOf(response), {
+      module: "./src/types",
+      export: "Schemas",
+      member: "Response",
+    });
+
+    const result = outcome([
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: Schema.Never });',
+    ]);
+
+    const declarations = result.collected.declarations.map((declaration) => ({
+      ...declaration,
+      annotations: declaration.annotations.map((annotation) => ({
+        ...annotation,
+        args: annotation.args.map((arg) =>
+          annotation.name === "Query"
+            ? {
+                name: "repair.read",
+                input: { _tag: "Schema" as const, ref: response },
+                success: { _tag: "Schema" as const, ref: other },
+              }
+            : arg,
+        ),
+      })),
+    }));
+
+    const printed = printSuggestion(
+      { ...result.collected, declarations },
+      { module: input().output.module },
+    );
+
+    assert.isTrue(Result.isSuccess(printed));
+
+    if (Result.isSuccess(printed)) {
+      assert.include(printed.success, "input: Schemas.Response");
+      assert.include(printed.success, "success: Schemas.Other");
+    }
+  });
+
+  it("accepts validated direct native OpenAPI annotations exports", () => {
+    const file = source([
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: Schema.Never }).annotateMerge(OpenApi.annotations({ summary: "Read" }));',
+    ]);
+
+    const original = model(file);
+    const direct = { module: "effect/unstable/httpapi/OpenApi", export: "annotations" };
+
+    const replaced: EffectModel = {
+      ...original,
+      natives: [...original.natives, { kind: "OpenApi", ref: direct, target: "effect-4.0-rc" }],
+      endpoints: original.endpoints.map((endpoint) => ({
+        ...endpoint,
+        steps: endpoint.steps.map((step) =>
+          step._tag === "Method" && step.name === "annotateMerge"
+            ? {
+                ...step,
+                args: step.args.map((arg) =>
+                  arg._tag === "Lowered" && arg.term._tag === "Call"
+                    ? { ...arg, term: Terms.call(Terms.ref(direct), arg.term.args) }
+                    : arg,
+                ),
+              }
+            : step,
+        ),
+      })),
+    };
+
+    const result = lift(replaced, input());
+    assert.deepStrictEqual(result.unsupported, []);
+    const printed = printSuggestion(result.collected, { module: input().output.module });
+    assert.isTrue(Result.isSuccess(printed));
+
+    if (Result.isSuccess(printed)) assert.include(printed.success, 'summary: "Read"');
+  });
+
+  it("keeps each code tuple associated with its exact contract despite shared identifiers", () => {
+    const file = source([
+      'export const Other = HttpApiEndpoint.get("other", "/other", { success: UserProfileResponse, error: endpointProblemResponses(ProfileUpdateOwnProfileProblem) });',
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: endpointProblemResponses(ProfileReadOwnProfileProblem) });',
+    ]);
+
+    const both = {
+      ...file,
+      contents: file.contents.replace(".add(Read)", ".add(Read, Other)"),
+    };
+
+    const files = filesOf(both).map((entry) =>
+      entry.path === "src/endpoint-problems.ts"
+        ? {
+            ...entry,
+            contents: entry.contents
+              .replace('"ProfileReadOwnProfileProblem"', '"SharedProblem"')
+              .replace('"ProfileUpdateOwnProfileProblem"', '"SharedProblem"'),
+          }
+        : entry,
+    );
+
+    const result = lift(
+      modelOf(files, {
+        ...sourceUniverse,
+        root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
+      }),
+      input(),
+    );
+
+    const printed = printSuggestion(result.collected, {
+      module: input().output.module,
+      codeReferences: result.codeReferences,
+    });
+
+    assert.isTrue(Result.isSuccess(printed));
+
+    if (Result.isSuccess(printed)) {
+      assert.include(printed.success, "codes: ProfileReadOwnProfileCodes");
+      assert.include(printed.success, "codes: ProfileUpdateOwnProfileCodes");
+    }
+  });
+
+  it.effect(
+    "Call and Chain refactors replace only the inline schema, preserving status suffixes",
+    () =>
+      Effect.gen(function* () {
+        const file = source([
+          'export const Read = HttpApiEndpoint.get("read", "/read", { success: Schema.Array(UserProfileResponse).pipe(HttpApiSchema.status(201)), error: Schema.Never });',
+        ]);
+
+        const original = model(file);
+        const endpoint = original.endpoints[0];
+        assert.isDefined(endpoint);
+
+        const transform = (term: Term): Term =>
+          term._tag === "Call" && term.callee._tag === "Member" && term.callee.member === "pipe"
+            ? Terms.chain(term.callee.term, [{ name: "pipe", args: term.args }])
+            : term;
+
+        const chained: EffectModel = {
+          ...original,
+          endpoints: original.endpoints.map((entry) => ({
+            ...entry,
+            options:
+              entry.options._tag === "Entries"
+                ? {
+                    ...entry.options,
+                    entries: entry.options.entries.map((property) =>
+                      property._tag === "Property" &&
+                      property.name === "success" &&
+                      property.value._tag === "Lowered"
+                        ? {
+                            ...property,
+                            value: {
+                              ...property.value,
+                              term: transform(property.value.term),
+                              spans: property.value.spans.map((span) => ({
+                                ...span,
+                                path:
+                                  span.path[0] === "callee" && span.path[1] === "term"
+                                    ? ["head", ...span.path.slice(2)]
+                                    : span.path,
+                              })),
+                            },
+                          }
+                        : property,
+                    ),
+                  }
+                : entry.options,
+          })),
+        };
+
+        const called = lift(original, input());
+        const chainResult = lift(chained, input());
+
+        const replacedText = (result: ReturnType<typeof lift>) =>
+          result.refactors
+            .flatMap((refactor) => refactor.edits)
+            .filter((edit) => edit._tag === "Replace")
+            .map((edit) => file.contents.slice(edit.range.start.offset, edit.range.end.offset));
+
+        assert.deepStrictEqual(replacedText(chainResult), ["Schema.Array(UserProfileResponse)"]);
+        assert.deepStrictEqual(replacedText(chainResult), replacedText(called));
+        const patched = applyPatch(filesOf(file), yield* patchOf(file, chainResult));
+        assert.include(
+          patched.find((entry) => entry.path === file.path)?.contents ?? "",
+          "RepairReadResponse.pipe(HttpApiSchema.status(201))",
+        );
+      }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it.effect(
+    "keeps CRLF and a missing final newline exact when applying a schema export patch",
+    () =>
+      Effect.gen(function* () {
+        const base = source([
+          'export const Read = HttpApiEndpoint.get("read", "/read", { query: { q: Schema.String }, success: UserProfileResponse, error: Schema.Never });',
+        ]);
+
+        const file = {
+          ...base,
+          contents: base.contents.replace(/\n/gu, "\r\n").replace(/\r\n$/u, ""),
+        };
+
+        const result = lift(model(file), input());
+
+        const patched = applyPatch(filesOf(file), yield* patchOf(file, result)).find(
+          (entry) => entry.path === file.path,
+        );
+
+        const expected = file.contents
+          .replace(
+            "export const Read =",
+            "export const RepairReadQuery = Schema.Struct({ q: Schema.String });\r\n\r\nexport const Read =",
+          )
+          .replace("query: { q: Schema.String }", "query: RepairReadQuery");
+
+        assert.strictEqual(patched?.contents, expected);
+      }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it("distinguishes definitely absent errors from unreadable error slots and retains input causes", () => {
+    const { emptyInput: _, ...withoutEmpty } = input();
+
+    const absent = outcome(
+      [
+        'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse }).annotateMerge(mysteryAnnotations("x"));',
+      ],
+      withoutEmpty,
+    );
+
+    const unreadable = outcome(
+      [
+        "const localError = UserProfileResponse;",
+        'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: localError }).annotateMerge(mysteryAnnotations("x"));',
+      ],
+      withoutEmpty,
+    );
+
+    const causes = (result: ReturnType<typeof lift>) => {
+      const site = result.unsupported[0];
+
+      return site === undefined ? [] : [site.primary, ...(site.primary.related ?? [])];
+    };
+
+    assert.deepStrictEqual(
+      causes(absent).map((cause) => cause.code),
+      ["EFFX3001", "EFFX3009", "EFFX3006"],
+    );
+    assert.deepStrictEqual(
+      causes(unreadable).map((cause) => cause.code),
+      ["EFFX3009", "EFFX3001", "EFFX3006"],
+    );
+    assert.include(causes(absent)[0]?.message ?? "", "without an explicit error schema");
+    assert.isFalse(
+      causes(unreadable).some((cause) =>
+        cause.message.includes("without an explicit error schema"),
+      ),
+    );
+  });
+});
+
+it.effect("densifies configured pattern identifiers before dropping operationId", () =>
+  Effect.gen(function* () {
+    const file = source([
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: endpointProblemResponses(ProfileReadOwnProfileProblem) });',
+    ]);
+
+    const files = filesOf(file).map((entry) =>
+      entry.path === "src/endpoint-problems.ts"
+        ? {
+            ...entry,
+            contents: entry.contents.replace(
+              '"ProfileReadOwnProfileProblem"',
+              '"RepairReadProblem"',
+            ),
+          }
+        : entry,
+    );
+
+    const project = input().project;
+    assert.isDefined(project);
+
+    if (project === undefined) return;
+
+    const result = lift(
+      modelOf(files, {
+        ...sourceUniverse,
+        root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
+      }),
+      { ...input(), project: { ...project, naming: { problemIdentifier: "{Group}{Key}Problem" } } },
+    );
+
+    const compact = dense(result.collected);
+    assert.isTrue(Option.isSome(compact));
+
+    if (Option.isSome(compact)) {
+      const operation = compact.value.declarations.find(
+        (declaration) => declaration.export === "Read",
+      );
+
+      const problems = operation?.annotations.find(
+        (annotation) => annotation.name === "Http.Problems",
+      )?.args[0];
+
+      assert.isDefined(problems);
+
+      if (problems !== undefined && isObjectArg(problems)) assert.isFalse("identifier" in problems);
+      else assert.fail("the dense problem contract must remain an object");
+      const rebuilt = expandGroupDefaults(compact.value);
+
+      assert.deepStrictEqual(rebuilt.diagnostics, []);
+      const verboseIR = yield* compileCollected(result.collected, Extensions.builtin);
+      const denseIR = yield* compileCollected(compact.value, Extensions.builtin);
+      assert.isTrue(Option.isSome(verboseIR.ir.value));
+      assert.isTrue(Option.isSome(denseIR.ir.value));
+
+      if (Option.isSome(verboseIR.ir.value) && Option.isSome(denseIR.ir.value))
+        assert.strictEqual(canonical(verboseIR.ir.value.value), canonical(denseIR.ir.value.value));
+    }
+  }),
+);

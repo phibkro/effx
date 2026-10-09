@@ -17,6 +17,7 @@ import { modelOf, type SourceFile } from "./lift-source.ts";
 
 const imports = [
   'import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";',
+  'import { Schema } from "effect";',
   'import { UserProfileResponse } from "./v2-schemas.js";',
 ];
 
@@ -37,6 +38,7 @@ const liftOf = (group: string, lines: ReadonlyArray<string>, input?: LiftInput) 
 const read = (key: string, path = "/g/read") => [
   `export const Read = HttpApiEndpoint.get("${key}", "${path}", {`,
   "  success: UserProfileResponse,",
+  "  error: Schema.Never,",
   "});",
 ];
 
@@ -116,7 +118,7 @@ describe("an endpoint with no request channel needs a configured empty input", (
 
   it("reports a POST without a channel, which effx would give a payload it never had", () => {
     const result = liftOf("channels", [
-      'export const Read = HttpApiEndpoint.post("read", "/g/read", { success: UserProfileResponse });',
+      'export const Read = HttpApiEndpoint.post("read", "/g/read", { success: UserProfileResponse, error: Schema.Never });',
       "",
       'export const Api = HttpApiGroup.make("channels").add(Read);',
       'export const Root = HttpApi.make("channels-root").add(Api);',
@@ -133,8 +135,8 @@ describe("an endpoint with no request channel needs a configured empty input", (
 describe("what an endpoint says about itself must match what effx derives", () => {
   it("rejects two endpoints that share a key, both of them", () => {
     const result = liftOf("keys", [
-      'export const First = HttpApiEndpoint.get("same", "/k/1", { success: UserProfileResponse });',
-      'export const Second = HttpApiEndpoint.get("same", "/k/2", { success: UserProfileResponse });',
+      'export const First = HttpApiEndpoint.get("same", "/k/1", { success: UserProfileResponse, error: Schema.Never });',
+      'export const Second = HttpApiEndpoint.get("same", "/k/2", { success: UserProfileResponse, error: Schema.Never });',
       "",
       'export const Api = HttpApiGroup.make("keys").add(First, Second);',
       'export const Root = HttpApi.make("keys-root").add(Api);',
@@ -149,7 +151,7 @@ describe("what an endpoint says about itself must match what effx derives", () =
 
   it("rejects a key that is not an identifier, because an operation id is `<group>.<key>`", () => {
     const result = liftOf("names", [
-      'export const Odd = HttpApiEndpoint.get("not-an-identifier", "/n", { success: UserProfileResponse });',
+      'export const Odd = HttpApiEndpoint.get("not-an-identifier", "/n", { success: UserProfileResponse, error: Schema.Never });',
       "",
       'export const Api = HttpApiGroup.make("names").add(Odd);',
       'export const Root = HttpApi.make("names-root").add(Api);',
@@ -161,7 +163,7 @@ describe("what an endpoint says about itself must match what effx derives", () =
 
   it("rejects an OpenAPI identifier that is not the operation id effx derives", () => {
     const result = liftOf("ids", [
-      'export const Read = HttpApiEndpoint.get("read", "/i", { success: UserProfileResponse })',
+      'export const Read = HttpApiEndpoint.get("read", "/i", { success: UserProfileResponse, error: Schema.Never })',
       '  .annotateMerge(OpenApi.annotations({ identifier: "custom.read" }));',
       "",
       'export const Api = HttpApiGroup.make("ids").add(Read);',
@@ -174,7 +176,7 @@ describe("what an endpoint says about itself must match what effx derives", () =
 
   it("accepts an OpenAPI identifier that equals it and omits the operation's own defaults", () => {
     const result = liftOf("same", [
-      'export const Read = HttpApiEndpoint.get("read", "/i", { success: UserProfileResponse })',
+      'export const Read = HttpApiEndpoint.get("read", "/i", { success: UserProfileResponse, error: Schema.Never })',
       '  .annotateMerge(OpenApi.annotations({ identifier: "same.read", summary: "Read" }));',
       "",
       'export const Api = HttpApiGroup.make("same").add(Read);',
@@ -191,8 +193,8 @@ describe("the binding report is a static key comparison and is never verified", 
     [
       ...supportFiles,
       sourceOf("bound", [
-        'export const Read = HttpApiEndpoint.get("read", "/b/r", { success: UserProfileResponse });',
-        'export const Write = HttpApiEndpoint.get("write", "/b/w", { success: UserProfileResponse });',
+        'export const Read = HttpApiEndpoint.get("read", "/b/r", { success: UserProfileResponse, error: Schema.Never });',
+        'export const Write = HttpApiEndpoint.get("write", "/b/w", { success: UserProfileResponse, error: Schema.Never });',
         "",
         'export const Api = HttpApiGroup.make("bound").add(Read, Write);',
         'export const Root = HttpApi.make("bound-root").add(Api);',

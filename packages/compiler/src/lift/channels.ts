@@ -18,9 +18,9 @@ import {
   literalOf,
   objectOf,
   rangeOf,
+  receiverOf,
   stringField,
   unwrap,
-  descend,
   type Cursor,
 } from "./view.ts";
 
@@ -147,7 +147,7 @@ const readSchema = (scope: Scope, channel: Channel, cursor: Cursor): ChannelRead
     });
   }
 
-  const call = callView(term);
+  const call = callView(cursor.term);
   const callee = call === undefined ? undefined : nativeOf(scope, call.callee);
 
   if (call !== undefined && callee?.kind === "Schema" && nativeName(callee) === "Struct") {
@@ -217,7 +217,7 @@ const readSchema = (scope: Scope, channel: Channel, cursor: Cursor): ChannelRead
 const readPayload = (scope: Scope, cursor: Cursor): ChannelRead => {
   const term = unwrap(cursor.term);
   const at = rangeOf(cursor);
-  const view = callView(term);
+  const view = callView(cursor.term);
 
   if (view !== undefined && view.callee._tag === "Member" && view.callee.member === "pipe") {
     const [step] = view.args;
@@ -231,15 +231,17 @@ const readPayload = (scope: Scope, cursor: Cursor): ChannelRead => {
     );
 
     if (
+      view.args.length === 1 &&
+      asJson?.args.length === 1 &&
+      options !== undefined &&
+      Option.exists(objectOf(options), (object) =>
+        Object.keys(object).every((key) => key === "contentType"),
+      ) &&
       asJsonCallee?.kind === "HttpApiSchema" &&
       nativeName(asJsonCallee) === "asJson" &&
       Option.isSome(media)
     ) {
-      const inner = readSchema(
-        scope,
-        "payload",
-        descend(cursor, view.callee.term, ...view.calleePath, "term"),
-      );
+      const inner = readSchema(scope, "payload", receiverOf(cursor, view));
 
       return inner._tag === "Used" ? used(inner.use, media.value) : inner;
     }

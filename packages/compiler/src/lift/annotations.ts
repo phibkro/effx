@@ -13,6 +13,7 @@ import type { AccessUse, MetadataUse } from "./types.ts";
 import {
   callView,
   descend,
+  fieldOf,
   isJsonObject,
   keyName,
   literalOf,
@@ -81,12 +82,17 @@ const readOpenApi = (scope: Scope, cursor: Cursor, view: CallView): StepRead => 
   if (Option.isNone(object))
     return nonLiteral(scope, cursor, "OpenApi.annotations", "annotations object");
 
+  const argumentCursor =
+    argument === undefined ? cursor : descend(cursor, argument, ...view.argPath(0));
+
+  const overrideCursor = fieldOf(argumentCursor, "override");
+
   const known = ["identifier", "summary", "description", "override"];
 
   for (const name of Object.keys(object.value).filter((candidate) => !known.includes(candidate)))
     fail(
       scope,
-      rangeOf(cursor),
+      rangeOf(fieldOf(argumentCursor, name)),
       LiftDiagnostics.EFFX3001.emit({
         _tag: "UnsupportedOption",
         subject: scope.subject,
@@ -96,6 +102,29 @@ const readOpenApi = (scope: Scope, cursor: Cursor, view: CallView): StepRead => 
     );
 
   const override = object.value.override;
+
+  if (override !== undefined) {
+    if (!isJsonObject(override))
+      nonLiteral(scope, overrideCursor, "OpenApi.annotations", "override object");
+    else
+      for (const name of Object.keys(override)) {
+        if (name === "tags" && isStrings(override.tags)) continue;
+        fail(
+          scope,
+          rangeOf(fieldOf(overrideCursor, name)),
+          LiftDiagnostics.EFFX3001.emit({
+            _tag: "UnsupportedOption",
+            subject: scope.subject,
+            callee: "OpenApi.annotations",
+            option: `override.${name}`,
+          }),
+        );
+      }
+  }
+
+  for (const name of ["identifier", "summary", "description"])
+    if (object.value[name] !== undefined && !Predicate.isString(object.value[name]))
+      nonLiteral(scope, fieldOf(argumentCursor, name), "OpenApi.annotations", name);
   const tags = override !== undefined && isJsonObject(override) ? override.tags : undefined;
 
   return {
@@ -430,10 +459,10 @@ export const readAnnotateMerge = (
   const callee = view === undefined ? undefined : nativeOf(scope, view.callee);
   const calleeRef = view === undefined ? Option.none() : refOf(view.callee);
 
-  if (view === undefined || Option.isNone(calleeRef)) {
-    if (view !== undefined && callee?.kind === "OpenApi" && nativeName(callee) === "annotations")
-      return readOpenApi(scope, cursor, view);
+  if (view !== undefined && callee?.kind === "OpenApi" && nativeName(callee) === "annotations")
+    return readOpenApi(scope, cursor, view);
 
+  if (view === undefined || Option.isNone(calleeRef)) {
     failUnrecognized(scope, at, ".annotateMerge argument");
 
     return failed;

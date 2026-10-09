@@ -193,6 +193,7 @@ const denseOperation = (
   defaults: Fields | undefined,
   pattern: string | undefined,
 ): Declaration => {
+  declaration = withoutPatternIdentifier(declaration, groupId, pattern);
   const contract = fieldsOf(annotationOf(declaration, "Http.Contract"));
   const metadata = nested(contract, "metadata");
 
@@ -263,11 +264,7 @@ const denseOperation = (
     ),
   };
 
-  return withoutPatternIdentifier(
-    withoutDefaultDecisionTime(withoutDerivedChannel(associated)),
-    groupId,
-    pattern,
-  );
+  return withoutDefaultDecisionTime(withoutDerivedChannel(associated));
 };
 
 const isOperation = (declaration: Declaration): boolean =>

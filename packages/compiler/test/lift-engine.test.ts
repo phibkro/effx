@@ -115,6 +115,7 @@ describe("a supported endpoint lifts to the declaration a human writes", () => {
     assert.deepStrictEqual(lifted.codeReferences, [
       {
         identifier: "ProfileReadOwnProfileProblem",
+        codes: ["request.malformed", "precondition.failed", "internal.error"],
         ref: { module: "./src/endpoint-problems", export: "ProfileReadOwnProfileCodes" },
       },
     ]);

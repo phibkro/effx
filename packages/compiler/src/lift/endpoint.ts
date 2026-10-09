@@ -238,6 +238,7 @@ export const recognizeEndpoint = (
 
   const options = endpoint.options;
   const optionsRange = options._tag === "Absent" ? endpoint.range : options.range;
+  let channelsReadable = options._tag !== "Unlowered";
 
   const missingSuccess = LiftDiagnostics.EFFX3007.emit({
     subject: scope.subject,
@@ -251,6 +252,7 @@ export const recognizeEndpoint = (
 
     for (const entry of entries) {
       if (entry._tag === "Unsupported") {
+        channelsReadable = false;
         fail(
           scope,
           entry.finding.range,
@@ -275,6 +277,8 @@ export const recognizeEndpoint = (
         case "headers":
         case "payload": {
           const read = readChannel(scope, entry.name, entry);
+
+          if (read._tag === "Failed") channelsReadable = false;
 
           if (read._tag === "Used") {
             draft[entry.name] = read.use;
@@ -323,6 +327,16 @@ export const recognizeEndpoint = (
 
     if (!entries.some((entry) => entry._tag === "Property" && entry.name === "success"))
       fail(scope, optionsRange, missingSuccess);
+
+    if (
+      entries.every((entry) => entry._tag === "Property") &&
+      !entries.some((entry) => entry._tag === "Property" && entry.name === "error")
+    )
+      failUnrecognized(
+        scope,
+        optionsRange,
+        "an endpoint without an explicit error schema (effx emits Schema.Never)",
+      );
   }
 
   for (const step of endpoint.steps) {
@@ -375,7 +389,7 @@ export const recognizeEndpoint = (
     (channel) => channel !== undefined,
   );
 
-  if (!hasChannel && scope.causes.length === 0) {
+  if (!hasChannel && channelsReadable) {
     if (ctx.input.emptyInput === undefined)
       fail(scope, optionsRange, LiftDiagnostics.EFFX3009.emit({ subject: scope.subject }));
     else if (draft.method === "POST" || draft.method === "PUT" || draft.method === "PATCH")

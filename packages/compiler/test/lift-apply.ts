@@ -8,7 +8,7 @@ import type { SourceFile } from "./lift-source.ts";
 
 /** The hunks of one file's diff applied to its text. */
 export const applyHunks = (before: string, diff: string): string => {
-  const lines = before === "" ? [] : before.split("\n");
+  const lines = before.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
   // A section split out of a multi-file patch ends with the newline that precedes the next header.
   const body = diff.endsWith("\n") ? diff.slice(0, -1).split("\n") : diff.split("\n");
   const hunks = body.flatMap((line, index) => (line.startsWith("@@") ? [index] : []));
@@ -24,10 +24,13 @@ export const applyHunks = (before: string, diff: string): string => {
     output.push(...lines.slice(cursor, first));
     cursor = first;
 
-    for (const line of body.slice(start + 1, hunks[position + 1] ?? body.length)) {
-      if (line.startsWith("\\")) continue;
+    const hunkEnd = hunks[position + 1] ?? body.length;
 
-      const text = line.slice(1);
+    for (let index = start + 1; index < hunkEnd; index += 1) {
+      const line = body[index] ?? "";
+
+      if (line.startsWith("\\")) continue;
+      const text = line.slice(1) + (body[index + 1]?.startsWith("\\ No newline") ? "" : "\n");
 
       if (line.startsWith("+")) output.push(text);
       else {
@@ -46,7 +49,7 @@ export const applyHunks = (before: string, diff: string): string => {
 
   output.push(...lines.slice(cursor));
 
-  return output.join("\n");
+  return output.join("");
 };
 
 /** A multi-file unified diff applied to files; a file the diff does not mention is unchanged. */

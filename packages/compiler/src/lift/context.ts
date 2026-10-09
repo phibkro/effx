@@ -7,6 +7,7 @@ import { refIdentity } from "./refs.ts";
 import type { LiftInput, LiftRule } from "./rules.ts";
 import type { Finding, SourceFileRecord, SourceRange } from "./source.ts";
 import { groupExportPart } from "../generate/http-contracts.ts";
+import type { CodeReference, Refactor } from "./result.ts";
 
 /*
  * What every recognizer shares: the model and rules indexed by reference identity, the collision-free
@@ -46,6 +47,11 @@ export interface Context {
   readonly accessRules: ReadonlyArray<AccessRule>;
   /** Names already taken per file, extended as exports are planned (collision-free by construction). */
   readonly taken: Map<string, Set<string>>;
+  /** Successful extraction plans shared by every consumer of the same resolved union. */
+  readonly codePlans: Map<
+    string,
+    { readonly refactors: ReadonlyArray<Refactor>; readonly reference: CodeReference }
+  >;
 }
 
 const indexBy = <A>(
@@ -80,6 +86,7 @@ export const makeContext = (model: EffectModel, input: LiftInput): Context => ({
   metadataRules: rulesOf(input.rules, "Metadata"),
   accessRules: rulesOf(input.rules, "Access"),
   taken: new Map(),
+  codePlans: new Map(),
 });
 
 /** `Group.key` as users write it; the key falls back to the declared symbol when it is not a literal. */

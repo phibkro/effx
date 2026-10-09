@@ -73,6 +73,7 @@ const processEndpoints = (ctx: Context, facts: GroupFacts): ReadonlyArray<Proces
 
   for (const endpoint of facts.endpoints) {
     const before = snapshotTaken(ctx);
+    const plansBefore = new Set(ctx.codePlans.keys());
     const outcome = recognizeEndpoint(ctx, facts.groupId, endpoint);
 
     const duplicate: ReadonlyArray<Cause> = Option.exists(keyOf(endpoint), (key) =>
@@ -92,7 +93,11 @@ const processEndpoints = (ctx: Context, facts: GroupFacts): ReadonlyArray<Proces
 
     const causes = [...outcome.causes, ...duplicate];
 
-    if (causes.length > 0) restoreTaken(ctx, before);
+    if (causes.length > 0) {
+      restoreTaken(ctx, before);
+
+      for (const key of ctx.codePlans.keys()) if (!plansBefore.has(key)) ctx.codePlans.delete(key);
+    }
 
     processed.push({ endpoint, outcome, causes });
   }
@@ -211,6 +216,8 @@ const uniqueReferences = (references: ReadonlyArray<CodeReference>): ReadonlyArr
     (left, right) =>
       left.identifier === right.identifier &&
       left.ref.module === right.ref.module &&
+      left.codes.length === right.codes.length &&
+      left.codes.every((code, index) => code === right.codes[index]) &&
       left.ref.export === right.ref.export,
   );
 
@@ -257,10 +264,10 @@ const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
     accepted.flatMap((entry) => Option.toArray(Option.fromUndefinedOr(entry.recognized.wrapper))),
   );
 
-  const refactors: ReadonlyArray<Refactor> = [
+  const refactors: ReadonlyArray<Refactor> = Arr.dedupe([
     ...accepted.flatMap((entry) => entry.processed.outcome.refactors),
     ...wrapperPlans.refactors,
-  ];
+  ]);
 
   const decisions = [...built.decisions, ...wrapperPlans.refactors.flatMap(refactorDecisions)];
   const binding = bindingOutcome(ctx, facts);

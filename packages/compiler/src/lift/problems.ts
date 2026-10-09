@@ -56,7 +56,18 @@ const planCodes = (
   codes: Term,
   identifier: string,
   union: SymbolRef,
+  literalCodes: ReadonlyArray<string>,
 ): void => {
+  const identity = refIdentity(union);
+  const cached = scope.ctx.codePlans.get(identity);
+
+  if (cached !== undefined) {
+    scope.refactors.push(...cached.refactors);
+    scope.codeReferences.push(cached.reference);
+
+    return;
+  }
+
   const home = scope.ctx.files.get(value.range.file);
 
   if (home === undefined) {
@@ -84,34 +95,38 @@ const planCodes = (
   const at = rangeOf(descend(rootOf(init), codes, ...call.argPath(1)));
   const subject = nameOfSymbol(union);
 
-  scope.refactors.push(
-    ...exportRefactors(scope.ctx, {
-      code: "EFFX3004",
-      subject,
-      cause: {
-        ...LiftDiagnostics.EFFX3004.emit({
-          _tag: "ExportCodes",
-          subject,
-          union: subject,
-          planned: plan.success.name,
-        }),
-        location: { file: at.file, line: at.start.line, col: at.start.col },
-      },
-      key,
-      role: "codes",
-      use: home,
-      anchor: value.range.start,
-      replace: at,
-      plan: plan.success,
-      initializer: codes,
-      asConst: true,
-    }),
-  );
-
-  scope.codeReferences.push({
-    identifier,
-    ref: { module: plan.success.ref.module, export: plan.success.ref.export },
+  const refactors = exportRefactors(scope.ctx, {
+    code: "EFFX3004",
+    subject,
+    cause: {
+      ...LiftDiagnostics.EFFX3004.emit({
+        _tag: "ExportCodes",
+        subject,
+        union: subject,
+        planned: plan.success.name,
+      }),
+      location: { file: at.file, line: at.start.line, col: at.start.col },
+    },
+    key,
+    role: "codes",
+    use: home,
+    anchor: value.range.start,
+    replace: at,
+    plan: plan.success,
+    initializer: codes,
+    asConst: true,
   });
+
+  const reference = {
+    identifier,
+    codes: literalCodes,
+    ref: { module: plan.success.ref.module, export: plan.success.ref.export },
+  };
+
+  scope.ctx.codePlans.set(identity, { refactors, reference });
+  scope.refactors.push(...refactors);
+
+  scope.codeReferences.push(reference);
 };
 
 /** The union a hand-written `response(union)` names: its identifier and codes, with the refactor if needed. */
@@ -183,6 +198,7 @@ const readUnion = (
 
     scope.codeReferences.push({
       identifier: identifier.value,
+      codes: codes.value,
       ref: { module: tupleRef.value.module, export: tupleRef.value.export },
     });
 
@@ -209,7 +225,7 @@ const readUnion = (
     return Option.none();
   }
 
-  planCodes(scope, value, value.init, init, codesTerm, identifier.value, union.value);
+  planCodes(scope, value, value.init, init, codesTerm, identifier.value, union.value, codes.value);
 
   return Option.some({ registry: rule.registry, identifier: identifier.value, codes: codes.value });
 };

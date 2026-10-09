@@ -2,6 +2,9 @@ import { Data, Option, Schema } from "effect";
 import { StableId, type SchemaRef, type SymbolRef } from "@effx/ir";
 import {
   Terms,
+  refIdentity,
+  symbolRefOf,
+  isNativeModule,
   type EffectModel,
   type EndpointRecord,
   type Finding,
@@ -49,7 +52,7 @@ const patterns: ReadonlyArray<readonly [Token["kind"] | "skip", RegExp]> = [
   ["string", /"(?:[^"\\]|\\.)*"/uy],
   ["number", /-?\d+(?:\.\d+)?/uy],
   ["ident", /[A-Za-z_$][A-Za-z0-9_$]*/uy],
-  ["punct", /\.\.\.|===|=>|\?\.|\?\?|[{}()[\],:;.?=]/uy],
+  ["punct", /\.\.\.|===|=>|\?\.|\?\?|[{}()[\],:;.?=<>]/uy],
 ];
 
 const tokenize = (text: string): ReadonlyArray<Token> => {
@@ -378,7 +381,7 @@ const parser = (tokens: ReadonlyArray<Token>) => {
 };
 
 interface Statement extends Span {
-  readonly tag: "import" | "const";
+  readonly tag: "import" | "const" | "class";
   readonly exported: boolean;
   readonly name: string;
   readonly module: string;
@@ -450,6 +453,31 @@ const statements = (text: string): ReadonlyArray<Statement> => {
         start: head.start,
         end: parse.expect(";").end,
       });
+    } else if (word.text === "class") {
+      const name = parse.take().text;
+      parse.expect("{");
+      let depth = 1;
+      let end = head.end;
+
+      while (depth > 0) {
+        const token = parse.take();
+
+        if (token.text === "{") depth += 1;
+
+        if (token.text === "}") depth -= 1;
+        end = token.end;
+      }
+
+      found.push({
+        tag: "class",
+        exported,
+        name,
+        module: "",
+        names: [],
+        value: undefined,
+        start: head.start,
+        end,
+      });
     } else {
       throw new Error(`the test frontend cannot read the statement starting ${head.text}`);
     }
@@ -487,8 +515,7 @@ export interface SourceFile {
   readonly contents: string;
 }
 
-const identity = (ref: { readonly module: string; readonly export: string }): string =>
-  `${ref.module}\u0000${ref.export}`;
+const identity = refIdentity;
 
 const moduleOfPath = (path: string): string => `./${path.replace(/\.tsx?$/u, "")}`;
 
@@ -531,6 +558,8 @@ interface Scope {
   readonly target: TargetProfile;
   readonly resolve: (name: string, at: Span) => SchemaRef | SymbolRef;
   readonly claims: Map<string, NativeCallee>;
+  readonly schemas: ReadonlyMap<string, SchemaRef>;
+  readonly staticHolders: ReadonlySet<string>;
   readonly position: (offset: number) => { offset: number; line: number; col: number };
 }
 
@@ -545,10 +574,18 @@ const claim = (
   ref: SchemaRef | SymbolRef,
   member?: string,
 ): void => {
-  if (!isNativeKind(ref.export)) return;
+  const direct = Array.from(nativeKinds)
+    .filter(isNativeKind)
+    .find(
+      (kind) => ref.module.endsWith(`/${kind}`) && isNativeModule(scope.target, kind, ref.module),
+    );
+
+  const kind = isNativeKind(ref.export) ? ref.export : direct;
+
+  if (kind === undefined) return;
 
   const base = {
-    kind: ref.export,
+    kind,
     target: scope.target,
     ref: { module: ref.module, export: ref.export },
   };
@@ -574,10 +611,23 @@ const under = (
     range: span.range,
   }));
 
-const symbolOf = (ref: SchemaRef | SymbolRef): SymbolRef => ({
-  module: ref.module,
-  export: ref.export,
-});
+const symbolOf = symbolRefOf;
+
+/** Source positions inside a collapsed Lit(Json), without changing the neutral term algebra. */
+const jsonSpans = (
+  scope: Scope,
+  node: Node,
+  path: ReadonlyArray<string | number>,
+): ReadonlyArray<TermSpan> => [
+  { path, range: rangeOf(scope, node) },
+  ...(node.tag === "object"
+    ? node.entries.flatMap((entry) =>
+        entry.kind === "property" ? jsonSpans(scope, entry.value, [...path, entry.key]) : [],
+      )
+    : node.tag === "array"
+      ? node.items.flatMap((item, index) => jsonSpans(scope, item, [...path, index]))
+      : []),
+];
 
 const lower = (scope: Scope, node: Node): Lowered => {
   const here = (term: Term, children: ReadonlyArray<TermSpan>): Lowered => ({
@@ -598,6 +648,20 @@ const lower = (scope: Scope, node: Node): Lowered => {
       return here(Terms.lit(node.json), []);
     case "member": {
       const object = lower(scope, node.object);
+
+      if (object.term._tag === "Ref" && !node.optional) {
+        const symbol = symbolOf(object.term.ref);
+        const member = symbol.member === undefined ? node.name : `${symbol.member}.${node.name}`;
+        const schema = scope.schemas.get(identity({ ...symbol, member }));
+
+        if (schema !== undefined) return here(Terms.ref(schema), []);
+
+        if (
+          !("symbolId" in object.term.ref) &&
+          scope.staticHolders.has(identity({ module: symbol.module, export: symbol.export }))
+        )
+          return here(Terms.ref({ ...symbol, member }), []);
+      }
 
       if (object.term._tag === "Ref") claim(scope, object.term.ref, node.name);
 
@@ -650,7 +714,7 @@ const lower = (scope: Scope, node: Node): Lowered => {
       const literals = items.flatMap((item) => (item.term._tag === "Lit" ? [item.term.json] : []));
 
       return literals.length === items.length
-        ? here(Terms.lit(literals), [])
+        ? here(Terms.lit(literals), jsonSpans(scope, node, ["json"]))
         : here(
             Terms.arr(items.map((item) => item.term)),
             node.items.flatMap((item, index) => under(scope, ["items", index], item)),
@@ -672,7 +736,7 @@ const lower = (scope: Scope, node: Node): Lowered => {
       );
 
       return literals.length === entries.length
-        ? here(Terms.lit(Object.fromEntries(literals)), [])
+        ? here(Terms.lit(Object.fromEntries(literals)), jsonSpans(scope, node, ["json"]))
         : here(
             Terms.obj(
               entries.map(({ entry, lowered }) => ({
@@ -920,6 +984,16 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
     statements: statements(file.contents),
   }));
 
+  const staticHolders = new Set(
+    parsed.flatMap((unit) =>
+      unit.statements.flatMap((statement) =>
+        statement.tag === "class" && statement.exported
+          ? [identity({ module: unit.module, export: statement.name })]
+          : [],
+      ),
+    ),
+  );
+
   // An export is a Schema when its initializer calls a member of the native `Schema` namespace.
   const schemaRefs = new Map<string, SchemaRef>(
     universe.schemas.map((ref) => [identity(ref), ref] as const),
@@ -1018,6 +1092,8 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
       target: universe.target,
       position,
       claims,
+      schemas: schemaRefs,
+      staticHolders,
       resolve: (name, at) => {
         const found = locals.get(name);
 

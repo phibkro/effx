@@ -177,13 +177,7 @@ const declarationOf = (spec: EndpointSpec, index: number): Declaration => {
     ["payload", body ? schemaArg("ItemBody") : undefined],
     ["mediaType", body && spec.merge ? "application/merge-patch+json" : undefined],
     ["success", schemaArg("ItemResponse")],
-    // An explicit 200 written as `status(200)` is the dense default: lift drops it, so it is not in the image.
-    [
-      "status",
-      spec.status === "default" || (spec.status === 200 && spec.response !== "plain")
-        ? undefined
-        : spec.status,
-    ],
+    ["status", spec.status === "default" ? undefined : spec.status],
     ["responseHeaders", spec.response === "plain" ? undefined : schemaArg("ItemResponseHeaders")],
     ["conditional", spec.response === "conditional" && spec.verb === "GET" ? true : undefined],
     ["middleware", middleware.length === 0 ? undefined : [...middleware]],

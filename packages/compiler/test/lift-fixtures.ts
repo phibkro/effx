@@ -215,6 +215,9 @@ export interface Negative {
 const stub = (key: string, path: string, options: ReadonlyArray<string>): ReadonlyArray<string> => [
   `HttpApiEndpoint.get("${key}", "${path}", {`,
   ...options,
+  ...(options.some((option) => option.trimStart().startsWith("error:"))
+    ? []
+    : ["  error: Schema.Never,"]),
   "})",
 ];
 
@@ -230,7 +233,7 @@ export const negatives: ReadonlyArray<Negative> = [
   },
   {
     name: "a key that is a local constant",
-    lines: ['HttpApiEndpoint.get(localKey, "/n/key", {', success, "})"],
+    lines: ['HttpApiEndpoint.get(localKey, "/n/key", {', success, "  error: Schema.Never,", "})"],
     at: "localKey",
     primary: "EFFX3001",
   },
@@ -348,7 +351,12 @@ export const negatives: ReadonlyArray<Negative> = [
   },
   {
     name: "a POST with no request channel",
-    lines: ['HttpApiEndpoint.post("noChannelPost", "/n/nochannel", {', success, "})"],
+    lines: [
+      'HttpApiEndpoint.post("noChannelPost", "/n/nochannel", {',
+      success,
+      "  error: Schema.Never,",
+      "})",
+    ],
     at: "{\n  success",
     primary: "EFFX3001",
   },

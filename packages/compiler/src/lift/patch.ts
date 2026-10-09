@@ -50,9 +50,11 @@ const fault = (message: string): CompilerFault => new CompilerFault({ stage: "li
 /** A statement inserted at `at`: whole lines at a line start, otherwise on new lines after the line. */
 const placed = (text: string, at: number, statement: string, blankLine: boolean): string => {
   const atLineStart = at === 0 || text[at - 1] === "\n";
-  const blank = blankLine ? "\n" : "";
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const blank = blankLine ? newline : "";
+  const rendered = statement.replace(/\n/gu, newline);
 
-  return atLineStart ? `${statement}\n${blank}` : `\n${blank}${statement}`;
+  return atLineStart ? `${rendered}${newline}${blank}` : `${newline}${blank}${rendered}`;
 };
 
 const importText = (

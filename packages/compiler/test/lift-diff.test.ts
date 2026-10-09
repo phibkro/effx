@@ -108,7 +108,17 @@ describe("unifiedDiff", () => {
     const diff = unifiedDiff("f", "a\nb", "a\nb\n");
 
     assert.include(diff, "\\ No newline at end of file");
-    assert.strictEqual(applyHunks("a\nb", diff), "a\nb");
+    assert.strictEqual(applyHunks("a\nb", diff), "a\nb\n");
+  });
+
+  it.each([
+    ["a\r\nb\r\n", "a\r\nc\r\n"],
+    ["a\r\nb", "a\r\nb\r\n"],
+    ["a\nb\n", "a\nb"],
+    ["", "a"],
+    ["a", ""],
+  ])("preserves exact newline bytes for %#", (before, after) => {
+    assert.strictEqual(applyHunks(before, unifiedDiff("f", before, after)), after);
   });
 
   it.effect("applying its hunks to the old text gives the new text, for any two texts", () =>
@@ -120,12 +130,7 @@ describe("unifiedDiff", () => {
           const to = textOf(after);
           const diff = unifiedDiff("f.ts", from, to);
 
-          // Texts without a final newline carry the marker; the reference applier compares lines only.
-          const restored = applyHunks(from, diff);
-
-          return diff === ""
-            ? from === to
-            : restored.replace(/\n$/u, "") === to.replace(/\n$/u, "");
+          return applyHunks(from, diff) === to;
         },
         { runs: 250, seed: 19 },
       );

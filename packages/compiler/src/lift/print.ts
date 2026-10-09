@@ -208,16 +208,23 @@ export const printSuggestion = (
       : `export const ${declaration.export} = ${runtime("Http")}.group(${value(arg, undefined, 0, true)});`;
   };
 
-  /** `Http.Problems` options with the exported tuple of its identifier in place of a copy of the codes. */
+  /** Substitute only a tuple with the exact identifier AND literal code list of this contract. */
   const withTuple = (arg: AnnotationArg): AnnotationArg => {
     if (!isObjectArg(arg)) return arg;
 
     const entries = entriesOf(arg);
     const identifier = entries.find(([name]) => name === "identifier")?.[1];
+    const codes = entries.find(([name]) => name === "codes")?.[1];
 
-    const tuple = Predicate.isString(identifier)
-      ? options.codeReferences?.find((candidate) => candidate.identifier === identifier)
-      : undefined;
+    const tuple =
+      Predicate.isString(identifier) && Array.isArray(codes)
+        ? options.codeReferences?.find(
+            (candidate) =>
+              candidate.identifier === identifier &&
+              candidate.codes.length === codes.length &&
+              candidate.codes.every((code, index) => code === codes[index]),
+          )
+        : undefined;
 
     if (tuple === undefined) return arg;
 

@@ -32,6 +32,12 @@ export interface InlineExport {
 export const exportInline = (scope: Scope, request: InlineExport): Option.Option<SchemaRef> => {
   const at = rangeOf(request.cursor);
 
+  if (request.cursor.exactRange === false) {
+    failUnrecognized(scope, at, "an inline schema whose Chain receiver has no exact source span");
+
+    return Option.none();
+  }
+
   if (scope.use === undefined) {
     failUnrecognized(
       scope,

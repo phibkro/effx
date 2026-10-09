@@ -1,15 +1,6 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
-import {
-  CompilerFault,
-  EffectModel,
-  LiftFrontend,
-  SourceRange,
-  TermSchema,
-  TermSlot,
-  Terms,
-  type Term,
-} from "@effx/compiler";
+import { Effect, Schema } from "effect";
+import { EffectModel, SourceRange, TermSchema, TermSlot, Terms, type Term } from "@effx/compiler";
 import { profileModel, range, schemaOf } from "./lift-support.ts";
 
 /*
@@ -208,32 +199,5 @@ describe("EffectModel", () => {
 
       assert.strictEqual(failure._tag, "SchemaError");
     }),
-  );
-});
-
-describe("LiftFrontend", () => {
-  const serving = Layer.succeed(LiftFrontend, { analyze: () => Effect.succeed(profileModel) });
-
-  const failing = Layer.succeed(LiftFrontend, {
-    analyze: () => Effect.fail(new CompilerFault({ stage: "lift", message: "project unreadable" })),
-  });
-
-  it.effect("serves a model whose unsupported source is data, not a failure", () =>
-    Effect.gen(function* () {
-      const frontend = yield* LiftFrontend;
-      const model = yield* frontend.analyze({ tsconfigPath: "tsconfig.json" });
-
-      assert.isTrue(model.endpoints.some((endpoint) => endpoint.options._tag === "Unlowered"));
-    }).pipe(Effect.provide(serving)),
-  );
-
-  it.effect("reserves the failure channel for IO and invariant breakage", () =>
-    Effect.gen(function* () {
-      const frontend = yield* LiftFrontend;
-      const fault = yield* Effect.flip(frontend.analyze({ tsconfigPath: "tsconfig.json" }));
-
-      assert.strictEqual(fault._tag, "CompilerFault");
-      assert.strictEqual(fault.stage, "lift");
-    }).pipe(Effect.provide(failing)),
   );
 });
