@@ -6,6 +6,7 @@ description: One-shot compiler commands, saved-input watch checks, and stdio edi
 `effx check`, `build`, `inspect`, and `graph` run the same compiler pipeline over a tsconfig project.
 `dev` repeats checks for saved inputs; `lsp` checks source buffers for one editor project.
 The long-running commands use the same compiler meaning and add explicit lifetime and executable-coverage policy.
+`lift` reads pure Effect source instead and prints suggested declarations; only its explicit `--check` runs application modules.
 
 Source: `scripts/effx.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
 
@@ -23,6 +24,7 @@ Source: `scripts/effx.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-conf
 | `effx lsp` | Stdio diagnostics for one selected project and unsaved source buffers | no compiler artifacts | [lsp](/docs/cli/lsp) |
 | `effx inspect <name>` | Show one operation's contract and exposures | no | [inspect](/docs/cli/inspect) |
 | `effx graph [name]` | Print a Mermaid graph, optionally from one node | no | [graph](/docs/cli/graph) |
+| `effx lift --group <id> [--module <file>] [--form verbose\|dense\|both] [--check] [--emit-patch] [--write <file>] [--json]` | Suggest effx declarations for a pure Effect HttpApiGroup; `--check` mechanically verifies them against the original group (spec 0019) | `--write <file>` creates one new suggestion file; nothing else | [lift](/docs/cli/lift) |
 | `effx surface check --against <file>` | Verify an Alchemy Worker program wires exactly the generated handlers the surface requires (spec 0021). Compiles the project first and exits 1 on errors. | no | none yet |
 | `effx cedar [--namespace <Name>] [--policies <file>]... [--deny-warnings]` | Project capabilities and access contracts to a Cedar schema and policies, validated by Cedar 4.13.0 (spec 0017). Separate from `build`: nothing else under `.effx` changes. | `.effx/cedar/schema.cedarschema`, `.effx/cedar/policies.cedar` | none yet |
 

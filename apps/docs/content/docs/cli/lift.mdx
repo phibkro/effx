@@ -1,0 +1,117 @@
+---
+title: effx lift
+description: Suggest effx declarations for a pure Effect HttpApiGroup; --check mechanically verifies them against the original group.
+---
+
+```bash
+effx lift --group <id> [--module <file>] [--form verbose|dense|both] [--check] [--emit-patch] [--write <file>] [--json]
+```
+
+From the monorepo root: `bun run effx lift --project <tsconfig> --group profile --module src/profile.effx.ts`.
+
+Source: `scripts/effx.ts`, `liftCommand` and `prepareLift` in `packages/cli/src/lift-command.ts`, `packages/cli/src/lift.ts`, `packages/cli/src/lift-check.ts`, `docs/specs/0019-lift.md`. The native child lives in `scripts/lift-execution.ts` under exception EX-0034 (`docs/research/0019-implementation-design.md`, "S6 native child custody and EX-0034").
+
+The command reads pure Effect source (`HttpApiEndpoint`, `HttpApiGroup`, `HttpApi` values) and prints an effx declaration that is meant to generate an equivalent group. It never rewrites a user file. By default it runs no application code at all.
+
+## Flags
+
+`lift` takes the shared project flags (`--project`, `--config`, `--target`, `--strict-access`) and resolves them with `resolveProject`. See the [CLI overview](/docs/cli#flags).
+
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--group <id>` | The identifier in `HttpApiGroup.make("<id>")`. Required. The group must be in exactly one root, otherwise the run reports `EFFX3008`. | none |
+| `--module <file>` | The suggestion file. Its module key is derived from this path, relative to the project's canonical import base. | the config's `lift.output.module` |
+| `--form` | `verbose`, `dense` or `both` | `both` |
+| `--check` | Mechanically verify each printed form (below). | off |
+| `--emit-patch` | Print the source refactors as one unified diff. Nothing is applied. | off |
+| `--write <file>` | Create the suggestion as a new file. Refuses an existing file. | off |
+| `--json` | Print the same report as one Schema-encoded JSON document. | off |
+
+With neither `--module` nor a configured output module the command exits 1 with `error: --module is required: the config declares no lift output module`.
+
+## Project config
+
+The lift inputs are inert data in `effx.config.ts`. The CLI never imports or executes anything they name.
+
+```ts
+import { defineConfig } from "@effx/cli/config";
+
+export default defineConfig({
+  lift: {
+    rules: [],
+    names: {},
+    output: { module: "../../src/profile.effx" },
+    projections: [],
+  },
+});
+```
+
+| Field | Meaning |
+| --- | --- |
+| `rules` | Schema-decoded data rules that stand in for application helpers: success wrappers, problem registries, metadata and access annotators (spec 0019 section 5). |
+| `names` | Pinned real exports for resolvers and for schemas and tuples the lift would otherwise name. An unresolvable name is a diagnostic, never a placeholder. |
+| `emptyInput` | A real schema export used as the operation input when an endpoint has no request channel. Without it such an endpoint is `EFFX3009`. |
+| `output.module` | The extensionless module key of the suggestion, relative to the project's canonical import base. |
+| `projections` | Pairs of an annotation key reference and the application's own projector export. Only `--check` uses them (below). |
+
+The registry is the selected extension list: `Extensions.builtin` unless the config adds or replaces extensions. There is no other default registry. The same list drives lift, the printer's recognition rules and the check's compile.
+
+## What it prints
+
+Every surface prints the same bytes from one printer. A suggestion in the report, in `--json` and in a `--write` file is byte-identical.
+
+| Section | Content |
+| --- | --- |
+| `SUGGESTION (verbose)` | A complete `.effx.ts` in builder form. |
+| `SUGGESTION (dense)` | The group-defaults form (spec 0013). Offered only when its canonical IR equals the verbose form's. With `--form both` an unproven dense form prints as unavailable; with `--form dense` it is an error, never a silent fallback. |
+| `REFACTORS REQUIRED` | Per source symbol: file, code (`EFFX3002` to `EFFX3004`) and reason. |
+| `DECISIONS TO REVIEW` | Lift decisions with no Effect twin (operation kind, input, real export names). They are never printed as verified. |
+| `ADAPTER PREREQUISITES` | Symbols the rules name that do not resolve in the project. |
+| `UNLIFTABLE` | Endpoints omitted, one primary diagnostic each. No suggestion text exists for them. |
+| `REFACTOR PATCH` | With `--emit-patch`: the unified diff of the refactors. |
+| `CHECK` | With `--check`: one line per requested form and the binding gate. |
+
+Explicit source statuses are preserved, including `status: 200`; an omitted status stays omitted (spec 0019 section 0.7).
+
+`--write` accepts one form: `--form both` with `--write` is a usage error and creates nothing. The target is refused before any analysis when it exists, and the final write is an exclusive create, so an existing file is never changed.
+
+## `--check`
+
+The check is the one place `lift` executes application modules. It runs, per requested form:
+
+```
+overlay → COLLECT → compile → generate (contract) → one witness child → compare
+```
+
+1. A scoped overlay is a throwaway directory holding a copy of the project that owns the group, the verified refactor results (in memory, never the files on disk) and the printed suggestion. `node_modules` directories on the project's ancestor chain are shared by read-only symlink. Dotenv files, `bunfig.toml`, `.npmrc`, `.netrc` and `.git` are never copied. Nothing outside the overlay is written.
+2. The printed text is collected by the real frontend, compiled with the selected extensions and generated as a contract. The check never reads the in-memory lift.
+3. One generated static witness imports the unmodified original group and the generated contract group, mounts each alone on a fresh root that reuses the original root's identity, and reflects both with `HttpApi.reflect` and `OpenApi.fromApi`. Registered projections run on both sides.
+4. The two reflections are decoded strictly and compared. Only the three deltas of spec 0019 section 2.2 are tolerated: `ref-suffix`, `explicit-default-identifier` and `endpoint-order`. Path, method, schemas, status, headers, media type, security, operation id, summary, description, tags, middleware and access projections must be equal.
+
+The original application root is never replaced or evaluated as part of the comparison. Its middleware, metadata, prefixes and errors stay unverified (spec 0019 section 0.8).
+
+The binding gate is independent evidence. It compares the original model's complete endpoint key set for the group with the generated group's, then typechecks a generated handler skeleton against the actual original root. `PASSED` needs an actual key proof and an executed zero-exit typecheck receipt; without evidence the binding is `MISSING`, never accepted.
+
+| `CHECK` line | Meaning |
+| --- | --- |
+| `verbose: PASS` or `PASS(<deltas>)` | The reflections are equal up to the listed deltas. |
+| `verbose: FAIL` followed by paths | A real wire difference: each path is one `EFFX3101` diagnostic. |
+| `verbose: COULD NOT RUN (<reason>) <detail>` | The form could not be checked: `overlay-compile`, `root-build` or `projection-hook` (`EFFX3103`). |
+| `binding: PASSED (keys ...; typecheck exit 0)` | The key sets agree and the skeleton typechecks. |
+| `binding: FAILED` / `binding: MISSING` | `EFFX3201`, or no evidence (`EFFX3103`). |
+
+Check inability is data, never a pass. An application module that throws, prints noise or hangs is reported by stage and error name only: messages, stack frames and values from the application never leave the child.
+
+### Execution bounds and environment
+
+The witness and the binding typecheck run as native Bun children owned by the process root. Each has explicit arguments and working directory, an empty reviewed environment (`extendEnv: false`: no variable of the invoking shell reaches the child), a 16 MiB capture bound per output pipe, and a forced-stop deadline: 120 seconds for the witness and 600 seconds for the typecheck. The check is not a sandbox. Application imports can perform IO, so run it only on code you would run anyway.
+
+## Exit code
+
+| Condition | Exit |
+| --- | --- |
+| The suggestion printed; with `--check` every requested form passed and the binding gate held | 0 |
+| Usage error, the project could not be analyzed, or the lift reported an error diagnostic | 1 |
+| `--check` ran or could not run and did not pass | 2 |
+
+The report is printed before the exit code is raised. `--json` prints exactly one line on stdout; diagnostics of a failed analysis go to stderr.

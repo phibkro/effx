@@ -77,16 +77,23 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
 
 Root records retain complete original composition under spec 0019 §0.8. The generated contract and check concern the unmodified exported group alone. Original root middleware and metadata remain outside that check. Binding reports still use the actual original root.
 
+## Lifting pure Effect with `effx lift`
+
+`effx lift --group <id> --module <file>` reads pure Effect `HttpApiGroup` source and prints a suggested effx declaration. It never rewrites a file and runs no application module (`packages/cli/src/lift-command.ts`). The lift inputs (`rules`, `names`, `emptyInput`, `output.module`, `projections`) are inert data under `lift` in `effx.config.ts`. The registry is the selected extension list; there is no other default. Every surface prints the same printer bytes: stdout, `--json`, and `--write`, which creates a new file and refuses an existing one untouched.
+
+`--check` is the one place application modules run. A scoped overlay holds the printed suggestion, the real frontend collects it, the compiler generates a contract, and one witness child reflects the unmodified original group and the generated group, each alone on a fresh root, compared after only the three deltas of spec 0019 section 2.2. The binding gate separately compares the original group's complete key set with the generated group's and typechecks the generated handler skeleton against the original root. Inability is data (`EFFX3103`), a wire difference is `EFFX3101`, a binding gap is `EFFX3201`. The exit code is 0 when lifted (and, with `--check`, passed), 1 for a usage or analysis error, and 2 when the check did not pass. The check is not a sandbox. Source: spec 0019 sections 2.4 and 4, `packages/cli/src/lift-check.ts`.
+
 ## Commands
 
-| Command                    | Purpose                                                      |
-| -------------------------- | ------------------------------------------------------------ |
-| `effx check`               | diagnose without writing                                     |
-| `effx build`               | write projections (`--emit=contract\|handlers\|all`)         |
-| `effx dev [--build]`       | check saved inputs until stopped; write only with `--build`  |
-| `effx lsp`                 | stdio diagnostics for one project and unsaved source buffers |
-| `effx inspect <operation>` | show an operation's contract and exposures                   |
-| `effx graph [name]`        | print a Mermaid graph                                        |
+| Command                    | Purpose                                                               |
+| -------------------------- | --------------------------------------------------------------------- |
+| `effx check`               | diagnose without writing                                              |
+| `effx build`               | write projections (`--emit=contract\|handlers\|all`)                  |
+| `effx dev [--build]`       | check saved inputs until stopped; write only with `--build`           |
+| `effx lsp`                 | stdio diagnostics for one project and unsaved source buffers          |
+| `effx inspect <operation>` | show an operation's contract and exposures                            |
+| `effx graph [name]`        | print a Mermaid graph                                                 |
+| `effx lift --group <id>`   | suggest declarations for a pure Effect group; `--check` verifies them |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
 `--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
