@@ -110,6 +110,17 @@ export const lspSourceCoverage = (
   directory: membership || previous?.directory === true,
 });
 
+/** poll refuses a concurrent pass with None, and a pass begun before replaceInputs is
+ * discarded without notification. Call after replaceInputs: it returns only after a
+ * completed pass has taken the baseline of the coverage just installed, so no
+ * publication can precede that baseline. @internal */
+export const awaitCoverageBaseline = Effect.fnUntraced(function* (watch: WatchFiles) {
+  const replaced = yield* watch.current;
+  const polled = yield* watch.poll;
+
+  if (Option.isNone(polled)) yield* watch.waitForPass(replaced.pass);
+});
+
 /** Portable one-project LSP owner. Building this Effect performs no work. The outer
  * scope owns transport/client liveness; shutdown closes the nested project owner
  * before replying null, leaving transport alive until exit or EOF. No disk emission. */
@@ -420,18 +431,9 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       )
       .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
     sourceInputs = nextSourceInputs;
-    // poll refuses a concurrent pass with None, and a pass begun before replaceInputs is
-    // discarded. Publication must follow a completed pass over the new coverage.
-    const replaced = yield* watch!.current;
-
-    const polled = yield* watch!.poll.pipe(
+    yield* awaitCoverageBaseline(watch!).pipe(
       Effect.mapError(() => unavailable("Watch reconciliation unavailable")),
     );
-
-    if (Option.isNone(polled))
-      yield* watch!
-        .waitForPass(replaced.pass)
-        .pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
     const current = yield* watch!.current;
     const changes = yield* watch!.takeChanges;
 
