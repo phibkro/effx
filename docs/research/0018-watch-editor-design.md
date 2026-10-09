@@ -472,6 +472,8 @@ refs/evidence/tarballs, release owned processes, remove owned disposable clones,
 then only inactive clean merged worktrees with ownership release. Current active,
 unmerged, dirty, unknown-owner and separately owned 0016 trees are excluded.
 
+Evidence limit, 2026-10-09: `packages/cli/test/lsp-baseline.test.ts` covers the extracted `awaitCoverageBaseline` helper, not that `analyze` calls it; the five external-reference journeys in `packages/cli/test/lsp.test.ts` remain the timing-sensitive guard for the call site.
+
 ## 7. Proposed contract amendment — explicit executable coverage
 
 **Operator-approved A on 2026-10-06; incorporated into frozen spec commit74c4fe1.**
