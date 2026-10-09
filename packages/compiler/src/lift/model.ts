@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
 import { TargetProfile } from "../Collected.ts";
 import { NativeCallee } from "./native.ts";
-import { Finding, SourceFileRecord, SourceRange, TermSlot } from "./source.ts";
+import { Finding, SourceFileRecord, SourcePosition, SourceRange, TermSlot } from "./source.ts";
 
 /*
  * The frontend → core boundary of spec 0019 (§3.1, §8 S7): a Schema-defined, IR-free inventory of the
@@ -170,6 +170,55 @@ export const ValueRecord = Schema.Struct({ symbol: SymbolRef, range: SourceRange
 
 export type ValueRecord = typeof ValueRecord.Type;
 
+/** Source-only identity of a top-level local declaration; it is never an importable SymbolRef. */
+export const LocalDeclarationId = Schema.Struct({
+  file: Schema.String,
+  offset: SourcePosition.fields.offset,
+  name: Schema.String,
+});
+
+export type LocalDeclarationId = typeof LocalDeclarationId.Type;
+
+/** One immutable const declaration and its exact source initializer, without inventing an export. */
+export const LocalConstRecord = Schema.Struct({
+  kind: Schema.Literal("const"),
+  id: LocalDeclarationId,
+  range: SourceRange,
+  init: TermSlot,
+}).check(
+  Schema.makeFilter((record) =>
+    record.id.file === record.range.file &&
+    record.init.range.file === record.range.file &&
+    record.id.offset >= record.range.start.offset &&
+    record.id.offset < record.range.end.offset &&
+    record.init.range.start.offset >= record.range.start.offset &&
+    record.init.range.end.offset <= record.range.end.offset
+      ? true
+      : "Expected a const identity and initializer inside its source declaration",
+  ),
+);
+
+export type LocalConstRecord = typeof LocalConstRecord.Type;
+
+/**
+ * Atomic source fact for exactly one unary exported-callee call whose only argument directly names a
+ * top-level const in the same file. The ordinary slot remains Unlowered; this is not a partial Term.
+ * Only the registered problem-response reader consumes this fact. Other private references stay unsupported.
+ */
+export const LocalConstCall = Schema.Struct({
+  range: SourceRange,
+  callee: SymbolRef,
+  argument: LocalDeclarationId,
+}).check(
+  Schema.makeFilter((call) =>
+    call.range.file === call.argument.file
+      ? true
+      : "Expected a local const call in its declaration file",
+  ),
+);
+
+export type LocalConstCall = typeof LocalConstCall.Type;
+
 /** How an application success wrapper obtains its response headers. */
 export const WrapperHeaders = Schema.TaggedUnion({
   Named: { ref: SchemaRef },
@@ -217,6 +266,8 @@ export const EffectModel = Schema.Struct({
   schemas: Schema.Array(SchemaFact),
   markers: Schema.Array(MiddlewareFact),
   values: Schema.Array(ValueRecord),
+  localConsts: Schema.Array(LocalConstRecord),
+  localConstCalls: Schema.Array(LocalConstCall),
   wrappers: Schema.Array(WrapperFact),
   roots: Schema.Array(RootRecord),
   groups: Schema.Array(GroupRecord),

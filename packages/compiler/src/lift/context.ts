@@ -6,6 +6,9 @@ import type { Cause } from "./causes.ts";
 import type {
   DefinitionRecord,
   EffectModel,
+  LocalConstCall,
+  LocalConstRecord,
+  LocalDeclarationId,
   MiddlewareFact,
   SchemaFact,
   ValueRecord,
@@ -48,6 +51,8 @@ export interface Context {
   readonly schemaFacts: ReadonlyMap<string, SchemaFact>;
   readonly markers: ReadonlyMap<string, MiddlewareFact>;
   readonly values: ReadonlyMap<string, ValueRecord>;
+  readonly localConsts: ReadonlyMap<string, LocalConstRecord>;
+  readonly localConstCalls: ReadonlyMap<string, LocalConstCall>;
   readonly wrappers: ReadonlyMap<string, WrapperFact>;
   readonly successRules: ReadonlyMap<string, SuccessRule>;
   readonly noSchemaRules: ReadonlyMap<string, NoSchemaRule>;
@@ -74,6 +79,12 @@ const indexBy = <A>(
   identity: (item: A) => string,
 ): ReadonlyMap<string, A> => new Map(items.map((item) => [identity(item), item] as const));
 
+export const localDeclarationIdentity = (id: LocalDeclarationId): string =>
+  `local\u0000${id.file}\u0000${id.offset}`;
+
+export const sourceRangeIdentity = (range: SourceRange): string =>
+  `${range.file}\u0000${range.start.offset}\u0000${range.end.offset}`;
+
 const isRule =
   <Tag extends LiftRule["_tag"]>(tag: Tag) =>
   (rule: LiftRule): rule is RuleOf<Tag> =>
@@ -96,6 +107,8 @@ export const makeContext = (
   schemaFacts: indexBy(model.schemas, (fact) => refIdentity(fact.ref)),
   markers: indexBy(model.markers, (fact) => refIdentity(fact.ref)),
   values: indexBy(model.values, (value) => refIdentity(value.symbol)),
+  localConsts: indexBy(model.localConsts, (record) => localDeclarationIdentity(record.id)),
+  localConstCalls: indexBy(model.localConstCalls, (call) => sourceRangeIdentity(call.range)),
   wrappers: indexBy(model.wrappers, (wrapper) => refIdentity(wrapper.helper)),
   successRules: indexBy(rulesOf(aggregateRules(input, registry), "SuccessWrapper"), (rule) =>
     refIdentity(rule.callee),

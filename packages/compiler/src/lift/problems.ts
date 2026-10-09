@@ -2,13 +2,19 @@ import { Option, Result } from "effect";
 import type { SymbolRef } from "@effx/ir";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import type { Term } from "../generate/term.ts";
-import { nameOfSymbol, stripSuffix, type ProblemRule } from "./context.ts";
-import type { OptionEntry, ValueRecord } from "./model.ts";
+import {
+  localDeclarationIdentity,
+  nameOfSymbol,
+  sourceRangeIdentity,
+  stripSuffix,
+  type ProblemRule,
+} from "./context.ts";
+import type { LocalConstCall, LocalConstRecord, OptionEntry, ValueRecord } from "./model.ts";
 import { exportRefactors, planExport } from "./plan.ts";
 import { refIdentity, sameRef } from "./refs.ts";
 import { nativeName } from "./native.ts";
 import { fail, failUnrecognized, nativeOf, open, type Scope } from "./scope.ts";
-import type { SourceRange } from "./source.ts";
+import type { SourceRange, TermSlot } from "./source.ts";
 import type { ProblemsUse } from "./types.ts";
 import {
   callView,
@@ -47,18 +53,25 @@ const nonLiteral = (scope: Scope, at: SourceRange, callee: string, argument: str
     }),
   );
 
+interface UnionSource {
+  readonly declaration: Pick<ValueRecord, "range" | "init">;
+  readonly identity: string;
+  readonly module: string;
+  readonly name: string;
+  readonly label: string;
+}
+
 /** The EFFX3004 refactor extracting an inline code array of a union into an exported tuple. */
 const planCodes = (
   scope: Scope,
-  value: ValueRecord,
+  source: UnionSource,
   init: LoweredSlot,
   call: CallView,
   codes: Term,
   identifier: string,
-  union: SymbolRef,
   literalCodes: ReadonlyArray<string>,
 ): void => {
-  const identity = refIdentity(union);
+  const { declaration: value, identity } = source;
   const cached = scope.ctx.codePlans.get(identity);
 
   if (cached !== undefined) {
@@ -76,12 +89,12 @@ const planCodes = (
     return;
   }
 
-  const key = `${union.module}#${union.export}#codes`;
+  const key = `${source.module}#${source.name}#codes`;
 
   const plan = planExport(
     scope.ctx,
     key,
-    `${stripSuffix(union.export, "Problem")}Codes`,
+    `${stripSuffix(source.name, "Problem")}Codes`,
     home,
     "value",
   );
@@ -93,7 +106,7 @@ const planCodes = (
   }
 
   const at = rangeOf(descend(rootOf(init), codes, ...call.argPath(1)));
-  const subject = nameOfSymbol(union);
+  const subject = source.label;
 
   const refactors = exportRefactors(scope.ctx, {
     code: "EFFX3004",
@@ -129,23 +142,18 @@ const planCodes = (
   scope.codeReferences.push(reference);
 };
 
-/** The union a hand-written `response(union)` names: its identifier and codes, with the refactor if needed. */
-const readUnion = (
+/** Reads one exact recorded initializer; exported and local const declarations share every semantic rule. */
+const readUnionSource = (
   scope: Scope,
   rule: ProblemRule,
-  unionTerm: Term | undefined,
-  at: SourceRange,
+  source: UnionSource,
 ): Option.Option<ProblemsUse> => {
-  const union = unionTerm === undefined ? Option.none<SymbolRef>() : symbolOnly(unionTerm);
-  const value = Option.isSome(union) ? scope.ctx.values.get(refIdentity(union.value)) : undefined;
+  const value = source.declaration;
+  const opened = open(scope, value.init, "problems");
 
-  if (Option.isNone(union) || value === undefined || value.init._tag === "Unlowered") {
-    failUnrecognized(scope, at, "a problem union without a recorded declaration");
+  if (Option.isNone(opened)) return Option.none();
 
-    return Option.none();
-  }
-
-  const init = callView(value.init.term);
+  const init = callView(opened.value.term);
   const initCallee = init === undefined ? Option.none() : refOf(init.callee);
   const [identifierTerm, codesTerm] = init?.args ?? [];
 
@@ -163,7 +171,7 @@ const readUnion = (
   }
 
   const identifier = stringOf(identifierTerm);
-  const unionName = nameOfSymbol(union.value);
+  const unionName = source.label;
 
   if (Option.isNone(identifier)) {
     nonLiteral(scope, value.range, nameOfSymbol(rule.union), "identifier");
@@ -225,9 +233,101 @@ const readUnion = (
     return Option.none();
   }
 
-  planCodes(scope, value, value.init, init, codesTerm, identifier.value, union.value, codes.value);
+  planCodes(scope, source, opened.value.slot, init, codesTerm, identifier.value, codes.value);
 
   return Option.some({ registry: rule.registry, identifier: identifier.value, codes: codes.value });
+};
+
+/** The union a hand-written response names must resolve to its exact exported declaration. */
+const readUnion = (
+  scope: Scope,
+  rule: ProblemRule,
+  term: Term | undefined,
+  at: SourceRange,
+): Option.Option<ProblemsUse> => {
+  const union = term === undefined ? Option.none<SymbolRef>() : symbolOnly(term);
+  const value = Option.isSome(union) ? scope.ctx.values.get(refIdentity(union.value)) : undefined;
+
+  if (Option.isNone(union) || value === undefined) {
+    failUnrecognized(scope, at, "a problem union without a recorded declaration");
+
+    return Option.none();
+  }
+
+  return readUnionSource(scope, rule, {
+    declaration: value,
+    identity: refIdentity(union.value),
+    module: union.value.module,
+    name: union.value.export,
+    label: nameOfSymbol(union.value),
+  });
+};
+
+/** The source fact must join the sole unlowered identifier, its immutable declaration and both file records. */
+const exactLocalCall = (
+  scope: Scope,
+  slot: TermSlot,
+  call: LocalConstCall,
+  value: LocalConstRecord,
+): boolean => {
+  const [finding] = slot._tag === "Unlowered" ? slot.findings : [];
+  const home = scope.ctx.files.get(value.range.file);
+
+  return (
+    slot._tag === "Unlowered" &&
+    slot.findings.length === 1 &&
+    finding?.kind === "local-reference" &&
+    finding.construct === call.argument.name &&
+    finding.enclosingCall !== undefined &&
+    sameRef(finding.enclosingCall.callee, call.callee) &&
+    finding.range.file === call.range.file &&
+    finding.range.start.offset >= call.range.start.offset &&
+    finding.range.end.offset <= call.range.end.offset &&
+    call.range.file === scope.endpoint.range.file &&
+    call.argument.file === value.range.file &&
+    call.argument.name === value.id.name &&
+    value.kind === "const" &&
+    home !== undefined &&
+    home.topLevel.includes(value.id.name)
+  );
+};
+
+const readLocalUnion = (
+  scope: Scope,
+  call: LocalConstCall,
+  value: LocalConstRecord,
+): Option.Option<ProblemsUse> => {
+  const rule = scope.ctx.problemRules.find((candidate) => sameRef(candidate.response, call.callee));
+
+  if (rule === undefined) {
+    fail(
+      scope,
+      call.range,
+      LiftDiagnostics.EFFX3006.emit({
+        subject: scope.subject,
+        position: "problems",
+        callee: nameOfSymbol(call.callee),
+      }),
+    );
+
+    return Option.none();
+  }
+
+  const home = scope.ctx.files.get(value.range.file);
+
+  if (home === undefined) {
+    failUnrecognized(scope, value.range, "source file record for a local problem union");
+
+    return Option.none();
+  }
+
+  return readUnionSource(scope, rule, {
+    declaration: value,
+    identity: localDeclarationIdentity(value.id),
+    module: home.module,
+    name: value.id.name,
+    label: `${home.module}#${value.id.name}`,
+  });
 };
 
 /** Reads the `error` option of an endpoint. */
@@ -235,6 +335,22 @@ export const readProblems = (
   scope: Scope,
   entry: Extract<OptionEntry, { readonly _tag: "Property" }>,
 ): Option.Option<ProblemsUse> => {
+  if (entry.value._tag === "Unlowered") {
+    const call = scope.ctx.localConstCalls.get(sourceRangeIdentity(entry.value.range));
+
+    const value =
+      call === undefined
+        ? undefined
+        : scope.ctx.localConsts.get(localDeclarationIdentity(call.argument));
+
+    if (
+      call !== undefined &&
+      value !== undefined &&
+      exactLocalCall(scope, entry.value, call, value)
+    )
+      return readLocalUnion(scope, call, value);
+  }
+
   const opened = open(scope, entry.value, "problems");
 
   if (Option.isNone(opened)) return Option.none();

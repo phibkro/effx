@@ -78,7 +78,9 @@ const original: SourceFile = {
     'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";',
     'import { annotations as apiAnnotations } from "effect/http-api/OpenApi";',
     'import { Schemas, ResponseHeaders, RequestHeaders, CreatedResponse, NoContent, Responses } from "./types.ts";',
-    'import { Problems, ReadProblem, CreateProblem } from "./problems.ts";',
+    'import { Problems } from "./problems.ts";',
+    'const ReadProblem = Problems.union("SharedProblem", ["read.missing", "read.denied"]);',
+    'const CreateProblem = Problems.union("SharedProblem", ["create.invalid", "create.conflict"]);',
     'export const Read = HttpApiEndpoint.get("read", "/wire", {',
     "  headers: RequestHeaders,",
     "  error: Problems.responses(ReadProblem),",
@@ -180,9 +182,9 @@ const workspace = `${repository}/.effx/acceptance/core/repair-r1/wire`;
 // The independently authored declarations describe the intended wire; they are not derived from lift's output.
 const authoritative = [
   'import { Operation, Http } from "@effx/runtime";',
-  'import { Root, WireCreateResponse, WireInner200Response } from "./original.ts";',
+  'import { Root, WireCreateResponse, WireInner200Response, ReadCodes, CreateCodes } from "./original.ts";',
   'import { RequestHeaders, Schemas, ResponseHeaders, CreatedResponse, NoContent } from "./types.ts";',
-  'import { registry, ReadCodes, CreateCodes } from "./problems.ts";',
+  'import { registry } from "./problems.ts";',
   'export const WireGroup = Http.group({ root: Root, group: "wire" });',
   'export const Read = Operation.query({ name: "wire.read", input: RequestHeaders, success: Schemas.Response })',
   '  .http.get("/wire")',

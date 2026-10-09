@@ -16,3 +16,5 @@ Preserve explicit source and generated 200 under the 2026-10-09 operator amendme
 Registered wrappers apply their fixed status after the argument annotations. Inner status annotations remain in a real schema export when extraction is necessary. The S5 recognizer checks the complete conditional expression and its exact schema references.
 
 Preserve original root composition under the 2026-10-09 operator clarification. Root middleware, metadata, prefixes, and errors remain source data outside the isolated-group check. Group-level unsupported constructs still diagnose. Generated group identity and binding reports still refer to the actual original root.
+
+Record private top-level problem unions as immutable `LocalConstRecord` source facts. Exact unary `LocalConstCall` facts connect their real declaration identities to registered response calls. The existing union reader and extraction planner produce public registry and tuple references. No private name becomes a `SymbolRef`. The neutral `Term` stays unchanged. Schema decoding rejects let/var records and mismatched declaration/use provenance.

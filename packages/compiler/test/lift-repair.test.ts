@@ -549,3 +549,101 @@ it.effect("densifies configured pattern identifiers before dropping operationId"
     }
   }),
 );
+
+describe("private const problem-union source facts", () => {
+  const privateSource = (
+    use = "endpointProblemResponses(PrivateProblem)",
+    init = 'problemUnion("PrivateProblem", ["missing", "denied"])',
+  ) => {
+    const file = source([
+      `const PrivateProblem = ${init};`,
+      `export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: ${use} });`,
+    ]);
+
+    return {
+      ...file,
+      contents: file.contents.replace(
+        "endpointProblemResponses, entityMutationResponse",
+        "endpointProblemResponses, entityMutationResponse, problemUnion",
+      ),
+    };
+  };
+
+  it.effect(
+    "extracts one real public tuple without inventing an export for the private union",
+    () =>
+      Effect.gen(function* () {
+        const file = privateSource();
+        const inputModel = model(file);
+        const result = lift(inputModel, input());
+
+        assert.deepStrictEqual(result.unsupported, []);
+        assert.strictEqual(
+          inputModel.localConsts.find((record) => record.id.name === "PrivateProblem")?.kind,
+          "const",
+        );
+        assert.isFalse(inputModel.values.some((value) => value.symbol.export === "PrivateProblem"));
+        assert.strictEqual(result.refactors.length, 1);
+        assert.deepStrictEqual(result.codeReferences[0], {
+          identifier: "PrivateProblem",
+          codes: ["missing", "denied"],
+          ref: { module: "./src/repair", export: "PrivateCodes" },
+        });
+        assert.strictEqual(
+          result.refactors[0]?.sourceSha256,
+          inputModel.files.find((record) => record.file === file.path)?.sha256,
+        );
+
+        const patch = yield* patchOf(file, result);
+        const patched = applyPatch([file], patch)[0];
+
+        assert.isDefined(patched);
+
+        if (patched === undefined) return assert.fail("the patch must preserve the source file");
+
+        const recovered = lift(model(patched), input());
+
+        assert.deepStrictEqual(recovered.unsupported, []);
+        assert.deepStrictEqual(recovered.refactors, []);
+        assert.deepStrictEqual(recovered.collected, result.collected);
+      }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it.each([
+    [
+      "endpointProblemResponses(PrivateProblem, PrivateProblem)",
+      'problemUnion("PrivateProblem", ["missing"])',
+    ],
+    ["entityMutationResponse(PrivateProblem)", 'problemUnion("PrivateProblem", ["missing"])'],
+    [
+      "endpointProblemResponses(PrivateProblem)",
+      'mysteryAnnotations("PrivateProblem", ["missing"])',
+    ],
+    ["endpointProblemResponses(PrivateProblem)", 'problemUnion("PrivateProblem", [Body])'],
+    ["endpointProblemResponses(PrivateProblem)", "ProfileReadOwnProfileProblem"],
+  ])("keeps non-contract local forms unsupported: %s / %s", (use, init) => {
+    const result = lift(model(privateSource(use, init)), input());
+
+    assert.deepStrictEqual(result.collected.declarations, []);
+    assert.strictEqual(result.unsupported.length, 1);
+    assert.deepStrictEqual(result.refactors, []);
+  });
+
+  it("rejects a use fact whose local declaration identity does not join its source identifier", () => {
+    const original = model(privateSource());
+
+    const result = lift(
+      {
+        ...original,
+        localConstCalls: original.localConstCalls.map((call) => ({
+          ...call,
+          argument: { ...call.argument, name: "AnotherPrivateProblem" },
+        })),
+      },
+      input(),
+    );
+
+    assert.deepStrictEqual(result.collected.declarations, []);
+    assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
+  });
+});

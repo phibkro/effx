@@ -241,6 +241,8 @@ export const profileModel: EffectModel = {
   ],
   markers: [{ ref: app("PersonSecurity"), security: true }],
   values: [],
+  localConsts: [],
+  localConstCalls: [],
   wrappers: [],
   roots: [profileRoot],
   groups: [profileGroup],

@@ -1,6 +1,15 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { EffectModel, SourceRange, TermSchema, TermSlot, Terms, type Term } from "@effx/compiler";
+import {
+  EffectModel,
+  LocalConstCall,
+  LocalConstRecord,
+  SourceRange,
+  TermSchema,
+  TermSlot,
+  Terms,
+  type Term,
+} from "@effx/compiler";
 import { profileModel, range, schemaOf } from "./lift-support.ts";
 
 /*
@@ -199,5 +208,54 @@ describe("EffectModel", () => {
 
       assert.strictEqual(failure._tag, "SchemaError");
     }),
+  );
+
+  it.effect(
+    "keeps private const identity source-only and refuses let/var or mismatched provenance",
+    () =>
+      Effect.gen(function* () {
+        const value = {
+          kind: "const" as const,
+          id: { file: "src/profile.ts", offset: 2, name: "PrivateProblem" },
+          range: range(0, 10),
+          init: {
+            _tag: "Lowered" as const,
+            term: Terms.lit("source"),
+            range: range(4, 9),
+            spans: [],
+          },
+        };
+
+        const decode = Schema.decodeUnknownEffect(LocalConstRecord);
+
+        expectTypeOf<LocalConstRecord>().not.toHaveProperty("symbol");
+        assert.deepStrictEqual(yield* decode(value), value);
+
+        for (const invalid of [
+          { ...value, kind: "let" },
+          { ...value, kind: "var" },
+          { ...value, id: { ...value.id, file: "elsewhere.ts" } },
+          { ...value, id: { ...value.id, offset: 10 } },
+          { ...value, init: { ...value.init, range: range(4, 11) } },
+        ])
+          assert.strictEqual((yield* Effect.flip(decode(invalid)))._tag, "SchemaError");
+
+        const call = {
+          range: range(11, 20),
+          callee: { module: "./problems", export: "responses" },
+          argument: value.id,
+        };
+
+        assert.deepStrictEqual(yield* Schema.decodeEffect(LocalConstCall)(call), call);
+        assert.strictEqual(
+          (yield* Effect.flip(
+            Schema.decodeEffect(LocalConstCall)({
+              ...call,
+              argument: { ...call.argument, file: "elsewhere.ts" },
+            }),
+          ))._tag,
+          "SchemaError",
+        );
+      }),
   );
 });
