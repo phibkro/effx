@@ -114,6 +114,11 @@ const smoke = Effect.gen(function* () {
       private: true,
       type: "module",
       dependencies: Object.fromEntries(dependencies),
+      // The packed CLI and compiler depend on the unpublished 0.1.0 siblings; pin them to the
+      // exact tarballs under test so the resolver never asks the public registry for them.
+      overrides: Object.fromEntries(
+        [...dependencies].filter(([name]) => name.startsWith("@effx/")),
+      ),
       devDependencies: { typescript: "7.0.2", "@types/bun": "1.4.2" },
     }),
   );
