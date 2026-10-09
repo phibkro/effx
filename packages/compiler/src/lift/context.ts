@@ -99,32 +99,32 @@ export const makeContext = (
   model: EffectModel,
   input: LiftInput,
   registry: LiftRegistry,
-): Context => ({
-  model,
-  input,
-  files: indexBy(model.files, (file) => file.file),
-  filesByModule: indexBy(model.files, (file) => file.module),
-  schemaFacts: indexBy(model.schemas, (fact) => refIdentity(fact.ref)),
-  markers: indexBy(model.markers, (fact) => refIdentity(fact.ref)),
-  values: indexBy(model.values, (value) => refIdentity(value.symbol)),
-  localValues: indexBy(model.localValues, (record) => localDeclarationIdentity(record.id)),
-  localCalls: indexBy(model.localCalls, (call) => sourceRangeIdentity(call.range)),
-  wrappers: indexBy(model.wrappers, (wrapper) => refIdentity(wrapper.helper)),
-  successRules: indexBy(rulesOf(aggregateRules(input, registry), "SuccessWrapper"), (rule) =>
-    refIdentity(rule.callee),
-  ),
-  noSchemaRules: indexBy(rulesOf(aggregateRules(input, registry), "NoSchemaSuccess"), (rule) =>
-    refIdentity(rule.callee),
-  ),
-  problemRules: rulesOf(aggregateRules(input, registry), "ProblemRegistry"),
-  metadataRules: rulesOf(aggregateRules(input, registry), "Metadata"),
-  accessRules: rulesOf(aggregateRules(input, registry), "Access"),
-  definitionsByRef: definitionsByRefOf(model),
-  definitionsByName: indexBy(model.definitions, (record) => record.name),
-  registry,
-  taken: new Map(),
-  codePlans: new Map(),
-});
+): Context => {
+  const rules = aggregateRules(input, registry);
+
+  return {
+    model,
+    input,
+    files: indexBy(model.files, (file) => file.file),
+    filesByModule: indexBy(model.files, (file) => file.module),
+    schemaFacts: indexBy(model.schemas, (fact) => refIdentity(fact.ref)),
+    markers: indexBy(model.markers, (fact) => refIdentity(fact.ref)),
+    values: indexBy(model.values, (value) => refIdentity(value.symbol)),
+    localValues: indexBy(model.localValues, (record) => localDeclarationIdentity(record.id)),
+    localCalls: indexBy(model.localCalls, (call) => sourceRangeIdentity(call.range)),
+    wrappers: indexBy(model.wrappers, (wrapper) => refIdentity(wrapper.helper)),
+    successRules: indexBy(rulesOf(rules, "SuccessWrapper"), (rule) => refIdentity(rule.callee)),
+    noSchemaRules: indexBy(rulesOf(rules, "NoSchemaSuccess"), (rule) => refIdentity(rule.callee)),
+    problemRules: rulesOf(rules, "ProblemRegistry"),
+    metadataRules: rulesOf(rules, "Metadata"),
+    accessRules: rulesOf(rules, "Access"),
+    definitionsByRef: definitionsByRefOf(model),
+    definitionsByName: indexBy(model.definitions, (record) => record.name),
+    registry,
+    taken: new Map(),
+    codePlans: new Map(),
+  };
+};
 
 /**
  * The rules one `lift` call sees: the frozen project rules first, then the definition-owned rule data of
