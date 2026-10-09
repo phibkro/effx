@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { LspPlatform, main, Services, TransportError } from "@effx/cli";
-import { Effect, Layer, Path } from "effect";
+import { Cause, Effect, Layer, Logger, Path, Runtime } from "effect";
 import { executableInventoryLayer } from "./executable-cache.ts";
 import { acquireLinuxLspIO } from "./lsp-linux.ts";
 
@@ -32,4 +32,21 @@ const Platform = Layer.mergeAll(
 
 const Application = Layer.mergeAll(Services, Platform).pipe(Layer.provideMerge(BunServices.layer));
 
-BunRuntime.runMain(main.pipe(Effect.provide(Application)));
+// stdout is the LSP protocol channel. runMain reports failures from outside this effect, where
+// the stderr logger reference is absent, so the root reports once inside it (same rule as
+// runMain: no interrupt-only causes, no errors marked unreported) and disables the outer report.
+const reportToStderr = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.tapCause(effect, (cause: Cause.Cause<E>) =>
+    Cause.hasInterruptsOnly(cause) || !Runtime.getErrorReported(Cause.squash(cause))
+      ? Effect.void
+      : Effect.logError(cause),
+  );
+
+BunRuntime.runMain(
+  main.pipe(
+    Effect.provide(Application),
+    reportToStderr,
+    Effect.provideService(Logger.LogToStderr, true),
+  ),
+  { disableErrorReporting: true },
+);
