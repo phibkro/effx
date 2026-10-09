@@ -1,7 +1,9 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option, Result, Schema } from "effect";
+import { IRArbitrary, StableId } from "@effx/ir";
 import {
+  Collected,
   EffectModel,
   Extensions,
   LiftInput,
@@ -336,4 +338,60 @@ describe("the core is pure and every diagnostic it emits is registered", () => {
       assert.isDefined(site.primary.location);
     }
   });
+});
+
+describe("lifting is total over the file identity the frontend reports", () => {
+  const Identities = Schema.Array(
+    Schema.Literals([
+      "src/x",
+      ".effx/generated/x-contract",
+      "packages/@scope/x",
+      "src/with space/x",
+      "-leading/x",
+      "src/ünï/x",
+      "$dollar/_under/x",
+      "",
+    ]),
+  ).check(Schema.isMinLength(1));
+
+  it.effect("never throws and plans only schema exports whose identity is a StableId", () =>
+    Effect.gen(function* () {
+      const failure = yield* IRArbitrary.falsification(
+        IRArbitrary.arbitraryOf(Identities),
+        (assigned) => {
+          const result = lift(
+            {
+              ...model,
+              files: model.files.map((file, index) => ({
+                ...file,
+                idPath: assigned[index % assigned.length] ?? file.idPath,
+              })),
+            },
+            input,
+          );
+
+          const identities = result.refactors
+            .flatMap((refactor) => refactor.planned)
+            .flatMap((entry) => ("symbolId" in entry.ref ? [entry.ref.symbolId] : []));
+
+          const operations = Math.max(result.collected.declarations.length - 1, 0);
+          const sites = result.unsupported.filter((site) => site.subject !== input.group);
+
+          const accounted =
+            result.collected.declarations.length === 0
+              ? result.diagnostics.length > 0
+              : operations + sites.length === model.endpoints.length;
+
+          return (
+            accounted &&
+            Schema.is(Collected)(result.collected) &&
+            identities.every((identity) => StableId.isStableId(identity))
+          );
+        },
+        { runs: 120, seed: 19 },
+      );
+
+      assert.isUndefined(failure, failure);
+    }),
+  );
 });

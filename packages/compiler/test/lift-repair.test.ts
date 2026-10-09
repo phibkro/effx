@@ -719,3 +719,88 @@ describe("schema-valued source identity and annotations", () => {
     assert.deepStrictEqual(result.refactors, []);
   });
 });
+
+describe("lift repair: planned schema identities", () => {
+  const inlineParams = [
+    'export const Read = HttpApiEndpoint.get("read", "/read/:id", { params: { id: Schema.String }, success: UserProfileResponse, error: Schema.Never });',
+  ];
+
+  const withIdentity = (idPath: string): EffectModel => {
+    const base = model(source(inlineParams));
+
+    return {
+      ...base,
+      files: base.files.map((file) =>
+        file.module === "./src/repair" ? { ...file, idPath } : file,
+      ),
+    };
+  };
+
+  it("plans the real schema identity of an inline params export", () => {
+    const result = lift(withIdentity("src/repair"), input());
+
+    assert.deepStrictEqual(result.unsupported, []);
+
+    const planned = result.refactors.flatMap((refactor) => refactor.planned);
+
+    assert.deepStrictEqual(
+      planned.map((entry) => entry.name),
+      ["RepairReadParams"],
+    );
+    assert.deepStrictEqual(
+      planned.map((entry) => ("symbolId" in entry.ref ? entry.ref.symbolId : undefined)),
+      [StableId.make("schema", "src/repair/RepairReadParams")],
+    );
+  });
+
+  it.each([
+    ".effx/generated/repair-contract",
+    "packages/@scope/repair",
+    "src/with space/repair",
+    "-leading/repair",
+  ])("diagnoses an inline export in a file whose identity %s cannot be a StableId", (idPath) => {
+    const result = lift(withIdentity(idPath), input());
+    const [site] = result.unsupported;
+
+    assert.strictEqual(result.unsupported.length, 1);
+    assert.strictEqual(site?.primary.code, "EFFX3001");
+    assert.include(site?.primary.message ?? "", "StableId");
+    assert.deepStrictEqual(result.refactors, []);
+    assert.deepStrictEqual(result.collected.declarations, []);
+  });
+
+  it.each(["Bad Name", "Ünï"])(
+    "diagnoses a pinned export %s that cannot form a StableId",
+    (name) => {
+      const result = lift(withIdentity("src/repair"), {
+        ...input(),
+        names: { ...input().names, "repair.read#params": { module: "./src/repair", export: name } },
+      });
+
+      assert.strictEqual(result.unsupported.length, 1);
+      assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
+      assert.deepStrictEqual(result.refactors, []);
+    },
+  );
+
+  it("keeps the names a file already binds when a pin claims a name in it first", () => {
+    const file = source([
+      "export const RepairReadParams = Schema.Struct({ id: Schema.String });",
+      'export const Other = HttpApiEndpoint.get("other", "/other", { query: { page: Schema.String }, success: UserProfileResponse, error: Schema.Never });',
+      ...inlineParams,
+    ]);
+
+    const both = { ...file, contents: file.contents.replace(".add(Read)", ".add(Other, Read)") };
+
+    const result = lift(model(both), {
+      ...input(),
+      names: { "repair.other#query": { module: "./src/repair", export: "OtherPage" } },
+    });
+
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.deepStrictEqual(
+      result.refactors.flatMap((refactor) => refactor.planned.map((entry) => entry.name)),
+      ["OtherPage", "RepairReadParams2"],
+    );
+  });
+});
