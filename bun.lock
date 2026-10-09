@@ -140,7 +140,7 @@
         "effect": "4.0.0",
       },
       "peerDependencies": {
-        "effect": ">=4.0.0-rc.116 <5",
+        "effect": ">=4.0.0 <5",
       },
     },
     "packages/diagnostics": {
@@ -150,7 +150,7 @@
         "effect": "4.0.0",
       },
       "peerDependencies": {
-        "effect": ">=4.0.0-rc.116 <5",
+        "effect": ">=4.0.0 <5",
       },
     },
     "packages/frontend-ts": {
@@ -172,7 +172,7 @@
         "effect": "4.0.0",
       },
       "peerDependencies": {
-        "effect": ">=4.0.0-rc.116 <5",
+        "effect": ">=4.0.0 <5",
       },
     },
     "packages/persistence": {
@@ -187,7 +187,7 @@
         "effect": "4.0.0",
       },
       "peerDependencies": {
-        "effect": ">=4.0.0-rc.116 <5",
+        "effect": ">=4.0.0 <5",
       },
     },
     "packages/runtime": {
@@ -197,7 +197,7 @@
         "@effx/diagnostics": "0.1.0",
       },
       "peerDependencies": {
-        "effect": ">=4.0.0-rc.116 <5",
+        "effect": ">=4.0.0 <5",
       },
     },
   },

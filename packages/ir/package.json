@@ -35,6 +35,6 @@
     "effect": "4.0.0"
   },
   "peerDependencies": {
-    "effect": ">=4.0.0-rc.116 <5"
+    "effect": ">=4.0.0 <5"
   }
 }

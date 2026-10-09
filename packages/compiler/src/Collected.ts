@@ -122,7 +122,7 @@ export const Declaration = Schema.Struct({
 /** @internal */
 export type Declaration = typeof Declaration.Type;
 
-export const TargetProfile = Schema.Literals(["effect-4.0", "effect-4.0-rc"]);
+export const TargetProfile = Schema.Literals(["effect-4.0"]);
 
 export type TargetProfile = typeof TargetProfile.Type;
 
