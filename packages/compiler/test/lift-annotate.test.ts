@@ -9,6 +9,7 @@ import {
   implement,
   lift,
   liftRegistryOf,
+  printSuggestion,
   type DefinitionLift,
   type EffectModel,
   type LiftResult,
@@ -93,6 +94,13 @@ describe("the definition-owned `.annotate` lift", () => {
       [{ name: "app.RateLimit", args: [{ perMinute: 60, burst: 5 }], definition: RateLimitRef }],
       messagesOf(result).join("\n"),
     );
+
+    const printed = Result.getOrElse(
+      printSuggestion(result.collected, { module: profileInput.output.module }),
+      (message) => message,
+    );
+
+    assert.include(printed, ".with(RateLimit({ perMinute: 60, burst: 5 }))");
   });
 
   it("recognizes the hand-written key spelling through the same record", () => {
@@ -108,11 +116,18 @@ describe("the definition-owned `.annotate` lift", () => {
     );
   });
 
-  it("keeps unregistered refs faithful", () => {
+  it("keeps unregistered refs faithful without invoking another definition's hook", () => {
     const mystery = symbolOf("./src/mystery", "MysteryKey");
+    let calls = 0;
+
+    const recognize: DefinitionLift<typeof RateLimit>["recognize"] = () => {
+      calls++;
+
+      return Result.succeed([{ perMinute: 60 }]);
+    };
 
     const result = liftWith(annotateModel(Terms.ref(mystery), { perMinute: 60 }), [
-      implement(RateLimit),
+      implement(RateLimit, { lift: { recognize } }),
     ]);
 
     assert.include(
@@ -124,6 +139,61 @@ describe("the definition-owned `.annotate` lift", () => {
       }).message,
     );
     assert.deepStrictEqual(annotationsOf(result), []);
+    assert.strictEqual(calls, 0);
+  });
+
+  it("classifies unresolved effect-key shapes and source/runtime id disagreement separately", () => {
+    const unresolvedModel: EffectModel = {
+      ...annotateModel(Terms.member(Terms.member(Terms.ref(RateLimitRef), "effect"), "key"), {
+        perMinute: 60,
+      }),
+      definitions: [{ ref: RateLimitRef, name: "app.RateLimit" }],
+    };
+
+    const unresolved = liftWith(unresolvedModel, [implement(RateLimit)]);
+
+    const mismatchedModel: EffectModel = {
+      ...annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 60 }),
+      definitions: [{ ...RateLimitRecord, key: { ...RateLimitRecord.key, id: "app/OtherLimit" } }],
+    };
+
+    const mismatched = liftWith(mismatchedModel, [implement(RateLimit)]);
+
+    assert.deepStrictEqual(annotationsOf(unresolved), []);
+    assert.deepStrictEqual(annotationsOf(mismatched), []);
+    assert.isTrue(
+      mismatched.diagnostics.some((diagnostic) => diagnostic.code === "EFFX3012"),
+      mismatched.diagnostics.map((diagnostic) => diagnostic.code).join(","),
+    );
+    assert.isTrue(
+      unresolved.diagnostics.some((diagnostic) => diagnostic.code === "EFFX3012"),
+      unresolved.diagnostics.map((diagnostic) => diagnostic.code).join(","),
+    );
+  });
+
+  it("reuses one derived codec across all sites for a definition in the registry", () => {
+    const model: EffectModel = {
+      ...profileFullModel,
+      endpoints: profileFullModel.endpoints.map((endpoint) => ({
+        ...endpoint,
+        steps: [...endpoint.steps, annotateStep(Terms.ref(RateLimitPolicyRef), { perMinute: 60 })],
+      })),
+      definitions: [RateLimitRecord],
+    };
+
+    const schemas: Array<unknown> = [];
+
+    const recognize: DefinitionLift<typeof RateLimit>["recognize"] = (site) => {
+      schemas.push(site.schema);
+
+      return Result.succeed([{ perMinute: 60 }]);
+    };
+
+    const result = liftWith(model, [implement(RateLimit, { lift: { recognize } })]);
+
+    assert.isAtLeast(schemas.length, 2);
+    assert.isTrue(schemas.every((schema) => schema === schemas[0]));
+    assert.isTrue(result.diagnostics.every((diagnostic) => diagnostic.code !== "EFFX3011"));
   });
 
   it("invokes the typed recognizer at the selected key", () => {
@@ -162,6 +232,72 @@ describe("the definition-owned `.annotate` lift", () => {
         construct: "a rejected recognize site",
       }).message,
     );
+  });
+
+  it("rejects custom outputs that do not decode with the cached definition codec", () => {
+    // SAFETY: This deliberately violates ReadArgs to test runtime validation at the erased registry boundary.
+    const recognize: DefinitionLift<typeof RateLimit>["recognize"] = () =>
+      Result.succeed([{ perMinute: "not-an-integer" } as never]);
+
+    const result = liftWith(annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 60 }), [
+      implement(RateLimit, { lift: { recognize } }),
+    ]);
+
+    assert.deepStrictEqual(annotationsOf(result), []);
+    assert.isTrue(result.diagnostics.some((diagnostic) => diagnostic.code === "EFFX3011"));
+  });
+
+  it("rejects malformed default values with a blocking recognition diagnostic", () => {
+    const result = liftWith(
+      annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: "not-an-integer" }),
+      [implement(RateLimit)],
+    );
+
+    assert.deepStrictEqual(annotationsOf(result), []);
+    assert.isTrue(result.diagnostics.some((diagnostic) => diagnostic.code === "EFFX3011"));
+  });
+
+  it("keeps cardinality-one duplicates atomic for the whole endpoint", () => {
+    const model = annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 60 });
+
+    const duplicated: EffectModel = {
+      ...model,
+      endpoints: model.endpoints.map((endpoint, index) =>
+        index === 0
+          ? {
+              ...endpoint,
+              steps: [
+                ...endpoint.steps,
+                annotateStep(Terms.ref(RateLimitPolicyRef), { perMinute: 120 }),
+              ],
+            }
+          : endpoint,
+      ),
+    };
+
+    const result = liftWith(duplicated, [implement(RateLimit)]);
+
+    assert.deepStrictEqual(annotationsOf(result), []);
+    assert.deepStrictEqual(result.refactors, []);
+    assert.isTrue(result.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2402"));
+  });
+
+  it("does no recognition work while implementations and registries are built", () => {
+    let calls = 0;
+
+    const recognize: DefinitionLift<typeof RateLimit>["recognize"] = () => {
+      calls++;
+
+      return Result.succeed([{ perMinute: 60 }]);
+    };
+
+    const implementations = [implement(RateLimit, { lift: { recognize } })];
+    const extensionValue = extension("app", implementations);
+    const registry = liftRegistryOf([extensionValue]);
+
+    assert.strictEqual(calls, 0);
+    lift(annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 120 }), profileInput, registry);
+    assert.strictEqual(calls, 1);
   });
 
   it("contains hook throws in the closed throw reason", () => {

@@ -1668,37 +1668,66 @@ export const limitedBuilder = Operation.query({
 checks and files. `extension` bundles implementations into an ordinary `Extension`, the value
 you list in `effx.config.ts`.
 
+An optional `lift.recognize` is a pure, synchronous inverse of a source `.annotate` site. It reads
+the frontend's neutral Term, returns typed `ReadArgs<D>`, and reports a non-match with a closed error;
+the core validates the result with the definition's own cached plan codec. Pass the selected
+extension registry explicitly to `lift(model, input, registry)`.
+
 ```ts
-import { CoreDiagnostics, type Diagnostic, dataOf, extension, implement } from "@effx/compiler";
+import {
+ CoreDiagnostics,
+ type DefinitionLift,
+ type Diagnostic,
+ dataOf,
+ extension,
+ implement,
+} from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
-import { Option } from "effect";
+import { Option, Predicate, Result } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
 
+const recognizeRateLimit: DefinitionLift<typeof RateLimit>["recognize"] = (site) => {
+ if (site.value._tag !== "Obj")
+  return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
+
+ const perMinute = site.value.entries.find((entry) => entry.key === "perMinute")?.value;
+
+ if (
+  perMinute?._tag !== "Lit" ||
+  !Predicate.isNumber(perMinute.json) ||
+  !Number.isInteger(perMinute.json)
+ )
+  return Result.fail({ _tag: "Unsupported", construct: "an integer perMinute field" });
+
+ return Result.succeed([{ perMinute: perMinute.json }]);
+};
+
 const rateLimit = implement(RateLimit, {
-  // Analyses read the normalized IR and return diagnostics (data, not failures).
-  analyze: (ir, index) =>
-    ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
-      if (node._tag !== "Operation") return [];
+ lift: { recognize: recognizeRateLimit },
+ // Analyses read the normalized IR and return diagnostics (data, not failures).
+ analyze: (ir, index) =>
+  ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
+   if (node._tag !== "Operation") return [];
 
-      // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.
-      const limit = dataOf(RateLimit, ir, node.id);
+   // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.
+   const limit = dataOf(RateLimit, ir, node.id);
 
-      if (Option.isNone(limit)) return [];
+   if (Option.isNone(limit)) return [];
 
-      const [options] = limit.value;
+   const [options] = limit.value;
 
-      const exposed = IRGraph.outgoing(index, node.id, "ExposedAs").some(
-        (edge) => edge.qualifier === "http",
-      );
+   const exposed = IRGraph.outgoing(index, node.id, "ExposedAs").some(
+    (edge) => edge.qualifier === "http",
+   );
 
-      if (!exposed) {
-        return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
-      }
+   if (!exposed) {
+    return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
+   }
 
-      return options.perMinute > 10_000
-        ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
-        : [];
-    }),
+   return options.perMinute > 10_000
+    ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
+    : [];
+  }),
 });
 
 // An ordinary `Extension`. List it in `effx.config.ts`: the CLI compiles with the built-ins
@@ -1945,6 +1974,8 @@ export default defineConfig({
 | [EFFX3008](#EFFX3008) | Group not found, or not in exactly one root | error |
 | [EFFX3009](#EFFX3009) | No request channel to serve as operation input | error |
 | [EFFX3010](#EFFX3010) | Lift decision requires review | warning |
+| [EFFX3011](#EFFX3011) | Annotation lift could not run | error |
+| [EFFX3012](#EFFX3012) | Effect key is not statically resolvable | error |
 | [EFFX3101](#EFFX3101) | Wire contracts differ | error |
 | [EFFX3102](#EFFX3102) | Check passed | info |
 | [EFFX3103](#EFFX3103) | Check could not run | error |
@@ -3857,6 +3888,58 @@ After:
 
 Review each decision before accepting the suggestion.
 
+## EFFX3011 — Annotation lift could not run [#EFFX3011]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+A registered annotation definition's compiler lift failed at one `.annotate` site: the definition-owned recognizer rejected the site, threw, returned a non-Result value, produced arguments that do not satisfy the definition's own lowered-args schema, or named a reference the analyzed project does not record. The diagnostic carries a closed reason and, where the recognizer's own schema-defined failure named one, the construct text; it never carries the thrown value, a message, a cause or argument payload. The site is blocked: no annotation, refactor or code plan is produced for it, and no fallback recognition runs after the hook claimed the key.
+
+### Example 1
+
+Before:
+
+```text
+.annotate(RateLimit.effect.key, { perMinute: -1 })
+```
+
+After:
+
+```text
+.annotate(RateLimit.effect.key, { perMinute: 60 })
+```
+
+The recognizer returned its own Unsupported construct; lift blocks the site with the reason named instead of guessing.
+
+## EFFX3012 — Effect key is not statically resolvable [#EFFX3012]
+
+Owner: lift
+
+Default severity: error
+
+Severity policy: Fixed
+
+An `.annotate` effect key is not a statically resolvable registered definition key: the source names a key-shaped reference (a `.key` or `.effect.key` chain, or a definition whose recorded key id differs from the runtime definition's own key id) and the analyzed source provides no literal key identity for it. Lift never evaluates application code, so such a key cannot become an annotation. It is distinct from EFFX3001 (a registered key that no selected definition claims, reported as today) and does not reuse the two-owners EFFX1304 entry or the check-only EFFX3103.
+
+### Example 1
+
+Before:
+
+```text
+.annotate(keyOfSomeService.id, { perMinute: 60 })
+```
+
+After:
+
+```text
+.annotate(RateLimit.effect.key, { perMinute: 60 })
+```
+
+Write the Context key of a registered definition's effect clause through its literal key identity; lift never evaluates a key supplier.
+
 ## EFFX3101 — Wire contracts differ [#EFFX3101]
 
 Owner: lift
@@ -3917,7 +4000,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-The overlay does not compile, a root cannot be built, a registered projection hook threw, or a trusted lifter-rule hook raised an exception. Lift stays total: a rule exception becomes this diagnostic and never an exit by exception. It is not a pass.
+The overlay does not compile, a root cannot be built, or a registered projection hook threw. Lift stays total: a check-time exception becomes this diagnostic and never an exit by exception. It is not a pass. The definition-owned output-recognizer exceptions of the compiler lift are EFFX3011, not this entry: the 0019 check and the recognition paths report through separate closed reasons.
 
 ### Example 1
 

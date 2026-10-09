@@ -575,7 +575,7 @@ describe("private const problem-union source facts", () => {
       Effect.gen(function* () {
         const file = privateSource();
         const inputModel = model(file);
-        const result = lift(inputModel, input());
+        const result = lift(inputModel, input(), liftRegistryOf([]));
 
         assert.deepStrictEqual(result.unsupported, []);
         assert.strictEqual(
@@ -601,7 +601,7 @@ describe("private const problem-union source facts", () => {
 
         if (patched === undefined) return assert.fail("the patch must preserve the source file");
 
-        const recovered = lift(model(patched), input());
+        const recovered = lift(model(patched), input(), liftRegistryOf([]));
 
         assert.deepStrictEqual(recovered.unsupported, []);
         assert.deepStrictEqual(recovered.refactors, []);
@@ -622,7 +622,7 @@ describe("private const problem-union source facts", () => {
     ["endpointProblemResponses(PrivateProblem)", 'problemUnion("PrivateProblem", [Body])'],
     ["endpointProblemResponses(PrivateProblem)", "ProfileReadOwnProfileProblem"],
   ])("keeps non-contract local forms unsupported: %s / %s", (use, init) => {
-    const result = lift(model(privateSource(use, init)), input());
+    const result = lift(model(privateSource(use, init)), input(), liftRegistryOf([]));
 
     assert.deepStrictEqual(result.collected.declarations, []);
     assert.strictEqual(result.unsupported.length, 1);
@@ -641,6 +641,7 @@ describe("private const problem-union source facts", () => {
         })),
       },
       input(),
+      liftRegistryOf([]),
     );
 
     assert.deepStrictEqual(result.collected.declarations, []);
@@ -696,6 +697,7 @@ describe("schema-valued source identity and annotations", () => {
         })),
       },
       input(),
+      liftRegistryOf([]),
     );
 
     assert.deepStrictEqual(result.unsupported, []);

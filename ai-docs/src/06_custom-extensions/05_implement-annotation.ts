@@ -5,13 +5,42 @@
  * `Extension` node `ext:<name>/<operation>` linked by `ExtensionOf`; analyses and generators add
  * checks and files. `extension` bundles implementations into an ordinary `Extension`, the value
  * you list in `effx.config.ts`.
+ *
+ * An optional `lift.recognize` is a pure, synchronous inverse of a source `.annotate` site. It reads
+ * the frontend's neutral Term, returns typed `ReadArgs<D>`, and reports a non-match with a closed error;
+ * the core validates the result with the definition's own cached plan codec. Pass the selected
+ * extension registry explicitly to `lift(model, input, registry)`.
  */
-import { CoreDiagnostics, type Diagnostic, dataOf, extension, implement } from "@effx/compiler";
+import {
+  CoreDiagnostics,
+  type DefinitionLift,
+  type Diagnostic,
+  dataOf,
+  extension,
+  implement,
+} from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
-import { Option } from "effect";
+import { Option, Predicate, Result } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
 
+const recognizeRateLimit: DefinitionLift<typeof RateLimit>["recognize"] = (site) => {
+  if (site.value._tag !== "Obj")
+    return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
+
+  const perMinute = site.value.entries.find((entry) => entry.key === "perMinute")?.value;
+
+  if (
+    perMinute?._tag !== "Lit" ||
+    !Predicate.isNumber(perMinute.json) ||
+    !Number.isInteger(perMinute.json)
+  )
+    return Result.fail({ _tag: "Unsupported", construct: "an integer perMinute field" });
+
+  return Result.succeed([{ perMinute: perMinute.json }]);
+};
+
 const rateLimit = implement(RateLimit, {
+  lift: { recognize: recognizeRateLimit },
   // Analyses read the normalized IR and return diagnostics (data, not failures).
   analyze: (ir, index) =>
     ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {

@@ -707,13 +707,16 @@ const annotateCrossCheck = (
     ];
   }
 
-  if (record.key !== undefined && definition.effect.key.key !== record.key.id) {
+  if (record.key === undefined || definition.effect.key.key !== record.key.id) {
     return [
       {
         at,
         diagnostic: LiftDiagnostics.EFFX3012.emit({
           subject: scope.subject,
-          construct: `the annotated key id ${record.key.id} does not match the definition's own key id`,
+          construct:
+            record.key === undefined
+              ? "the analyzed source does not resolve the definition's effect-key identity"
+              : "the annotated key id does not match the definition's own key id",
         }),
       },
     ];

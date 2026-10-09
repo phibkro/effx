@@ -11,6 +11,7 @@ import {
   compileCollected,
   dense,
   lift,
+  liftRegistryOf,
   nativeCalleeOf,
   nativeName,
   printSuggestion,
@@ -240,12 +241,16 @@ export class R extends HttpApi.make("root").add(G) {}`,
           "Unlowered",
         );
 
-        const result = lift(model, {
-          group: "bad-refs",
-          rules: [],
-          names: {},
-          output: { module: "../../src/suggestion" },
-        });
+        const result = lift(
+          model,
+          {
+            group: "bad-refs",
+            rules: [],
+            names: {},
+            output: { module: "../../src/suggestion" },
+          },
+          liftRegistryOf([]),
+        );
 
         assert.strictEqual(result.unsupported.length, 2);
         assert.isFalse(
@@ -297,12 +302,16 @@ export class R extends HttpApi.make("root").add(G) {}`,
             assert.strictEqual(success.value.findings[0].enclosingCall?.callee.export, "opaque");
         }
 
-        const result = lift(model, {
-          group: "bad",
-          rules: [],
-          names: {},
-          output: { module: "../../src/bad.effx" },
-        });
+        const result = lift(
+          model,
+          {
+            group: "bad",
+            rules: [],
+            names: {},
+            output: { module: "../../src/bad.effx" },
+          },
+          liftRegistryOf([]),
+        );
 
         assert.strictEqual(result.unsupported.length, 1);
         assert.isFalse(
@@ -363,12 +372,16 @@ export class R extends HttpApi.make("root").add(G) {}`,
         const suggestion = Option.map(result.value, (model) => {
           lifts++;
 
-          return lift(model, {
-            group: "absent",
-            rules: [],
-            names: {},
-            output: { module: "../../suggestion" },
-          });
+          return lift(
+            model,
+            {
+              group: "absent",
+              rules: [],
+              names: {},
+              output: { module: "../../suggestion" },
+            },
+            liftRegistryOf([]),
+          );
         });
 
         assert.isTrue(Option.isNone(suggestion));
@@ -448,12 +461,16 @@ export class R extends HttpApi.make("root").add(G) {}`,
         if (schema === undefined || helper === undefined) return;
         const output = "../../src/suggestion.effx";
 
-        const result = lift(model, {
-          group: "public",
-          rules: [{ _tag: "SuccessWrapper", callee: helper, responseHeaders: schema }],
-          names: {},
-          output: { module: output },
-        });
+        const result = lift(
+          model,
+          {
+            group: "public",
+            rules: [{ _tag: "SuccessWrapper", callee: helper, responseHeaders: schema }],
+            names: {},
+            output: { module: output },
+          },
+          liftRegistryOf([]),
+        );
 
         assert.deepStrictEqual(result.unsupported, []);
         const fs = yield* FileSystem.FileSystem;
@@ -549,12 +566,16 @@ export class ${originalRoot.symbol.export} extends HttpApi.make(${rootId}).add($
           (yield* frontend.analyze({ ...fixture, entry: ["src/api.ts"] })).value,
         );
 
-        const relifted = lift(reliftedModel, {
-          group: "public",
-          rules: [],
-          names: {},
-          output: { module: output },
-        });
+        const relifted = lift(
+          reliftedModel,
+          {
+            group: "public",
+            rules: [],
+            names: {},
+            output: { module: output },
+          },
+          liftRegistryOf([]),
+        );
 
         assert.deepStrictEqual(
           relifted.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
