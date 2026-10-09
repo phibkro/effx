@@ -270,6 +270,81 @@ export const inspectDiagnosticSource = (file: string, source: string): Conforman
     return false;
   };
 
+  // Numeric protocol severity is a different representation, not a compiler finding override.
+  const isProtocolProjection = (
+    node: ts.ObjectLiteralExpression,
+    properties: ReadonlyMap<string, ts.Expression>,
+  ): boolean => {
+    const owner = node.parent;
+
+    if (
+      !ts.isVariableDeclaration(owner) ||
+      owner.type === undefined ||
+      !ts.isTypeReferenceNode(owner.type)
+    )
+      return false;
+
+    const name = owner.type.typeName.getText(tree);
+
+    const declaration = tree.statements.find(
+      (statement) =>
+        (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) &&
+        statement.name.text === name,
+    );
+
+    const members =
+      declaration !== undefined && ts.isInterfaceDeclaration(declaration)
+        ? declaration.members
+        : declaration !== undefined &&
+            ts.isTypeAliasDeclaration(declaration) &&
+            ts.isTypeLiteralNode(declaration.type)
+          ? declaration.type.members
+          : undefined;
+
+    const severity = members?.find(
+      (member) => member.name !== undefined && propertyName(member.name) === "severity",
+    );
+
+    if (severity === undefined || !ts.isPropertySignature(severity) || severity.type === undefined)
+      return false;
+
+    const types = ts.isUnionTypeNode(severity.type) ? severity.type.types : [severity.type];
+
+    if (
+      !types.every(
+        (type) =>
+          type.kind === ts.SyntaxKind.NumberKeyword ||
+          (ts.isLiteralTypeNode(type) && ts.isNumericLiteral(type.literal)),
+      )
+    )
+      return false;
+
+    const code = properties.get("code");
+    const message = properties.get("message");
+    const source = properties.get("source");
+
+    if (
+      code === undefined ||
+      !ts.isPropertyAccessExpression(code) ||
+      code.name.text !== "code" ||
+      message === undefined ||
+      source === undefined ||
+      !ts.isStringLiteral(source) ||
+      source.text !== "effx"
+    )
+      return false;
+
+    const origin = code.expression.getText(tree);
+
+    const referencesMessage = (part: ts.Node): boolean =>
+      (ts.isPropertyAccessExpression(part) &&
+        part.name.text === "message" &&
+        part.expression.getText(tree) === origin) ||
+      ts.forEachChild(part, referencesMessage) === true;
+
+    return referencesMessage(message);
+  };
+
   const visit = (node: ts.Node): void => {
     if (ts.isStringLiteral(node) && codePattern.test(node.text) && isDeclaration(node))
       declarations.push(node.text);
@@ -322,7 +397,12 @@ export const inspectDiagnosticSource = (file: string, source: string): Conforman
         properties.get("code")?.getText(tree) === "entry.code" &&
         properties.get("message")?.getText(tree) === "render(params)";
 
-      if ((construction || overwrite) && !leafFactory && !isProjection(properties))
+      if (
+        (construction || overwrite) &&
+        !leafFactory &&
+        !isProjection(properties) &&
+        !isProtocolProjection(node, properties)
+      )
         report(node, "raw Diagnostic construction or override");
     }
 

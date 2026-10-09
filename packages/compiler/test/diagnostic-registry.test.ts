@@ -195,6 +195,19 @@ describe("diagnostic registry conformance", () => {
     assert.deepStrictEqual(inspected.declarations, ["EFFX[plugin]/0001"]);
   });
 
+  it("allows typed numeric protocol projections but still rejects compiler severity overrides", () => {
+    const projection =
+      'type WireFinding = { code: string; message: string; severity: 1 | 2 | 3 }; const projected: WireFinding = { code: finding.code, message: related.length ? finding.message + related.join("\\n") : finding.message, severity: protocolSeverity(finding), source: "effx" };';
+
+    assert.deepStrictEqual(inspectDiagnosticSource("projection.ts", projection).violations, []);
+    assert.isTrue(
+      inspectDiagnosticSource(
+        "projection.ts",
+        projection.replace("1 | 2 | 3", '"error" | "warning" | "info"'),
+      ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
+    );
+  });
+
   it("allows only the named runtime definition projection adapter", () => {
     const source =
       'const definitionDiagnostics = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });';
