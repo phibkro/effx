@@ -88,4 +88,4 @@ Two limits to know. Your handler module still imports the decorators from `@effx
 
 ## Targets
 
-Generated imports depend on the target Effect profile. Stable `effect-4.0` uses `effect/http-api`. The release-candidate profile `effect-4.0` uses `effect/unstable/httpapi`. Source: `packages/compiler/src/generate/target.ts`. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets).
+Generated imports use the sole stable `effect-4.0` target and native `effect/http-api` paths. Prerelease Effect targets are not supported. Source: `packages/compiler/src/generate/target.ts`. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets).
