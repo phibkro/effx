@@ -1,3 +1,4 @@
+import type { Path } from "effect";
 import { type SchemaRef, StableId, type SymbolRef } from "@effx/ir";
 import type { DefinitionEntry, SpreadSource } from "@effx/compiler";
 import type { HttpApiRootCandidate } from "./http-api-inventory.ts";
@@ -10,7 +11,6 @@ import {
   SERVICE_TYPE_ID,
   aliased,
   declarationOf,
-  isExported,
   ts,
   typeHasProperty,
 } from "./ts.ts";
@@ -28,6 +28,60 @@ export interface Resolver {
   readonly spreads?: Array<SpreadSource>;
   readonly httpApiRoots?: Map<string, HttpApiRootCandidate>;
 }
+
+const stripExtension = (file: string): string => file.replace(/(\.d)?\.[cm]?[jt]sx?$/, "");
+
+const packageSpecifier = (file: string): string | undefined => {
+  const marker = file.lastIndexOf("/node_modules/");
+
+  return marker < 0
+    ? undefined
+    : stripExtension(file.slice(marker + "/node_modules/".length)).replace(/\/dist\//, "/");
+};
+
+/** The forward and lift frontends share canonical imports and StableId paths. */
+export const makeResolver = (project: Project, path: Path.Path): Resolver => {
+  const posix = (relative: string): string => stripExtension(relative).split(path.sep).join("/");
+
+  return {
+    project,
+    moduleOf: (file) => {
+      const external = packageSpecifier(file);
+
+      if (external !== undefined) return external;
+      const relative = posix(path.relative(path.join(project.rootDir, ".effx", "generated"), file));
+
+      return relative.startsWith(".") ? relative : `./${relative}`;
+    },
+    idPathOf: (file) => {
+      const external = packageSpecifier(file);
+
+      if (external !== undefined) return external;
+      const relative = posix(path.relative(project.rootDir, file));
+
+      return relative.startsWith(".") ? relative.replace(/^(\.\.?\/)+/, "") : relative;
+    },
+  };
+};
+
+/** Real declaring-module exports, including `const X; export { X as Public }`. */
+const exportName = (
+  resolver: Resolver,
+  symbol: ts.Symbol,
+  declaration: ts.Declaration,
+): string | undefined => {
+  const checker = resolver.project.checker;
+  const module = checker.getSymbolAtLocation(declaration.getSourceFile());
+
+  if (module === undefined) return undefined;
+  const exports = checker.getExportsOfModule(module);
+
+  const direct = exports.find(
+    (entry) => entry.name === symbol.name && aliased(checker, entry) === symbol,
+  );
+
+  return (direct ?? exports.find((entry) => aliased(checker, entry) === symbol))?.name;
+};
 
 /** Where a symbol is declared, after following import aliases. */
 export const origin = (
@@ -77,29 +131,51 @@ export const exportedSymbol = (resolver: Resolver, symbol: ts.Symbol): Exported 
   const idPath = resolver.idPathOf(found.file);
 
   if (ts.isPropertyDeclaration(declaration) && ts.isClassDeclaration(declaration.parent)) {
+    const modifiers = ts.getModifiers(declaration) ?? [];
+
+    if (
+      !modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword) ||
+      modifiers.some(
+        (modifier) =>
+          modifier.kind === ts.SyntaxKind.PrivateKeyword ||
+          modifier.kind === ts.SyntaxKind.ProtectedKeyword,
+      ) ||
+      !ts.isIdentifier(declaration.name)
+    )
+      return undefined;
     const owner = declaration.parent;
 
-    if (owner.name === undefined || !isExported(owner)) return undefined;
+    const ownerSymbol =
+      owner.name === undefined
+        ? undefined
+        : resolver.project.checker.getSymbolAtLocation(owner.name);
+
+    const ownerName =
+      ownerSymbol === undefined ? undefined : exportName(resolver, ownerSymbol, owner);
+
+    if (ownerName === undefined) return undefined;
 
     return {
-      ref: { module, export: owner.name.text, member: declaration.name.getText() },
+      ref: { module, export: ownerName, member: declaration.name.getText() },
       idPath,
       declaration,
     };
   }
 
-  if (!isExported(declaration)) return undefined;
+  const name = exportName(resolver, found.symbol, declaration);
+
+  if (name === undefined) return undefined;
 
   if (ts.isFunctionDeclaration(declaration) && declaration.name !== undefined) {
-    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+    return { ref: { module, export: name }, idPath, declaration };
   }
 
   if (ts.isClassDeclaration(declaration) && declaration.name !== undefined) {
-    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+    return { ref: { module, export: name }, idPath, declaration };
   }
 
   if (ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name)) {
-    return { ref: { module, export: declaration.name.text }, idPath, declaration };
+    return { ref: { module, export: name }, idPath, declaration };
   }
 
   return undefined;
@@ -135,3 +211,28 @@ export const isHeadersMarked = (type: ts.Type): boolean => typeHasProperty(type,
 export const isServiceValueType = (type: ts.Type): boolean =>
   typeHasProperty(type, SERVICE_TYPE_ID) ||
   (typeHasProperty(type, KEY_TYPE_ID) && typeHasProperty(type, "key"));
+
+/** The installed stable and rc.116 brands discover shape, never native callee authority. */
+export const httpApiKind = (
+  type: ts.Type,
+): "HttpApiEndpoint" | "HttpApiGroup" | "HttpApi" | undefined => {
+  if (
+    typeHasProperty(type, "~effect/http-api/HttpApiEndpoint") ||
+    typeHasProperty(type, "~effect/httpapi/HttpApiEndpoint")
+  )
+    return "HttpApiEndpoint";
+
+  if (
+    typeHasProperty(type, "~effect/http-api/HttpApiGroup") ||
+    typeHasProperty(type, "~effect/httpapi/HttpApiGroup")
+  )
+    return "HttpApiGroup";
+
+  if (
+    typeHasProperty(type, "~effect/http-api/HttpApi") ||
+    typeHasProperty(type, "~effect/httpapi/HttpApi")
+  )
+    return "HttpApi";
+
+  return undefined;
+};
