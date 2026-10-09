@@ -790,11 +790,16 @@ describe("actual scoped effx dev journey", () => {
             )
             .replace(
               '@Http.Get("/users/:id")',
-              '@Http.Get("/users/:id")\n  @Http.Contract({ params: GetUserInput })',
+              '@Http.Get("/users/:id")\n  @Http.Contract({ group: "users", params: GetUserInput, success: User.Public })',
             ),
         );
         // The existing selected operation consumes this helper. It is not a new
         // declaration root; imported invalid operations would not diagnose it.
+        const includedCheck = yield* compile(project.config, project.extensions);
+        assert.deepStrictEqual(
+          includedCheck.diagnostics.filter((entry) => entry.severity === "error"),
+          [],
+        );
         const included = yield* awaitOutput(migrated.offset, (text) => text.includes("manifest"));
         const acceptedManifest = yield* fs.readFileString(dir + "/.effx/manifest.json");
         yield* fs.writeFileString(authored, schema.replace("{ id:", "{ other:"));
