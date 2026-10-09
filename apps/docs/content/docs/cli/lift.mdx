@@ -114,4 +114,6 @@ The witness and the binding typecheck run as native Bun children owned by the pr
 | Usage error, the project could not be analyzed, or the lift reported an error diagnostic | 1 |
 | `--check` ran or could not run and did not pass | 2 |
 
-The report is printed before the exit code is raised. `--json` prints exactly one line on stdout; diagnostics of a failed analysis go to stderr.
+A required source refactor (`EFFX3002` to `EFFX3004`) is an error diagnostic of the lift. With `--check` both forms and the binding gate can pass and the exit code is still 1: the printed suggestion is not adoptable until the patch (`--emit-patch`) is applied to the source.
+
+The report is printed before the exit code is raised, through the process's standard output stream, so a report larger than a pipe buffer reaches a slow reader complete. `--json` prints exactly one line on stdout; diagnostics of a failed analysis go to stderr.
