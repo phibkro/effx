@@ -68,7 +68,7 @@ expression and its required imports. Bare explicit 200 uses S5's conditional
 expression to avoid cloning a 200 schema. Header-bearing responses apply the
 override to the `WithHeaders` envelope, not its body schema.
 
-The rc.116 fixtures distinguish two witnesses. `profile.effx.ts` and
+The stable-v4 fixtures distinguish two witnesses. `profile.effx.ts` and
 `directory-dense.effx.ts` retain explicit 200 to prove exact canonical IR, hash
 and generated-byte identity with their verbose twins and tracked goldens.
 `profile-consumer.effx.ts` and `directory-consumer.effx.ts` are the actual
@@ -80,8 +80,8 @@ Content's action fixture likewise keeps its original explicit-status witness;
 spellings without rewriting the identity witnesses or their goldens.
 Both runtime runners use the shared `dense-status-reflection.ts`
 fixture helper, which reports its installed Effect version and resolved HttpApi
-module origin. The tests check rc.116 resolution rather than accepting a stable
-Effect fallback; OpenAPI and operation indexes are compared without normalization.
+module origin. The tests check the installed stable Effect 4.0.0 resolution rather than
+accepting a fallback module; OpenAPI and operation indexes are compared without normalization.
 
 ### Request channels derived from `input`
 
