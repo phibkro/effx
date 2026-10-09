@@ -31,6 +31,7 @@ import {
   copyLiftCorpus,
   readVerifiedBlob,
   requireLiftCorpusRuntime,
+  type CorpusSnapshot,
 } from "../../packages/frontend-ts/test/lift-corpus.ts";
 import { liftCheckExecutionLayer, liftToolchainLayer } from "../lift-execution.ts";
 import { metadataOf, runCli, withAnnotation, withoutAnnotation } from "./lift-fixtures.ts";
@@ -39,9 +40,11 @@ import { metadataOf, runCli, withAnnotation, withoutAnnotation } from "./lift-fi
  * The real stable corpus through the native check (spec 0019 §10 items 1 and 3). The application is the
  * pinned `stable-original` snapshot (mono-web f433ea90 after the stable-Effect migration): the check
  * executes ITS Profile, Directory and SocialEvents groups and the generated contracts in real Bun children.
- * The lifter rules name the human adapter modules of the pinned 8152 adaptation (the adapter law, §5.5);
- * their exact bytes are verified against the corpus manifest and copied beside the original. The 0024
- * dense oracle is the `stable-oracle` snapshot: the printed suggestions must compile to its canonical IR.
+ * The lifter rules and names point to the exports of the pinned 8152 human adaptation (the adapter law,
+ * §5.5), so the application under check carries that adaptation: the oracle's support modules (which only
+ * add exports), its three adapters and its one-line `emptyInput` declarations, every byte proven against
+ * the corpus manifest. The original groups are otherwise byte-identical. The 0024 dense oracle is the
+ * `stable-oracle` snapshot: the printed suggestions must compile to its canonical IR.
  */
 
 requireLiftCorpusRuntime();
@@ -101,29 +104,65 @@ const snapshotNamed = <A extends { readonly name: string }>(
     Option.getOrThrowWith(() => new Error(`the corpus has no snapshot ${name}`)),
   );
 
+/** The pinned adaptation's support modules: each only adds exports to the original's (§5.5). */
+const adaptedModules = ["common", "http-semantics", "endpoint-problems"] as const;
+
+/** The pinned adaptation's one-line `emptyInput` declarations (§2.3, seam S3), per original group module. */
+const emptyInputs = [
+  { module: "directory", name: "EmptyDirectoryInput" },
+  { module: "social-events", name: "EmptySocialEventInput" },
+] as const;
+
+const sourceOf = (module: string): string => `packages/http-api/src/${module}.ts`;
+
+/** One file of the pinned oracle, proven against the manifest before anyone reads it. */
+const pinnedFile = Effect.fnUntraced(function* (pinned: CorpusSnapshot, logical: string) {
+  const file = Arr.findFirst(pinned.files, (entry) => entry.path === logical).pipe(
+    Option.getOrThrowWith(() => new Error(`the pinned oracle has no ${logical}`)),
+  );
+
+  return yield* readVerifiedBlob(pinned, file);
+});
+
 /**
- * One fresh copy of both stable snapshots. With `adapters`, the three human adapter modules of the pinned
- * adaptation (hash-verified against the manifest) stand beside the original groups, which are untouched.
+ * One fresh copy of both stable snapshots. With `adapted`, the pinned human adaptation the rules name is
+ * applied to the ORIGINAL application: the oracle's support modules and adapters replace or join the
+ * original's, and each group module gains the oracle's one-line `emptyInput` declaration.
  */
-const stage = Effect.fnUntraced(function* (adapters: boolean) {
+const stage = Effect.fnUntraced(function* (adapted: boolean) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const copied = yield* copyLiftCorpus();
   const original = snapshotNamed(copied.snapshots, "stable-original");
   const oracle = snapshotNamed(copied.snapshots, "stable-oracle");
 
-  if (adapters) {
+  if (adapted) {
     const pinned = snapshotNamed(copied.manifest.snapshots, "stable-oracle");
 
-    for (const group of corpusGroups) {
-      const file = Arr.findFirst(
-        pinned.files,
-        (entry) => entry.path === `packages/http-api/src/${group}-effx-adapters.ts`,
-      ).pipe(Option.getOrThrowWith(() => new Error(`the oracle has no ${group} adapter`)));
+    for (const module of [
+      ...adaptedModules,
+      ...corpusGroups.map((group) => `${group}-effx-adapters`),
+    ]) {
+      const { bytes } = yield* pinnedFile(pinned, sourceOf(module));
 
-      const { bytes } = yield* readVerifiedBlob(pinned, file);
+      yield* fs.writeFile(path.join(original.directory, sourceOf(module)), bytes);
+    }
 
-      yield* fs.writeFile(path.join(original.directory, file.path), bytes);
+    for (const { module, name } of emptyInputs) {
+      const { source } = yield* pinnedFile(pinned, sourceOf(module));
+
+      const declarations = (yield* fs.readFileString(source))
+        .split("\n")
+        .filter((line) => line.startsWith(`export const ${name} =`));
+
+      assert.strictEqual(declarations.length, 1, `the pinned oracle declares ${name} once`);
+
+      const target = path.join(original.directory, sourceOf(module));
+
+      yield* fs.writeFileString(
+        target,
+        `${yield* fs.readFileString(target)}\n${declarations.join("")}\n`,
+      );
     }
   }
 
@@ -496,8 +535,19 @@ describe("effx lift --check on the real stable corpus (spec 0019 §10 items 1 an
 
         assert.strictEqual(result.verbose?._tag, "Impossible", describeOutcome(result.verbose));
 
-        if (result.verbose?._tag === "Impossible")
+        if (result.verbose?._tag === "Impossible") {
           assert.strictEqual(result.verbose.reason, "overlay-compile");
+
+          // The cause is the unresolved adapter prerequisite itself: the problem registry the rules name.
+          assert.isTrue(
+            result.verbose.diagnostics
+              .flatMap((diagnostic) => diagnostic.related ?? [])
+              .some(
+                (cause) => cause.code === "EFFX1102" && cause.message.includes("nativeProblems"),
+              ),
+            describeOutcome(result.verbose),
+          );
+        }
 
         assert.notStrictEqual(result.binding._tag, "Passed");
         assert.deepStrictEqual(yield* digestTree(original.directory), before);
