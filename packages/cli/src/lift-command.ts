@@ -1,4 +1,15 @@
-import { Console, Crypto, Effect, FileSystem, Option, Path, Result, Runtime, Schema } from "effect";
+import {
+  Crypto,
+  Effect,
+  FileSystem,
+  Option,
+  Path,
+  Result,
+  Runtime,
+  Schema,
+  Stdio,
+  Stream,
+} from "effect";
 import {
   CompilerFault,
   Diagnostic,
@@ -50,6 +61,27 @@ export class LiftExit extends Schema.TaggedError<LiftExit>()("LiftExit", { code:
     return this.code;
   }
 }
+
+/**
+ * One line on a standard stream through the process root's `Stdio` service. Its sink completes only after the
+ * stream accepted the bytes, so a report larger than the pipe buffer reaches a slow reader before the exit
+ * code is raised; a global `console.log` drops what a full non-blocking descriptor refuses (observed: a
+ * 289 KB report cut at the 256 KiB the socket held, exit code 1).
+ */
+const printLine = (stream: "stdout" | "stderr", text: string) =>
+  Effect.flatMap(Stdio.Stdio, (stdio) =>
+    Stream.make(`${text}\n`).pipe(
+      Stream.run(
+        stream === "stdout"
+          ? stdio.stdout({ endOnDone: false })
+          : stdio.stderr({ endOnDone: false }),
+      ),
+    ),
+  ).pipe(
+    Effect.mapError(
+      (cause) => new CompilerFault({ stage: "lift", message: `cannot write to ${stream}`, cause }),
+    ),
+  );
 
 /** The project could not be analyzed at all: its diagnostics are the only report. */
 export class LiftAnalysisFailed extends Schema.TaggedError<LiftAnalysisFailed>()(
@@ -156,6 +188,7 @@ export const liftCommand = Effect.fn("lift")(function* (
   | FileSystem.FileSystem
   | Path.Path
   | Crypto.Crypto
+  | Stdio.Stdio
   | LiftFrontend
   | LiftCheckExecution
   | LiftToolchain
@@ -164,7 +197,7 @@ export const liftCommand = Effect.fn("lift")(function* (
   const exit = (code: number) => Effect.fail(new LiftExit({ code }));
 
   const usage = (message: string) =>
-    Effect.flatMap(Console.error(`error: ${message}`), () => exit(1));
+    Effect.flatMap(printLine("stderr", `error: ${message}`), () => exit(1));
 
   if (Option.isSome(options.write) && options.form === "both") {
     return yield* usage("--write writes one file: choose --form verbose or --form dense");
@@ -184,9 +217,11 @@ export const liftCommand = Effect.fn("lift")(function* (
     Effect.catchTags({
       LiftAnalysisFailed: (error) =>
         Effect.flatMap(
-          Effect.forEach(printLiftDiagnostics(error.diagnostics), (line) => Console.error(line), {
-            discard: true,
-          }),
+          Effect.forEach(
+            printLiftDiagnostics(error.diagnostics),
+            (line) => printLine("stderr", line),
+            { discard: true },
+          ),
           () => exit(1),
         ),
       LiftUsageError: (error) => usage(error.message),
@@ -199,7 +234,7 @@ export const liftCommand = Effect.fn("lift")(function* (
 
   if (Result.isFailure(rendering)) {
     for (const line of printLiftDiagnostics([...analysis, ...result.diagnostics]))
-      yield* Console.error(line);
+      yield* printLine("stderr", line);
 
     return yield* usage(rendering.failure);
   }
@@ -252,15 +287,15 @@ export const liftCommand = Effect.fn("lift")(function* (
       });
     }
 
-    yield* Console.log(encoded.success);
+    yield* printLine("stdout", encoded.success);
   } else {
-    yield* Console.log(text);
+    yield* printLine("stdout", text);
 
-    if (patch !== "") yield* Console.log(`REFACTOR PATCH\n${patch}`);
+    if (patch !== "") yield* printLine("stdout", `REFACTOR PATCH\n${patch}`);
 
-    if (check !== undefined) yield* Console.log(renderCheckSection(check));
+    if (check !== undefined) yield* printLine("stdout", renderCheckSection(check));
 
-    for (const line of printLiftDiagnostics(diagnostics)) yield* Console.log(line);
+    for (const line of printLiftDiagnostics(diagnostics)) yield* printLine("stdout", line);
   }
 
   if (Option.isSome(target)) {

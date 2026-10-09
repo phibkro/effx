@@ -143,3 +143,21 @@ export const runCli = (cwd: string, args: ReadonlyArray<string>) =>
       forcedStopMs: 540_000,
     }),
   ).pipe(Effect.map(outcome));
+
+const slowReader = new URL("./cli-slow-reader-child.ts", import.meta.url).pathname;
+
+/**
+ * The same process root behind a real Bun child that reads the CLI's stdout pipe only after `delayMs`, like a
+ * slow consumer. The receipt's stdout is that child's one JSON line: the CLI's exit code, the byte count and
+ * whether it arrived as one complete document.
+ */
+export const runCliSlowReader = (cwd: string, delayMs: number, args: ReadonlyArray<string>) =>
+  Effect.flatMap(LiftCheckExecution, (execution) =>
+    execution.runChild({
+      binary: process.execPath,
+      cwd,
+      args: [slowReader, effx, String(delayMs), ...args],
+      captureBytes: 64 * 1024,
+      forcedStopMs: 540_000,
+    }),
+  ).pipe(Effect.map(outcome));

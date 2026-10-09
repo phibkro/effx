@@ -4,11 +4,25 @@ import { Effect, FileSystem, Layer, Path, Schema } from "effect";
 import { LiftJsonReport } from "@effx/cli";
 import { liftCheckExecutionLayer } from "../lift-execution.ts";
 import { digestTree } from "../../tools/testing/projects.ts";
-import { api, miniFiles, miniProject, runCli, writeProject } from "./lift-fixtures.ts";
+import {
+  api,
+  miniFiles,
+  miniProject,
+  runCli,
+  runCliSlowReader,
+  writeProject,
+} from "./lift-fixtures.ts";
+import { manyEndpointsApi, support } from "./lift-sources.ts";
 
 const services = liftCheckExecutionLayer.pipe(Layer.provideMerge(BunServices.layer));
 
 const decodeReport = Schema.decodeUnknownEffect(LiftJsonReport);
+
+const decodeDelivery = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({ code: Schema.Int, bytes: Schema.Int, complete: Schema.Boolean }),
+  ),
+);
 
 const lift = (cwd: string, ...flags: ReadonlyArray<string>) =>
   runCli(cwd, ["lift", "--group", "profile", "--module", "src/profile.effx.ts", ...flags]);
@@ -181,6 +195,41 @@ describe("effx lift through the installed-style process root (spec 0019 §4)", (
 
         assert.strictEqual(missing.code, 1);
         assert.include(missing.stderr, "--module is required");
+      }).pipe(Effect.scoped, Effect.provide(services)),
+    900_000,
+  );
+
+  it.live(
+    "delivers a report larger than the pipe buffer complete to a slow reader, then exits 1",
+    () =>
+      Effect.gen(function* () {
+        const fixture = yield* writeProject(
+          { "src/support.ts": support, "src/api.ts": manyEndpointsApi(100) },
+          ["src/api.ts"],
+        );
+
+        const before = yield* digestTree(fixture.directory);
+
+        // A child that starts reading the CLI's pipe 1.5 s late, long after the CLI has finished printing.
+        const slow = yield* runCliSlowReader(fixture.directory, 1_500, [
+          "lift",
+          "--group",
+          "big",
+          "--module",
+          "src/big.effx.ts",
+          "--json",
+        ]);
+
+        assert.strictEqual(slow.code, 0, `${slow.stdout}\n${slow.stderr}`);
+
+        const delivered = yield* decodeDelivery(slow.stdout.trimEnd());
+
+        // The computed path is an error diagnostic (exit 1); the report is one complete document of about
+        // 300 KB, more than a pipe or socket buffer holds.
+        assert.strictEqual(delivered.code, 1, slow.stdout);
+        assert.isAbove(delivered.bytes, 262_144, slow.stdout);
+        assert.isTrue(delivered.complete, slow.stdout);
+        assert.deepStrictEqual(yield* digestTree(fixture.directory), before);
       }).pipe(Effect.scoped, Effect.provide(services)),
     900_000,
   );

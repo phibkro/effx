@@ -30,3 +30,28 @@ export const summaryOf = (subject: {
   readonly annotations: { readonly mapUnsafe: ReadonlyMap<string, unknown> };
 }) => Option.fromUndefinedOr(subject.annotations.mapUnsafe.get(SummaryKey));
 `;
+
+/**
+ * A group of `count` plain endpoints plus one whose path is computed, which the lifter reports as unsupported
+ * (an error diagnostic, so the exit code is 1). The JSON report of 100 endpoints is about 300 KB: larger than
+ * any pipe or socket buffer, which is what the output regression needs.
+ */
+export const manyEndpointsApi = (count: number): string => {
+  const names = Array.from({ length: count }, (_, index) => `Read${index}`);
+
+  const endpoints = names.map(
+    (name, index) =>
+      `export const ${name} = HttpApiEndpoint.get("read${index}", "/p${index}", { query: ProfileQuery, success: ProfileResponse, error: Schema.Never });`,
+  );
+
+  return `import { Schema } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
+import { ProfileQuery, ProfileResponse } from "./support.ts";
+
+${endpoints.join("\n")}
+const prefix = "/computed";
+export const Computed = HttpApiEndpoint.get("computed", prefix, { success: ProfileResponse, error: Schema.Never });
+export class BigGroup extends HttpApiGroup.make("big").add(${names.join(", ")}, Computed) {}
+export class Root extends HttpApi.make("big-api").add(BigGroup) {}
+`;
+};
