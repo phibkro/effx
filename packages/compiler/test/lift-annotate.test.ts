@@ -201,6 +201,7 @@ describe("the definition-owned `.annotate` lift", () => {
   it("invokes the typed recognizer at the selected key", () => {
     const recognize: DefinitionLift<typeof RateLimit>["recognize"] = (site) => {
       expectTypeOf(site).toEqualTypeOf<LiftSite<typeof RateLimit>>();
+      assert.isFalse("plan" in site);
       const args: ReadArgs<typeof RateLimit> = [{ perMinute: 120 }];
 
       return Result.succeed(args);

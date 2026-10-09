@@ -1088,7 +1088,6 @@ export const readAnnotate = (
 
     const site: LiftSite = {
       definition,
-      plan: definition.plan,
       schema: codec,
       value: slot.term,
       subject: scope.subject,

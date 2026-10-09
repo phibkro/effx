@@ -173,13 +173,11 @@ export type LiftRecognitionError = typeof LiftRecognitionErrorSchema.Type;
 
 /**
  * The neutral data the core hands a recognizer (spec 0019 §5, S1). Pure and synchronous; built per
- * invocation from data the analyzed model already recorded. `plan` is exactly the definition's own
- * lowering plan — never a second plan — and `schema` is derived once per registry from that same plan,
- * so no endpoint derives its own codec.
+ * invocation from data the analyzed model already recorded. The definition owns the lowering plan; the
+ * codec is derived once per registry from that plan, and the site carries the definition rather than a copy.
  */
 export interface LiftSite<D extends DefinitionData = DefinitionData> {
   readonly definition: D;
-  readonly plan: ArgsPlan;
   readonly schema: ArgsCodec<D>;
   /** The term the frontend lowered for the annotation's argument list. */
   readonly value: Term;
@@ -203,9 +201,9 @@ export interface DefinitionLift<D extends DefinitionData = DefinitionData> {
 }
 
 /**
- * The recognizer at the erased registry boundary. The returned arguments stay `unknown` here and are
- * re-typed by the definition's own decode (`decodeSchemaOf` derives the exact codec from the same plan
- * the site carries), so no second cast ever narrows what a recognizer may return.
+ * The recognizer at the erased registry boundary. The returned arguments stay unknown here and are
+ * re-typed through the selected definition's cached codec, which is derived from definition.plan once per
+ * registry; the site carries the definition rather than a duplicate plan.
  */
 export type LiftRecognition = (
   site: LiftSite<DefinitionData>,
