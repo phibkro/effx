@@ -62,7 +62,7 @@ test("installed stable HTTP and RPC contracts", () => Effect.runPromise(
     const failure = yield* Effect.flip(rpc["User.ChangeEmail"]({ id, email: Email.make("bob@example.com") }));
     expect(failure._tag).toBe("EmailTaken");
     expect((yield* (yield* Users).find(id)).email).toBe(email);
-  }).pipe(Effect.provide(Server)),
+  }).pipe(Effect.scoped, Effect.provide(Server)),
 ));
 `;
 
