@@ -54,7 +54,9 @@ const isWireResponse = Schema.is(WireResponse);
 
 const decodeResponseFailure = Schema.decodeUnknownEffect(ResponseFailure);
 
-const decodeProcessId = Schema.decodeUnknownEffect(Schema.Union([Schema.Int, Schema.Null]));
+const decodeClient = Schema.decodeUnknownEffect(
+  Schema.Struct({ processId: Schema.Union([Schema.Int, Schema.Null]) }),
+);
 
 export interface PeerLaunch {
   readonly cwd: string;
@@ -280,18 +282,26 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
   return {
     exit,
     pid: Effect.fromNullishOr(child.pid).pipe(Effect.mapError((cause) => new PeerError({ cause }))),
-    request: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
+    // Omitted params use the maintained zero-argument ABI. Explicit JSON values
+    // retain its by-name object / by-position scalar and array semantics.
+    request: Effect.fnUntraced(function* (method: string, params?: Schema.Json) {
       const value: unknown = yield* Effect.tryPromise({
-        try: () => connection.sendRequest(method, params),
+        try: () =>
+          params === undefined
+            ? connection.sendRequest(method)
+            : connection.sendRequest(method, params),
         catch: (cause) => new PeerError({ cause }),
       });
 
       return yield* decodeJson(value);
     }),
-    requestError: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
+    requestError: Effect.fnUntraced(function* (method: string, params?: Schema.Json) {
       const exit = yield* Effect.exit(
         Effect.tryPromise({
-          try: () => connection.sendRequest<unknown>(method, params),
+          try: () =>
+            params === undefined
+              ? connection.sendRequest<unknown>(method)
+              : connection.sendRequest<unknown>(method, params),
           catch: (cause) => new PeerError({ cause }),
         }),
       );
@@ -313,9 +323,12 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
 
       return yield* Effect.failCause(exit.cause);
     }),
-    notification: Effect.fnUntraced(function* (method: string, params: Schema.Json = null) {
+    notification: Effect.fnUntraced(function* (method: string, params?: Schema.Json) {
       yield* Effect.tryPromise({
-        try: () => connection.sendNotification(method, params),
+        try: () =>
+          params === undefined
+            ? connection.sendNotification(method)
+            : connection.sendNotification(method, params),
         catch: (cause) => new PeerError({ cause }),
       });
     }),
@@ -325,7 +338,7 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
       beforeCancel: Effect.Effect<void> = Effect.void,
     ) {
       const source = new CancellationTokenSource();
-      const promise = connection.sendRequest(method, null, source.token);
+      const promise = connection.sendRequest(method, source.token);
 
       const observed = promise.then(
         () => ({ code: 0 }),
@@ -494,7 +507,7 @@ if (process.argv[2] === "serve") {
           }
 
           if (message.method === "watch-client") {
-            const processId = yield* decodeProcessId(message.params).pipe(
+            const { processId } = yield* decodeClient(message.params).pipe(
               Effect.mapError(
                 () => new RpcFailure({ code: -32602, message: "Invalid client process ID" }),
               ),
@@ -612,7 +625,7 @@ if (process.argv[2] === "serve") {
 
           if (message.method === "burst") {
             yield* Effect.forEach(
-              Array.from({ length: 33 }, (_, index) => index),
+              Array.from({ length: message.params === "count" ? 129 : 33 }, (_, index) => index),
               (index) =>
                 transport.sendNotification("large-output", {
                   index,

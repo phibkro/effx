@@ -157,6 +157,26 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
     ),
   );
 
+  it.live("maintained client keeps absent, named and positional parameters distinct", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const peer = yield* acquirePeer();
+        yield* peer.waitNotification("ready");
+        // A default null or transport-level unwrap would change these wire values.
+        yield* peer.notification("edit");
+        yield* peer.notification("edit", null);
+        yield* peer.notification("edit", 7);
+        yield* peer.notification("edit", [1, 2]);
+        yield* peer.notification("edit", { named: true });
+        const state = yield* decodeInspect(yield* peer.request("inspect"));
+        assert.deepStrictEqual(state.edits, [null, [null], [7], [[1, 2]], { named: true }]);
+        assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        yield* peer.eof;
+        assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
+      }),
+    ),
+  );
+
   it.live("typed request failure survives the maintained response writer", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -669,12 +689,12 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       Effect.gen(function* () {
         const peer = yield* acquirePeer();
         yield* peer.waitNotification("ready");
-        assert.strictEqual(yield* peer.request("watch-client", null), null);
+        assert.strictEqual(yield* peer.request("watch-client", { processId: null }), null);
 
         const processId = yield* peer.pid;
 
-        assert.strictEqual(yield* peer.request("watch-client", processId), null);
-        assert.strictEqual(yield* peer.request("watch-client", processId), null);
+        assert.strictEqual(yield* peer.request("watch-client", { processId }), null);
+        assert.strictEqual(yield* peer.request("watch-client", { processId }), null);
         yield* peer.request("inspect");
         yield* peer.eof;
         assert.deepStrictEqual(yield* peer.exit, { code: 0, signal: null });
@@ -688,7 +708,7 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
       Effect.gen(function* () {
         const peer = yield* acquirePeer();
         yield* peer.waitNotification("ready");
-        yield* peer.request("watch-client", 0).pipe(Effect.exit);
+        yield* peer.request("watch-client", { processId: 0 }).pipe(Effect.exit);
         assert.strictEqual((yield* peer.exit).code, 0);
         assert.include(yield* peer.stderr, "terminal:IO");
       }),

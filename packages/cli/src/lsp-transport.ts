@@ -148,7 +148,7 @@ export interface LspTransport {
  * -32000 replies without dispatch; duplicate identities get -32600/id:null. Complete
  * JSON/envelope errors get -32700/-32600 through the bounded writer and decoding
  * waits for its native completion. Unsafe byte/message/output saturation is terminal:
- * edits are never dropped. One decoder and one stock writer run at a time. No retries.
+ * edits are never dropped (128 writes/8 MiB). One decoder and one stock writer run at a time. No retries.
  * The supplied factory owns IO; this scope owns one demand fiber, the client
  * monitor and handler lifetimes. The root owns the one callback runtime.
  * Non-cancellable foreign promises are observed, and closed guards fence late work.
@@ -338,7 +338,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
       if (state !== "Open") return Promise.reject(fault("Closed"));
 
-      if (outputCount >= 32) {
+      if (outputCount >= 128) {
         stop(fault("Capacity"));
 
         // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
