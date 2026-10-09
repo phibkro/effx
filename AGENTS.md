@@ -70,11 +70,12 @@ and scripts/build-lsp-sigpipe-test.ts for trusted build-time artifacts.
 Both open records, examined versions, verification and retirement triggers live
 in docs/research/0018-watch-editor-design.md §10. No implementation gate is claimed.
 EX-0034 (open) owns the explicit spec 0019 lift-check native boundary: unstable `effect/process`
-`ChildProcess`/`ChildProcessSpawner` only in `scripts/lift-execution.ts` and its real-child suite
-`scripts/test/lift-execution-custody.*`, plus Effect `HttpApi.reflect`/`OpenApi.fromApi` only in the
-generated `--check` witness. It grants no Node imports/types, process authority or global resolver
-hooks in packages and makes no sandbox claim. Rules, exact APIs, examined versions, verification and
-the retirement trigger live in `docs/research/0019-implementation-design.md` (S6 native child custody).
+`ChildProcess`/`ChildProcessSpawner` only in `scripts/lift-execution.ts`, verified by the real-child
+suites `scripts/test/lift-*.test.ts` (they import no unstable API and carry no directive), plus Effect
+`HttpApi.reflect`/`OpenApi.fromApi` only as text in the generated `--check` witness that runs inside the
+child. It grants no Node imports/types, process authority or global resolver hooks in packages and makes
+no sandbox claim. Rules, exact APIs, examined versions, verification and the retirement trigger live in
+`docs/research/0019-implementation-design.md` (S6 native child custody).
 
 ## Commands
 
