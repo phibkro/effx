@@ -1,5 +1,17 @@
 # Spec 0010 — target profiles, declarations and split HTTP emit modes
 
+## Frozen operator amendment — 2026-10-09
+
+Stable Effect `>=4.0.0 <5` is the only supported application target. This
+amendment supersedes every RC target, module mapping, compatibility brand and
+RC acceptance criterion below; those passages remain historical evidence.
+Remove the `effect-4.0-rc` choice without a compatibility shim. Migrate the
+isolated fixture to `stable-v4` and native stable APIs while retaining split
+emit identity, HTTP/RPC/CLI, raw bindings, status, errors and resource laws.
+The root ordered gate must exercise the stable fixture and packed consumer.
+No feature draft is imported, no active feature contract is dropped, and no
+other worktree, main checkout, publication or deployment is authorized.
+
 Status: **spec-frozen**. This is the compiler-only prerequisite for the
 [Profile proving slice](0009-profile-proving-slice.md). It does not rewrite
 mono-web, exercise its browser/PostgreSQL journey, or authorize deployment.
