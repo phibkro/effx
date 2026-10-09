@@ -128,8 +128,36 @@ const isStatus200 = (scope: Scope, term: Term, schema: SchemaRef): boolean => {
   const fallbackStatus = statusOf(scope, fallback.callee);
   const wrapped = fallback.args[0] === undefined ? Option.none() : refOf(fallback.args[0]);
 
+  if (
+    observed._tag !== "Nullish" ||
+    observed.tail.length !== 1 ||
+    !Option.exists(literalOf(observed.tail[0] ?? observed.head), (value) => value === 200)
+  )
+    return false;
+
+  const access = unwrap(observed.head);
+
+  if (access._tag !== "OptionalMember" || access.member !== "httpApiStatus") return false;
+  const resolved = callView(access.term);
+  const resolvedNative = resolved === undefined ? undefined : nativeOf(scope, resolved.callee);
+
+  if (
+    resolved === undefined ||
+    resolved.args.length !== 1 ||
+    resolvedNative?.kind !== "SchemaAST" ||
+    nativeName(resolvedNative) !== "resolve"
+  )
+    return false;
+
+  const ast = resolved.args[0] === undefined ? undefined : unwrap(resolved.args[0]);
+
+  const observedSchema =
+    ast?._tag === "Member" && ast.member === "ast" ? refOf(ast.term) : Option.none();
+
   return (
     equals200 &&
+    fallback.args.length === 1 &&
+    Option.exists(observedSchema, (reference) => sameRef(reference, schema)) &&
     observed._tag === "Nullish" &&
     observed.tail.length === 1 &&
     Option.exists(fallbackStatus, (status) => status === 200) &&
@@ -137,10 +165,33 @@ const isStatus200 = (scope: Scope, term: Term, schema: SchemaRef): boolean => {
   );
 };
 
+/** The same supported schema shapes as readWrapped, without planning an export. */
+const isWrappedSchema = (scope: Scope, term: Term): boolean => {
+  const inner = unwrap(term);
+
+  if (inner._tag === "Ref" && isSchemaRef(inner.ref)) return true;
+
+  const view = callView(term);
+  const [step] = view?.args ?? [];
+
+  if (
+    view !== undefined &&
+    view.callee._tag === "Member" &&
+    view.callee.member === "pipe" &&
+    view.args.length === 1 &&
+    step !== undefined &&
+    Option.isSome(statusOf(scope, step))
+  )
+    return isWrappedSchema(scope, view.callee.term);
+
+  return isInlineSchema(scope, term);
+};
+
 /** A wrapper argument: a named schema, `S.pipe(status(n))`, or an inline expression a refactor can export. */
 const readWrapped = (
   scope: Scope,
   cursor: Cursor,
+  preserveStatus: boolean = false,
 ): Option.Option<{ readonly schema: SchemaUse; readonly status: number | undefined }> => {
   const term = unwrap(cursor.term);
   const at = rangeOf(cursor);
@@ -165,11 +216,41 @@ const readWrapped = (
   ) {
     const status = statusOf(scope, step);
 
-    if (Option.isSome(status))
+    if (Option.isSome(status)) {
+      if (preserveStatus && !isWrappedSchema(scope, view.callee.term)) {
+        failUnrecognized(
+          scope,
+          rangeOf(receiverOf(cursor, view)),
+          "a wrapper argument that is not a schema",
+        );
+
+        return Option.none();
+      }
+
+      if (preserveStatus)
+        return Option.map(
+          exportInline(scope, {
+            cursor,
+            role: "success",
+            code: "EFFX3002",
+            describe: (planned) =>
+              LiftDiagnostics.EFFX3002.emit({
+                subject: scope.subject,
+                channel: "success",
+                form: "schema-call",
+                planned,
+              }),
+            initializer: cursor.term,
+            derived: derivedName(scope, "Response"),
+          }),
+          (ref) => ({ schema: schemaUseOf(scope.ctx, ref), status: status.value }),
+        );
+
       return Option.map(readWrapped(scope, receiverOf(cursor, view)), (wrapped) => ({
         schema: wrapped.schema,
         status: status.value,
       }));
+    }
   }
 
   if (isInlineSchema(scope, term))
@@ -266,10 +347,10 @@ const readRule = (
   }
 
   return Option.map(
-    readWrapped(scope, descend(cursor, argument, ...view.argPath(0))),
+    readWrapped(scope, descend(cursor, argument, ...view.argPath(0)), rule.status !== undefined),
     (wrapped) => ({
       schema: wrapped.schema,
-      status: wrapped.status ?? rule.status,
+      status: rule.status ?? wrapped.status,
       responseHeaders: rule.responseHeaders,
       conditional: rule.conditional === true,
       wrapper: rule.callee,

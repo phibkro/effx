@@ -78,16 +78,46 @@ describe("a group the core cannot represent is blocked as a whole", () => {
     assert.include(site?.primary.message ?? "", "topLevel");
   });
 
-  it("diagnoses root middleware, which changes the wire of every endpoint", () => {
+  it("preserves outer root composition without treating it as group behavior", () => {
     const result = liftOf("rooted", [
       ...read("read"),
       "",
       'export const Api = HttpApiGroup.make("rooted").add(Read);',
-      'export const Root = HttpApi.make("rooted-root").add(Api).middleware(Api);',
+      'export const Root = HttpApi.make("rooted-root").add(Api)',
+      '  .middleware(Api).prefix("/outer").addError(UserProfileResponse)',
+      '  .annotateMerge(OpenApi.annotations({ version: "outer-version" }));',
     ]);
 
-    assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
-    assert.include(result.unsupported[0]?.primary.message ?? "", ".middleware(...) on a root");
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.strictEqual(result.collected.declarations.length, 2);
+  });
+
+  it("retains outer source steps and the actual original root", () => {
+    const file = sourceOf("outer", [
+      ...read("read"),
+      'export const Api = HttpApiGroup.make("outer").add(Read);',
+      'export const Root = HttpApi.make("outer-root").add(Api)',
+      "  .middleware(Api).annotateMerge(OpenApi.annotations({ version: privateVersion }));",
+    ]);
+
+    const model = modelOf([...supportFiles, file], {
+      ...sourceUniverse,
+      root: { symbol: { module: "./src/outer", export: "Root" }, id: "outer-root" },
+    });
+
+    const result = lift(model, sourceInput("outer"));
+    const [root] = model.roots;
+
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.deepStrictEqual(
+      root?.steps.map((step) => (step._tag === "Method" ? step.name : step._tag)),
+      ["add", "middleware", "annotateMerge"],
+    );
+    assert.strictEqual(
+      root?.steps[2]?._tag === "Method" ? root.steps[2].args[0]?._tag : "",
+      "Unlowered",
+    );
+    assert.deepStrictEqual(root?.symbol, { module: "./src/outer", export: "Root" });
   });
 });
 

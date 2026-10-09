@@ -94,8 +94,9 @@ const original: SourceFile = {
     'export const Empty200 = HttpApiEndpoint.get("empty200", "/wire/empty200", { headers: RequestHeaders, success: NoContent.pipe(HttpApiSchema.status(200)), error: Problems.responses(ReadProblem) });',
     'export const EmptyHeaders200 = HttpApiEndpoint.get("emptyHeaders200", "/wire/emptyHeaders200", { headers: RequestHeaders, success: HttpApiSchema.WithHeaders(NoContent, ResponseHeaders).pipe(HttpApiSchema.status(200)), error: Problems.responses(ReadProblem) });',
     'export const Wrapped200 = HttpApiEndpoint.get("wrapped200", "/wire/wrapped200", { headers: RequestHeaders, success: Responses.created(Schemas.Response).pipe(HttpApiSchema.status(200)), error: Problems.responses(ReadProblem) });',
+    'export const Inner200 = HttpApiEndpoint.get("inner200", "/wire/inner200", { headers: RequestHeaders, success: Responses.created(Schemas.Response.pipe(HttpApiSchema.status(200))), error: Problems.responses(ReadProblem) });',
     'export const Omitted = HttpApiEndpoint.get("omitted", "/wire/omitted", { headers: RequestHeaders, success: CreatedResponse, error: Problems.responses(ReadProblem) });',
-    'export const Api = HttpApiGroup.make("wire").add(Read, Create, Repeat, Plain200, Headers200, Empty200, EmptyHeaders200, Wrapped200, Omitted);',
+    'export const Api = HttpApiGroup.make("wire").add(Read, Create, Repeat, Plain200, Headers200, Empty200, EmptyHeaders200, Wrapped200, Inner200, Omitted);',
     'export const Root = HttpApi.make("wire-root").add(Api);',
     "",
   ].join("\n"),
@@ -174,7 +175,7 @@ const workspace = `${repository}/.effx/acceptance/core/repair-r1/wire`;
 // The independently authored declarations describe the intended wire; they are not derived from lift's output.
 const authoritative = [
   'import { Operation, Http } from "@effx/runtime";',
-  'import { Root, WireCreateResponse } from "./original.ts";',
+  'import { Root, WireCreateResponse, WireInner200Response } from "./original.ts";',
   'import { RequestHeaders, Schemas, ResponseHeaders, CreatedResponse, NoContent } from "./types.ts";',
   'import { registry, ReadCodes, CreateCodes } from "./problems.ts";',
   'export const WireGroup = Http.group({ root: Root, group: "wire" });',
@@ -199,6 +200,8 @@ const authoritative = [
   '  .http.contract({ root: "wire-root", group: "wire", headers: RequestHeaders, success: NoContent, responseHeaders: ResponseHeaders, status: 200, metadata: { operationId: "wire.emptyHeaders200" } }).http.problems({ registry, identifier: "SharedProblem", codes: ReadCodes }).declare();',
   'export const Wrapped200 = Operation.query({ name: "wire.wrapped200", input: RequestHeaders, success: Schemas.Response }).http.get("/wire/wrapped200")',
   '  .http.contract({ root: "wire-root", group: "wire", headers: RequestHeaders, success: Schemas.Response, responseHeaders: ResponseHeaders, status: 200, metadata: { operationId: "wire.wrapped200" } }).http.problems({ registry, identifier: "SharedProblem", codes: ReadCodes }).declare();',
+  'export const Inner200 = Operation.query({ name: "wire.inner200", input: RequestHeaders, success: WireInner200Response }).http.get("/wire/inner200")',
+  '  .http.contract({ root: "wire-root", group: "wire", headers: RequestHeaders, success: WireInner200Response, responseHeaders: ResponseHeaders, status: 201, metadata: { operationId: "wire.inner200" } }).http.problems({ registry, identifier: "SharedProblem", codes: ReadCodes }).declare();',
   'export const Omitted = Operation.query({ name: "wire.omitted", input: RequestHeaders, success: CreatedResponse }).http.get("/wire/omitted")',
   '  .http.contract({ root: "wire-root", group: "wire", headers: RequestHeaders, success: CreatedResponse, metadata: { operationId: "wire.omitted" } }).http.problems({ registry, identifier: "SharedProblem", codes: ReadCodes }).declare();',
   "",

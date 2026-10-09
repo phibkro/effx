@@ -12,11 +12,9 @@ import type { SourceRange, TermSlot } from "./source.ts";
 import { callView, isJsonObject, objectOf, refOf, stringOf } from "./view.ts";
 
 /*
- * Group and root selection (spec 0019 §4.1, §3.3). `--group` matches the identifier in
- * `HttpApiGroup.make("<id>")`; the root is the unique `HttpApi.make(...)` value whose `.add(...)` contains
- * that group. Anything the effx group declaration cannot say (a prefix, group or root middleware, addError,
- * an `exclude` annotation) is EFFX3001 and blocks the whole group, because it changes the wire of every
- * endpoint and no per-endpoint suggestion could be faithful.
+ * Group selection (spec 0019 §3.3, §0.8): the unique original root supplies identity and binding facts.
+ * Only group-level behavior must be expressible by the generated group. Original root composition stays
+ * in the source model and is preserved during a manual group-reference substitution, never generated.
  */
 
 /** What the group declaration records of itself (`Http.Group` title, description and display name). */
@@ -262,13 +260,6 @@ const readGroup = (reader: Reader, group: GroupRecord): GroupRead => {
 
 const readRoot = (reader: Reader, root: RootRecord): Option.Option<string> => {
   checkConstructor(reader, root.callee, "HttpApi", root.range);
-
-  for (const step of root.steps)
-    if (step._tag === "Unsupported")
-      reader.causes.push(findingCause(reader.ctx, reader.subject, "structure", step.finding));
-    else if (step._tag === "Apply") construct(reader, step.range, "a .pipe step on a root");
-    else if (!["add", "annotate", "annotateMerge"].includes(step.name))
-      construct(reader, step.range, `.${step.name}(...) on a root`);
 
   const id = idOf(root.id);
 

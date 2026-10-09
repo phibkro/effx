@@ -24,7 +24,7 @@ import { applyPatch } from "./lift-apply.ts";
 const source = (body: ReadonlyArray<string>): SourceFile => ({
   path: "src/repair.ts",
   contents: [
-    'import { Schema } from "effect";',
+    'import { Schema, SchemaAST } from "effect";',
     'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";',
     'import { EmptyInput, UserProfileResponse, ProfileMergePatch } from "./v2-schemas.js";',
     'import { ConditionalReadHeaders, EntityMutationResponseHeaders, endpointProblemResponses, entityMutationResponse } from "./http-semantics.js";',
@@ -159,6 +159,16 @@ describe("lift repair: unsupported wire-loss shapes", () => {
     if (contract !== undefined && isObjectArg(contract))
       assert.strictEqual(entriesOf(contract).find(([name]) => name === "status")?.[1], 200);
     else assert.fail("the explicit 200 contract must remain an object");
+  });
+
+  it.each([
+    "(SchemaAST.resolve(ProfileMergePatch.ast)?.httpApiStatus ?? 200) === 200 ? UserProfileResponse : HttpApiSchema.status(200)(UserProfileResponse)",
+    "(SchemaAST.resolve(UserProfileResponse.ast)?.httpApiStatus ?? 201) === 200 ? UserProfileResponse : HttpApiSchema.status(200)(UserProfileResponse)",
+    "(SchemaAST.resolve(UserProfileResponse.ast)?.httpApiStatus ?? 200) === 200 ? UserProfileResponse : HttpApiSchema.status(200)(ProfileMergePatch)",
+  ])("rejects a conditional that is not the complete S5 expression: %s", (success) => {
+    unsupported([
+      `export const Read = HttpApiEndpoint.get("read", "/read", { success: ${success}, error: Schema.Never });`,
+    ]);
   });
 });
 

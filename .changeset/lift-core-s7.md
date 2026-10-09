@@ -12,3 +12,7 @@ Reject unsupported OpenAPI override fields, extra payload transformations, and m
 Source patches preserve CRLF and final-newline behavior exactly. Dense equality uses independently authored declarations. The owned native proof collects printed suggestions with the real TypeScript frontend and compares original, patched, verbose, and dense Effect wire contracts. This is not acceptance of the future lift-frontend L5 law.
 
 Preserve explicit source and generated 200 under the 2026-10-09 operator amendment. Outer status annotations override inner statuses. Omission remains omission. Recovery laws include explicit 200 with and without response headers. Native witnesses cover opaque 201 schemas, bodyless schemas, registered 201 wrappers, and unchanged omission. No generator, IR, or hash-normalization behavior changes.
+
+Registered wrappers apply their fixed status after the argument annotations. Inner status annotations remain in a real schema export when extraction is necessary. The S5 recognizer checks the complete conditional expression and its exact schema references.
+
+Preserve original root composition under the 2026-10-09 operator clarification. Root middleware, metadata, prefixes, and errors remain source data outside the isolated-group check. Group-level unsupported constructs still diagnose. Generated group identity and binding reports still refer to the actual original root.
