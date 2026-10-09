@@ -1,5 +1,5 @@
 import { type Layer } from "effect";
-import type { HttpRouter } from "effect/unstable/http";
+import type { HttpRouter } from "effect/http";
 import { ContentApiHandlers as ExpressionHandlers } from "../project/bound-generic-expr/.effx/generated/content-handlers.js";
 import { ContentApiHandlers as DefaultedGuardHandlers } from "../project/bound-generic-defaulted-guard/.effx/generated/content-handlers.js";
 

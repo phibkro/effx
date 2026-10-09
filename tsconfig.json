@@ -39,14 +39,5 @@
     ]
   },
   "include": ["packages/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts", "ai-docs/**/*.ts"],
-  "exclude": [
-    "**/node_modules/**",
-    "**/.effx/**",
-    "**/test/fixtures/**",
-    "packages/*/ai-docs/**",
-    "packages/frontend-ts/test/bindings-rc116.test.ts",
-    "packages/frontend-ts/test/dense-status.test.ts",
-    "packages/frontend-ts/test/errors-static-members.test.ts",
-    "packages/frontend-ts/test/problem-naming.test.ts"
-  ]
+  "exclude": ["**/node_modules/**", "**/.effx/**", "**/test/fixtures/**", "packages/*/ai-docs/**"]
 }

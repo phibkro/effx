@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { observeBoundBehaviors } from "./bound-behaviors.js";
 
-// This Bun entry point and the outer Vitest bridge execute the same native rc.116
-// HTTP program. Assertions remain independent of its observed results.
+// This Bun entry point and the outer Vitest bridge execute the same native stable
+// Effect program. Assertions remain independent of its observed results.
 test("bound Profile/Content HTTP success, guard failure, backend defect, cleanup and cancellation", () =>
   observeBoundBehaviors().then((observed) => {
-    expect(observed.packageVersion).toBe("4.0.0-rc.116");
+    expect(observed.packageVersion).toBe("4.0.0");
     expect(observed.moduleOrigin).toBe(import.meta.resolve("effect"));
     expect(observed.runtimeIdentityMatches).toBe(true);
     expect(observed.profile.status).toBe(200);

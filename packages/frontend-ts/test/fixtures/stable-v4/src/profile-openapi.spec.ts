@@ -86,9 +86,9 @@ test("post-0024 consumers preserve complete OpenAPI and native SDK operation pro
   return Effect.runPromise(
     Effect.gen(function* () {
       const metadata = yield* Schema.decodeEffect(ReflectionMetadata)(effect);
-      expect(metadata.version).toBe("4.0.0-rc.116");
+      expect(metadata.version).toBe("4.0.0");
       expect(metadata.version).toBe(effectPackage.version);
-      expect(metadata.moduleOrigin).toBe(import.meta.resolve("effect/unstable/httpapi"));
+      expect(metadata.moduleOrigin).toBe(import.meta.resolve("effect/http-api"));
     }),
   );
 });

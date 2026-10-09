@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpServerResponse } from "effect/http";
 import type { ContentRaw as ValueRaw } from "../project/bound-generic-namespace-value/.effx/generated/content-handlers.js";
 import type { ContentRaw as StaticRaw } from "../project/bound-generic-namespace-static/.effx/generated/content-handlers.js";
 import type { Contexts } from "./contexts-namespace.js";

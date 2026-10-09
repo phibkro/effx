@@ -1,6 +1,5 @@
 import ts from "@typescript/typescript6";
-import { configDefaults, defineConfig } from "vitest/config";
-import { parkedTests } from "./tools/testing/parked-tests.ts";
+import { defineConfig } from "vitest/config";
 
 /**
  * Vite's oxc transform cannot lower TC39 (non-legacy) decorators yet, and vitest evaluates
@@ -46,7 +45,6 @@ export default defineConfig({
             "packages/cli/test/**/*.test.ts",
             "examples/extension-openapi-tags/test/extension.test.ts",
           ],
-          exclude: [...configDefaults.exclude, ...parkedTests],
           testTimeout: 60_000,
         },
       },

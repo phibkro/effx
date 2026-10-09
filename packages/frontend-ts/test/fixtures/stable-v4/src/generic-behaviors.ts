@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   ContentApiHandlers,
   ContentApiHandlersWith,
@@ -42,7 +42,7 @@ const publishRequest = () =>
   });
 
 /**
- * Runs the real generated generic bound factory on the unchanged rc.116 content root: a constrained
+ * Runs the real generated generic bound factory on the unchanged stable content root: a constrained
  * generic raw factory with a guards factory that shares its context tuple. The success case proves the
  * generic context reaches the handler Effect; the denial case proves the guard runs before the raw
  * handler, whose Effect must never be evaluated.

@@ -1,7 +1,7 @@
 import { Context, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import effectPackage from "effect/package.json";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   ProfileApiHandlers,
   ProfileApiHandlersWith,
@@ -233,8 +233,8 @@ const observations = Effect.gen(function* () {
 });
 
 /**
- * Foreign test entry point for hosts using a different installed Effect version.
- * Both Bun and Vitest call this native rc.116 program. The caller's AbortSignal
+ * Foreign test entry point for hosts using a separate installed Effect copy.
+ * Both Bun and Vitest call this native stable Effect program. The caller's AbortSignal
  * interrupts its root Scope, including real HTTP work and every host disposer.
  */
 export const observeBoundBehaviors = (signal?: AbortSignal): Promise<BoundBehaviorObservations> =>

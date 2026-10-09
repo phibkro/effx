@@ -1,6 +1,6 @@
 import effectPackage from "effect/package.json";
-import { HttpApi, OpenApi } from "effect/unstable/httpapi";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, OpenApi } from "effect/http-api";
+import type { HttpApiGroup } from "effect/http-api";
 import { ProfileApi as ExplicitProfileApi } from "../project/status-explicit/.effx/generated/profile-contract.js";
 import { DirectoryApi as ExplicitDirectoryApi } from "../project/status-explicit/.effx/generated/directory-contract.js";
 import { ContentApi as ExplicitContentApi } from "../project/status-explicit/.effx/generated/content-contract.js";
@@ -41,7 +41,7 @@ const reflect = <Id extends string, Groups extends HttpApiGroup.Constraint>(
 export const compareDenseStatus = () => ({
   effect: {
     version: effectPackage.version,
-    moduleOrigin: import.meta.resolve("effect/unstable/httpapi"),
+    moduleOrigin: import.meta.resolve("effect/http-api"),
   },
   explicit: reflect(
     HttpApi.make("external-native-api").add(
