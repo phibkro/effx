@@ -6,6 +6,8 @@ import { Imports } from "../generate/target.ts";
 import * as Terms from "../generate/term.ts";
 import type { RefLike, Term } from "../generate/term.ts";
 import {
+  claimName,
+  freeName,
   isDeclared,
   plannedSchemaRef,
   plannedSymbolRef,
@@ -33,7 +35,18 @@ export interface ExportPlan {
   readonly ref: SchemaRef | SymbolRef;
 }
 
-/** Pins win; otherwise `derived` is reserved collision-free in `home`. A failure names why a pin is unusable. */
+/** The reference a planned export will have, or why its identity cannot be formed. */
+const plannedRef = (
+  kind: "schema" | "value",
+  file: SourceFileRecord,
+  name: string,
+): Result.Result<SchemaRef | SymbolRef, string> =>
+  kind === "schema" ? plannedSchemaRef(file, name) : Result.succeed(plannedSymbolRef(file, name));
+
+/**
+ * Pins win; otherwise `derived` is reserved collision-free in `home`. A failure names why the plan is unusable
+ * (an unknown module, a taken name, an identity that cannot be formed) and reserves nothing.
+ */
 export const planExport = (
   ctx: Context,
   key: string,
@@ -44,14 +57,14 @@ export const planExport = (
   const pinned = ctx.input.names[key];
 
   if (pinned === undefined) {
-    const name = reserveName(ctx, home, derived);
+    const name = freeName(ctx, home, derived);
+    const ref = plannedRef(kind, home, name);
 
-    return Result.succeed({
-      target: home,
-      name,
-      source: "derived",
-      ref: kind === "schema" ? plannedSchemaRef(home, name) : plannedSymbolRef(home, name),
-    });
+    if (Result.isFailure(ref)) return Result.fail(ref.failure);
+
+    claimName(ctx, home, name);
+
+    return Result.succeed({ target: home, name, source: "derived", ref: ref.success });
   }
 
   const target = ctx.filesByModule.get(pinned.module);
@@ -65,17 +78,13 @@ export const planExport = (
   )
     return Result.fail(`pinned name ${pinned.export} is already declared in ${target.module}`);
 
-  ctx.taken.set(target.file, new Set([...(ctx.taken.get(target.file) ?? []), pinned.export]));
+  const ref = plannedRef(kind, target, pinned.export);
 
-  return Result.succeed({
-    target,
-    name: pinned.export,
-    source: "names",
-    ref:
-      kind === "schema"
-        ? plannedSchemaRef(target, pinned.export)
-        : plannedSymbolRef(target, pinned.export),
-  });
+  if (Result.isFailure(ref)) return Result.fail(ref.failure);
+
+  claimName(ctx, target, pinned.export);
+
+  return Result.succeed({ target, name: pinned.export, source: "names", ref: ref.success });
 };
 
 /** Every reference a term names, in print order, without duplicates. */

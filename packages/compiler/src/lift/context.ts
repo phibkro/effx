@@ -1,4 +1,4 @@
-import { Option } from "effect";
+import { Option, Result } from "effect";
 import { StableId, type SchemaRef, type SymbolRef } from "@effx/ir";
 import type { LiftRegistry } from "../annotation.ts";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
@@ -173,8 +173,8 @@ const boundNames = (file: SourceFileRecord): ReadonlyArray<string> => [
   ...file.imports.flatMap((sourceImport) => sourceImport.bindings.map((binding) => binding.local)),
 ];
 
-/** A collision-free, deterministic name: `preferred`, then `preferred2`, `preferred3`, … */
-export const reserveName = (ctx: Context, file: SourceFileRecord, preferred: string): string => {
+/** The first collision-free name for `preferred` in `file`: `preferred`, then `preferred2`, … Reserves nothing. */
+export const freeName = (ctx: Context, file: SourceFileRecord, preferred: string): string => {
   const taken = ctx.taken.get(file.file) ?? new Set(boundNames(file));
 
   const name = [
@@ -182,12 +182,24 @@ export const reserveName = (ctx: Context, file: SourceFileRecord, preferred: str
     ...Array.from({ length: 1000 }, (_, index) => `${preferred}${index + 2}`),
   ].find((candidate) => !taken.has(candidate));
 
-  const chosen = name ?? `${preferred}${taken.size}`;
+  return name ?? `${preferred}${taken.size}`;
+};
 
-  taken.add(chosen);
+/** Reserves `name` in `file` on top of everything the file already binds, so no later plan can take it. */
+export const claimName = (ctx: Context, file: SourceFileRecord, name: string): void => {
+  const taken = ctx.taken.get(file.file) ?? new Set(boundNames(file));
+
+  taken.add(name);
   ctx.taken.set(file.file, taken);
+};
 
-  return chosen;
+/** A collision-free, deterministic name, reserved: `preferred`, then `preferred2`, `preferred3`, … */
+export const reserveName = (ctx: Context, file: SourceFileRecord, preferred: string): string => {
+  const name = freeName(ctx, file, preferred);
+
+  claimName(ctx, file, name);
+
+  return name;
 };
 
 /** Whether a name is already bound at the top level of a file (before any planning). */
@@ -208,12 +220,25 @@ export const restoreTaken = (
   for (const [file, names] of snapshot) ctx.taken.set(file, new Set(names));
 };
 
-/** The real `SchemaRef` an export planned into `file` will have: module and identity path of that file. */
-export const plannedSchemaRef = (file: SourceFileRecord, name: string): SchemaRef => ({
-  module: file.module,
-  export: name,
-  symbolId: StableId.make("schema", `${file.idPath}/${name}`),
-});
+/**
+ * The real `SchemaRef` an export planned into `file` will have: module and identity path of that file. The
+ * identity is the StableId the frontend derives once the export exists. A file or name that cannot form one
+ * cannot hold a schema export the IR can name, so the result says why (the caller diagnoses it) and lifting
+ * stays total (spec 0019 §10.5).
+ */
+export const plannedSchemaRef = (
+  file: SourceFileRecord,
+  name: string,
+): Result.Result<SchemaRef, string> =>
+  Result.try({
+    try: () => ({
+      module: file.module,
+      export: name,
+      symbolId: StableId.make("schema", `${file.idPath}/${name}`),
+    }),
+    catch: () =>
+      `a schema export ${name} whose identity schema:${file.idPath}/${name} in ${file.file} is not a valid StableId`,
+  });
 
 /** The reference an exported value planned into `file` will have. */
 export const plannedSymbolRef = (file: SourceFileRecord, name: string): SymbolRef => ({
