@@ -40,8 +40,8 @@ mkdir -m 700 "$home/cache"
 
 if env -i PATH="$directory/node_modules/.bin:$PATH" HOME="$home" NPM_CONFIG_USERCONFIG="$home/.npmrc" \
   BUN_INSTALL_CACHE_DIR="$home/cache" \
-  bun --no-env-file install --cwd "$directory" --backend=copyfile ${flags[@]+"${flags[@]}"} \
-  --registry=https://registry.npmjs.org --config "$home/bunfig.toml" --cache-dir "$home/cache" \
+  bun --no-env-file install --cwd="$directory" --backend=copyfile ${flags[@]+"${flags[@]}"} \
+  --registry=https://registry.npmjs.org --config="$home/bunfig.toml" --cache-dir="$home/cache" \
   </dev/null >/dev/null 2>&1; then
   echo "install-public: complete"
 else
