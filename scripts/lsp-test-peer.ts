@@ -140,9 +140,12 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
     Effect.sync(() =>
       spawn(
         process.execPath,
-        launch
-          ? [launch.main ?? new URL("./effx.ts", import.meta.url).pathname, ...launch.args]
-          : [new URL(import.meta.url).pathname, "serve"],
+        [
+          "--no-env-file",
+          ...(launch
+            ? [launch.main ?? new URL("./effx.ts", import.meta.url).pathname, ...launch.args]
+            : [new URL(import.meta.url).pathname, "serve"]),
+        ],
         {
           stdio: ["pipe", "pipe", "pipe"],
           cwd: launch?.cwd,
@@ -747,9 +750,11 @@ if (process.argv[2] === "parent-client") {
     Effect.gen(function* () {
       const child = yield* Effect.acquireRelease(
         Effect.sync(() =>
-          spawn(process.execPath, [new URL(import.meta.url).pathname, "serve", "watch-parent"], {
-            stdio: "inherit",
-          }),
+          spawn(
+            process.execPath,
+            ["--no-env-file", new URL(import.meta.url).pathname, "serve", "watch-parent"],
+            { stdio: "inherit" },
+          ),
         ),
         (owned) =>
           Effect.callback<void>((resume) => {
