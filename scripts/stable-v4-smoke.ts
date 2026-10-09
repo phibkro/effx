@@ -2,7 +2,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
-import { publicInstall } from "./install-public.ts";
+import { publicInstall, workspaceOverrides } from "./install-public.ts";
 
 // EX-0023: reuse the scoped, bounded native child adapter. No child output is logged.
 // This root owns the disposable consumer, all children, and its socket server until scope close.
@@ -114,11 +114,7 @@ const smoke = Effect.gen(function* () {
       private: true,
       type: "module",
       dependencies: Object.fromEntries(dependencies),
-      // The packed CLI and compiler depend on the unpublished 0.1.0 siblings; pin them to the
-      // exact tarballs under test so the resolver never asks the public registry for them.
-      overrides: Object.fromEntries(
-        [...dependencies].filter(([name]) => name.startsWith("@effx/")),
-      ),
+      overrides: workspaceOverrides(dependencies),
       devDependencies: { typescript: "7.0.2", "@types/bun": "1.4.2" },
     }),
   );

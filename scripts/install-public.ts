@@ -12,6 +12,14 @@ class PublicInstallFailure extends Schema.TaggedError<PublicInstallFailure>()(
 }
 
 /**
+ * The packed @effx/cli and @effx/compiler depend on unpublished registry versions of their
+ * siblings. Every installed consumer pins the exact tarballs under test with package.json
+ * `overrides` so the resolver never asks the public registry for them. Pure and total.
+ */
+export const workspaceOverrides = (dependencies: ReadonlyMap<string, string>) =>
+  Object.fromEntries([...dependencies].filter(([name]) => name.startsWith("@effx/")));
+
+/**
  * EX-0023: one calling Scope owns the child. Construction performs no IO. The only resolver
  * custody boundary is `scripts/install-public.sh`, which replaces the child environment; this
  * adapter supplies PATH alone, closes stdin and never reads, returns or logs resolver output.

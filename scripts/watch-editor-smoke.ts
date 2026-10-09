@@ -5,7 +5,7 @@ import { acquirePeer } from "./lsp-test-peer.ts";
 import type { PackedCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import type { PeerError } from "./lsp-test-peer.ts";
 import { PackedStdoutReceipt, regularStdoutSentinel } from "./packed-lsp-stdout.ts";
-import { publicInstall } from "./install-public.ts";
+import { publicInstall, workspaceOverrides } from "./install-public.ts";
 
 /**
  * After the committed-reference gate and pack: bun scripts/watch-editor-smoke.ts <final-SHA>
@@ -172,6 +172,7 @@ const smoke = Effect.gen(function* () {
       version: "1.0.0",
       type: "module",
       dependencies: Object.fromEntries(dependencies),
+      overrides: workspaceOverrides(dependencies),
     }),
   );
 
