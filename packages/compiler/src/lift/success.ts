@@ -64,7 +64,7 @@ const statusOf = (scope: Scope, term: Term): Option.Option<number> => {
     : Option.none();
 };
 
-/** Is the term an inline Schema expression: a chain whose head is a native `Schema` member? */
+/** Native Schema construction, or the exact annotation of a resolved named schema value. */
 const isInlineSchema = (scope: Scope, term: Term): boolean => {
   const inner = unwrap(term);
 
@@ -75,6 +75,15 @@ const isInlineSchema = (scope: Scope, term: Term): boolean => {
     );
 
   const view = callView(inner);
+  const receiver = view?.callee._tag === "Member" ? refOf(view.callee.term) : Option.none();
+
+  if (
+    view?.callee._tag === "Member" &&
+    view.callee.member === "annotate" &&
+    view.args.length === 1 &&
+    Option.exists(receiver, isSchemaRef)
+  )
+    return true;
 
   return view !== undefined && isInlineSchema(scope, view.callee);
 };

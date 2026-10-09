@@ -647,3 +647,76 @@ describe("private const problem-union source facts", () => {
     assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
   });
 });
+
+describe("schema-valued source identity and annotations", () => {
+  it("reads an exported problem union through its truthful SchemaRef", () => {
+    const file = source([
+      'export const Read = HttpApiEndpoint.get("read", "/read", { success: UserProfileResponse, error: endpointProblemResponses(ProfileReadOwnProfileProblem) });',
+    ]);
+
+    const original = model(file);
+
+    const union = {
+      module: "./src/endpoint-problems",
+      export: "ProfileReadOwnProfileProblem",
+      symbolId: StableId.make("schema", "src/endpoint-problems/ProfileReadOwnProfileProblem"),
+    };
+
+    const response = input().rules.find((rule) => rule._tag === "ProblemRegistry");
+
+    assert.isDefined(response);
+
+    if (response?._tag !== "ProblemRegistry")
+      return assert.fail("the registered response rule is required");
+
+    const result = lift(
+      {
+        ...original,
+        endpoints: original.endpoints.map((endpoint) => ({
+          ...endpoint,
+          options:
+            endpoint.options._tag === "Entries"
+              ? {
+                  ...endpoint.options,
+                  entries: endpoint.options.entries.map((entry) =>
+                    entry._tag === "Property" &&
+                    entry.name === "error" &&
+                    entry.value._tag === "Lowered"
+                      ? {
+                          ...entry,
+                          value: {
+                            ...entry.value,
+                            term: Terms.call(Terms.ref(response.response), [Terms.ref(union)]),
+                          },
+                        }
+                      : entry,
+                  ),
+                }
+              : endpoint.options,
+        })),
+      },
+      input(),
+    );
+
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.deepStrictEqual(result.codeReferences[0]?.codes, [
+      "request.malformed",
+      "precondition.failed",
+    ]);
+  });
+
+  it.each([
+    "UserProfileResponse.annotate()",
+    "UserProfileResponse.annotate({}, {})",
+    "UserProfileResponse.unknown({})",
+    "ProfileReadOwnProfileProblem.annotate({})",
+  ])("does not broaden annotation extraction to unsupported shapes: %s", (success) => {
+    const result = outcome([
+      `export const Read = HttpApiEndpoint.get("read", "/read", { success: ${success}, error: Schema.Never });`,
+    ]);
+
+    assert.deepStrictEqual(result.collected.declarations, []);
+    assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
+    assert.deepStrictEqual(result.refactors, []);
+  });
+});

@@ -1196,7 +1196,11 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
       const symbol = { module: unit.module, export: statement.name };
       const range = rangeOf(scope, statement);
 
-      if (schemaRefs.has(identity(symbol))) continue;
+      if (schemaRefs.has(identity(symbol))) {
+        values.push({ symbol, range, init: slot(scope, node) });
+
+        continue;
+      }
 
       if (node.tag === "arrow") {
         const body = node.body;

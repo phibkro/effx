@@ -11,7 +11,7 @@ import {
 } from "./context.ts";
 import type { LocalValueCall, LocalValueRecord, OptionEntry, ValueRecord } from "./model.ts";
 import { exportRefactors, planExport } from "./plan.ts";
-import { refIdentity, sameRef } from "./refs.ts";
+import { refIdentity, sameRef, symbolRefOf } from "./refs.ts";
 import { nativeName } from "./native.ts";
 import { fail, failUnrecognized, nativeOf, open, type Scope } from "./scope.ts";
 import type { SourceRange, TermSlot } from "./source.ts";
@@ -36,10 +36,7 @@ import {
  * tuple a declaration references is recorded so the suggestion names it instead of copying the codes.
  */
 
-const symbolOnly = (term: Term): Option.Option<SymbolRef> =>
-  Option.flatMap(refOf(term), (reference) =>
-    "symbolId" in reference ? Option.none() : Option.some(reference),
-  );
+const symbolOf = (term: Term): Option.Option<SymbolRef> => Option.map(refOf(term), symbolRefOf);
 
 const nonLiteral = (scope: Scope, at: SourceRange, callee: string, argument: string): void =>
   fail(
@@ -179,7 +176,7 @@ const readUnionSource = (
     return Option.none();
   }
 
-  const tupleRef = symbolOnly(codesTerm);
+  const tupleRef = symbolOf(codesTerm);
 
   // Codes already exported as a tuple: use that export.
   if (Option.isSome(tupleRef)) {
@@ -245,7 +242,7 @@ const readUnion = (
   term: Term | undefined,
   at: SourceRange,
 ): Option.Option<ProblemsUse> => {
-  const union = term === undefined ? Option.none<SymbolRef>() : symbolOnly(term);
+  const union = term === undefined ? Option.none<SymbolRef>() : symbolOf(term);
   const value = Option.isSome(union) ? scope.ctx.values.get(refIdentity(union.value)) : undefined;
 
   if (Option.isNone(union) || value === undefined) {
@@ -362,7 +359,7 @@ export const readProblems = (
   // `error: Schema.Never` is what the generator writes for an endpoint with no problem contract.
   if (never?.kind === "Schema" && nativeName(never) === "Never") return Option.none();
   const view = callView(cursor.term);
-  const callee = view === undefined ? Option.none<SymbolRef>() : symbolOnly(view.callee);
+  const callee = view === undefined ? Option.none<SymbolRef>() : symbolOf(view.callee);
 
   if (view === undefined || Option.isNone(callee)) {
     failUnrecognized(scope, at, "error expression");
