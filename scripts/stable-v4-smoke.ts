@@ -193,22 +193,26 @@ const smoke = Effect.gen(function* () {
         diagnostics: Schema.Array(Schema.Struct({ code: Schema.String })),
       });
 
+      const Logged = Schema.Struct({ message: Schema.String });
       const isPublished = Schema.is(Published);
+      const isLogged = Schema.is(Logged);
 
       yield* peer.notification("textDocument/didOpen", {
         textDocument: { uri, languageId: "typescript", version: 1, text },
       });
 
-      const publication = yield* peer.waitNotification(
-        "textDocument/publishDiagnostics",
-        (value) => isPublished(value) && value.uri === uri,
+      // The open document's own publication arrives for the opened URI. The compiler's
+      // location-free EFFX2504 warnings are logged, not attached to a file.
+      yield* Schema.decodeUnknownEffect(Published)(
+        yield* peer.waitNotification(
+          "textDocument/publishDiagnostics",
+          (value) => isPublished(value) && value.uri === uri,
+        ),
       );
 
-      const diagnostics = yield* Schema.decodeUnknownEffect(Published)(publication);
-
-      yield* requireThat(
-        diagnostics.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2504"),
-        "installed native LSP compiler publication",
+      yield* peer.waitNotification(
+        "window/logMessage",
+        (value) => isLogged(value) && value.message.includes("EFFX2504: User.Get"),
       );
       yield* requireThat(
         (yield* peer.request("shutdown")) === null,
