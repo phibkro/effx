@@ -1,4 +1,3 @@
-// @effect-diagnostics unstableApiUsage:off -- EX-0034: real native child execution of the lift check.
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Array as Arr, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";

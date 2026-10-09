@@ -1,4 +1,3 @@
-// @effect-diagnostics unstableApiUsage:off -- EX-0034: real native child custody test boundary.
 import { assert, describe, it } from "@effect/vitest";
 import { BunServices } from "@effect/platform-bun";
 import { Cause, Duration, Effect, Exit, FileSystem, Fiber, Layer, Path, Schema } from "effect";

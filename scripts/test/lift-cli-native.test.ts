@@ -1,4 +1,3 @@
-// @effect-diagnostics unstableApiUsage:off -- EX-0034: the real `effx lift` process journey on native children.
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, Schema } from "effect";
