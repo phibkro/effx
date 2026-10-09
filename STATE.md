@@ -1,5 +1,13 @@
 # STATE — effx
 
+## Frozen stable-only operator decision — 2026-10-09
+
+Effect `>=4.0.0 <5` only; rc.116 support is retired by the amendment in
+spec 0010. Cutover is isolated on `upgrade/effect-v4-only`, based on actual
+main `86a7a5eb3b1161988bf7eab4e5921f36d41b8704`. Preserve all active feature
+worktrees and main's staged node_modules deletion. Historical research and
+earlier receipts below are evidence, not an active RC support policy.
+
 ## Lifecycle
 
 ```
