@@ -360,5 +360,6 @@ describe("the definition-owned `.annotate` lift", () => {
         reason: "hook-threw",
       }).message,
     );
+    assert.isFalse(messagesOf(result).some((message) => message.includes("private payload")));
   });
 });
