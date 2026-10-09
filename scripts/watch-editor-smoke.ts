@@ -466,8 +466,19 @@ export default defineConfig({ outDir: ".effx/custom", generators: { http: true }
         const oldHttp = path.join(consumer, outDir, "http.ts");
         yield* requireThat(yield* fs.exists(oldHttp), "initial HTTP projection exists");
         yield* write("app.ts", clean.replace('  /*😀*/ .http.get("/smoke")\n', ""));
-        yield* cycle(dev, 0);
-        yield* dev.next((line) => line.startsWith("wrote "));
+        // Creating and removing the alias symlink above legitimately completes extra dev cycles
+        // whose receipts are still queued. Read cycles in order until the receipt of the cycle that
+        // saw the edit: the only wrote line whose generated list is empty. A product that never
+        // removes the projection never produces it, and the deadline fails the journey.
+        yield* Effect.gen(function* () {
+          while (true) {
+            yield* cycle(dev, 0);
+
+            const receipt = yield* dev.next((line) => line.startsWith("wrote "));
+
+            if (receipt.trim().endsWith("; generated:")) return;
+          }
+        }).pipe(Effect.timeout("30 seconds"));
         yield* requireThat(
           !(yield* fs.exists(oldHttp)),
           "manifest-owned obsolete projection removed",
