@@ -20,8 +20,8 @@ const stable = {
 } satisfies GenerationContext;
 
 describe("target import resolution", () => {
-  it("uses one stable table for every generated Effect module", () => {
-    const expected = {
+  it("uses stable native modules and rejects unsupported exports", () => {
+    assert.deepStrictEqual(Imports(), {
       core: "effect",
       http: "effect/http",
       httpApi: "effect/http-api",
@@ -29,15 +29,14 @@ describe("target import resolution", () => {
       rpc: "effect/rpc",
       cli: "effect/cli",
       sql: "effect/sql",
-    };
+    });
 
-    assert.deepStrictEqual(Imports(), expected);
-    assert.deepStrictEqual(Imports(stable), expected);
-
-    for (const module of Object.values(expected))
+    for (const module of Object.values(Imports())) {
       assert.strictEqual(moduleSpecifier(stable, module), module);
+    }
 
     assert.strictEqual(moduleSpecifier(stable, "@effx/runtime"), "@effx/runtime");
+    assert.isFalse(isTargetModuleSupported(stable, "effect/unstable/httpapi"));
     assert.isFalse(isTargetModuleSupported(stable, "effect/not-a-module"));
 
     const unsupported = make(
@@ -61,7 +60,7 @@ describe("target import resolution", () => {
     assert.deepStrictEqual(defaults.render(), ['import { UsersHttp } from "./http.js";']);
   });
 
-  it("maps resolvable source leaves with the project profile and rejects unknown leaves", () => {
+  it("retains resolvable source leaves and rejects unknown leaves", () => {
     const available = new Set(["effect/Schema", "effect/sql/SqlError"]);
 
     const project: GenerationContext = {
@@ -71,11 +70,12 @@ describe("target import resolution", () => {
 
     assert.isTrue(isTargetModuleSupported(project, "effect/Schema"));
     assert.isTrue(isTargetModuleSupported(project, "effect/sql/SqlError"));
+    assert.isFalse(isTargetModuleSupported(project, "effect/unstable/sql/SqlError"));
     assert.strictEqual(moduleSpecifier(project, "effect/Schema"), "effect/Schema");
     assert.strictEqual(moduleSpecifier(project, "effect/sql/SqlError"), "effect/sql/SqlError");
     assert.isFalse(isTargetModuleSupported(project, "effect/sql/NotReal"));
     assert.isFalse(isTargetModuleSupported(project, "effect/not-a-module"));
-    assert.isFalse(isTargetModuleSupported(project, "effect/http-api/NotReal"));
+    assert.isFalse(isTargetModuleSupported(project, "effect/http-api"));
 
     const ir = make(
       ["effect/Schema", "effect/sql/SqlError", "effect/sql/NotReal"].map((module) => ({

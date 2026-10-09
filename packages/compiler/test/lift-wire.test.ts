@@ -230,7 +230,7 @@ const withTargetImports = (
 
 describe("pinned cross-file exports follow runtime source dependencies", () => {
   const rejected = (candidate: EffectModel) => {
-    const lifted = lift(candidate, input);
+    const lifted = lift(candidate, input, liftRegistryOf([]));
     const site = lifted.unsupported.find((entry) => entry.subject === "wire.annotated");
 
     assert.strictEqual(site?.primary.code, "EFFX3001");
@@ -259,6 +259,7 @@ describe("pinned cross-file exports follow runtime source dependencies", () => {
         resolvedImport("./src/original", "./src/original", "type", range, rootBinding),
       ]),
       input,
+      liftRegistryOf([]),
     );
 
     assert.deepStrictEqual(typeOnly.unsupported, []);
@@ -327,6 +328,7 @@ describe("pinned cross-file exports follow runtime source dependencies", () => {
         },
       ]),
       input,
+      liftRegistryOf([]),
     );
 
     assert.deepStrictEqual(result.unsupported, []);

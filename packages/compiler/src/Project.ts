@@ -7,7 +7,7 @@ import { Schema } from "effect";
  * cycle and no repeated field set. `Collected.ts` re-exports every schema here under its own module path.
  */
 
-export const TargetProfile = Schema.Literals(["effect-4.0", "effect-4.0-rc"]);
+export const TargetProfile = Schema.Literals(["effect-4.0"]);
 
 export type TargetProfile = typeof TargetProfile.Type;
 
