@@ -851,8 +851,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
       );
 
       yield* Effect.callback<void, TransportError>((resume) => {
+        // Effect.callback runs its cleanup only on interruption, never after resume.
         const check = () => {
           if (state !== "Open") {
+            checkpoints.delete(check);
             resume(Effect.fail(terminal ?? fault("Closed")));
 
             return;
@@ -862,7 +864,10 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
             (credit) => !credit.request && credit.end <= watermark,
           );
 
-          if (!(decoding && decodingEnd <= watermark) && !preceding) resume(Effect.void);
+          if (!(decoding && decodingEnd <= watermark) && !preceding) {
+            checkpoints.delete(check);
+            resume(Effect.void);
+          }
         };
 
         checkpoints.add(check);

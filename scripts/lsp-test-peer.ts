@@ -237,8 +237,11 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
     for (const waiter of waiters) waiter();
   });
 
-  if (readOutput) connection.listen();
-  else child.stdout.pause();
+  // Maintained 9.0.3 requests require listen(). An unread peer keeps the real pipe
+  // paused after listening, so native backpressure remains observable.
+  connection.listen();
+
+  if (!readOutput) child.stdout.pause();
 
   const exit = Effect.callback<{ code: number | null; signal: string | null }>((resume) => {
     const done = (code: number | null, signal: string | null) =>
@@ -286,7 +289,11 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
             message.method === method && (predicate === undefined || predicate(message.params)),
         );
 
-        if (index !== -1) resume(Effect.succeed(notifications.splice(index, 1)[0]!.params));
+        if (index === -1) return;
+
+        // Effect.callback runs this cleanup only on interruption, never after success.
+        waiters.delete(check);
+        resume(Effect.succeed(notifications.splice(index, 1)[0]!.params));
       };
 
       waiters.add(check);
@@ -379,7 +386,10 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
     waitResponse: Effect.fnUntraced(function* (id: string | number) {
       return yield* Effect.callback<typeof WireResponse.Type>((resume) => {
         const observe = (response: typeof WireResponse.Type) => {
-          if (response.id === id) resume(Effect.succeed(response));
+          if (response.id !== id) return;
+
+          responseWaiters.delete(observe);
+          resume(Effect.succeed(response));
         };
 
         responseWaiters.add(observe);
@@ -394,7 +404,10 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
         const check = () => {
           const index = protocolResponses.findIndex((response) => response.code === code);
 
-          if (index !== -1) resume(Effect.succeed(protocolResponses.splice(index, 1)[0]!));
+          if (index === -1) return;
+
+          protocolResponseWaiters.delete(check);
+          resume(Effect.succeed(protocolResponses.splice(index, 1)[0]!));
         };
 
         protocolResponseWaiters.add(check);
@@ -410,7 +423,10 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
     waitStderr: Effect.fnUntraced(function* (receipt: string) {
       yield* Effect.callback<void>((resume) => {
         const check = () => {
-          if (stderr.includes(receipt)) resume(Effect.void);
+          if (!stderr.includes(receipt)) return;
+
+          stderrWaiters.delete(check);
+          resume(Effect.void);
         };
 
         stderrWaiters.add(check);
@@ -431,7 +447,6 @@ export const acquirePeer = Effect.fnUntraced(function* (readOutput = true, launc
       child.kill("SIGINT");
     }),
     resumeOutput: Effect.sync(() => {
-      connection.listen();
       child.stdout.resume();
     }),
   };
@@ -609,12 +624,13 @@ if (process.argv[2] === "serve") {
           }
 
           if (message.method === "checkpoint") {
-            const checkpoint = yield* Effect.forkChild(transport.admitPending.pipe(Effect.orDie));
-            yield* Effect.callback<void>((resume) => {
-              const turn = RAL().timer.setImmediate(() => resume(Effect.void));
-
-              return Effect.sync(() => turn.dispose());
+            // Start the demand fiber first, then wait for one owned native turn. The
+            // same real turn gates the checkpoint's own ready-byte capture.
+            const checkpoint = yield* Effect.forkChild(transport.admitPending.pipe(Effect.orDie), {
+              startImmediately: true,
             });
+
+            yield* native.turn;
             yield* transport.sendNotification("checkpoint-captured", null).pipe(Effect.orDie);
             yield* Fiber.join(checkpoint);
 
