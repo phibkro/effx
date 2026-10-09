@@ -410,9 +410,10 @@ export const acquireLinuxLspIO = Effect.fnUntraced(function* (
 
         if ((ready & (flags.input | flags.hup)) === 0) throw ioFailure("IO", "poll error");
 
-        // Each returned view owns fresh backing storage; parser retention never
-        // aliases storage that a later native read can mutate.
-        const buffer = new Uint8Array(maxBytes);
+        // Each returned view owns fresh zeroed backing, with the same bounded allocation.
+        // The maintained Node RAL requires Buffer for an exact zero-copy prefix slice;
+        // Buffer.from(Uint8Array, 0, length) otherwise ignores length and overreads headers.
+        const buffer = Buffer.alloc(maxBytes);
         const length = readSync(0, buffer, 0, maxBytes, null);
 
         return length === 0 ? null : buffer.subarray(0, length);
