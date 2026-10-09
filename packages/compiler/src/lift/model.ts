@@ -188,6 +188,27 @@ export const WrapperFact = Schema.Struct({
 
 export type WrapperFact = typeof WrapperFact.Type;
 
+/**
+ * One user annotation definition recorded from source (spec 0020, 0019 §3.1 source facts): the export that
+ * declares it, the literal annotation `name`, and the Context key of its `effect` clause when the source
+ * declares one. `ref` and `key.ref` identity the declaring declarations the same `exportedSymbol`
+ * resolution every model reference uses; `key.id` is the key's literal `key` id, which a definition's
+ * runtime `effect.key.key` must equal. Inert data keyed by reference identity: no brand object, no
+ * evaluated application value and no second declaration inventory ever enters it.
+ */
+export const DefinitionRecord = Schema.Struct({
+  ref: SymbolRef,
+  name: Schema.String,
+  key: Schema.optionalKey(
+    Schema.Struct({
+      ref: SymbolRef,
+      id: Schema.String,
+    }),
+  ),
+});
+
+export type DefinitionRecord = typeof DefinitionRecord.Type;
+
 /** Everything the frontend knows of one project's Effect declarations. */
 export const EffectModel = Schema.Struct({
   target: TargetProfile,
@@ -201,6 +222,8 @@ export const EffectModel = Schema.Struct({
   groups: Schema.Array(GroupRecord),
   endpoints: Schema.Array(EndpointRecord),
   bindings: Schema.Array(BindingRecord),
+  /** Every user annotation definition the frontend resolved, one record per declaring export. */
+  definitions: Schema.Array(DefinitionRecord),
 });
 
 export type EffectModel = typeof EffectModel.Type;

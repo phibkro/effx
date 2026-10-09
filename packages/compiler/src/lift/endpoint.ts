@@ -1,7 +1,13 @@
 import { Option, Result } from "effect";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import { nameOfSymbol } from "./context.ts";
-import { mergeMetadata, readAnnotateMerge, readApply, type StepRead } from "./annotations.ts";
+import {
+  mergeMetadata,
+  readAnnotate,
+  readAnnotateMerge,
+  readApply,
+  type StepRead,
+} from "./annotations.ts";
 import { readChannel } from "./channels.ts";
 import type { StepRecord } from "./model.ts";
 import { nativeName } from "./native.ts";
@@ -18,6 +24,7 @@ import {
 } from "./scope.ts";
 import type { SourceRange } from "./source.ts";
 import { readSuccess } from "./success.ts";
+import type { Annotation } from "../Collected.ts";
 import type {
   AccessUse,
   MetadataUse,
@@ -71,19 +78,9 @@ interface Draft {
   metadata: MetadataUse | undefined;
   problems: ProblemsUse | undefined;
   access: AccessUse | undefined;
+  /** The definition annotations the `.annotate` steps produced, in step order (spec 0019 §5, S1). */
+  definitionAnnotations: Array<Annotation>;
 }
-
-/** The key an `.annotate(Key, value)` step names, for its diagnostic; the step itself is never lifted here. */
-const annotationKey = (step: Extract<StepRecord, { readonly _tag: "Method" }>): string => {
-  const [first] = step.args;
-
-  return first === undefined || first._tag === "Unlowered"
-    ? "(unreadable key)"
-    : Option.match(refOf(first.term), {
-        onNone: () => "(non-reference key)",
-        onSome: (reference) => nameOfSymbol(reference),
-      });
-};
 
 /** `.middleware(M)`: an exported marker with a recorded security fact. */
 const readMiddleware = (
@@ -177,6 +174,7 @@ export const recognizeEndpoint = (
     metadata: undefined,
     problems: undefined,
     access: undefined,
+    definitionAnnotations: [],
   };
 
   const callee = open(scope, endpoint.callee, "structure", "endpoint callee");
@@ -360,17 +358,14 @@ export const recognizeEndpoint = (
           case "annotateMerge":
             applyStepRead(scope, draft, readAnnotateMerge(scope, step), step.range);
             break;
-          case "annotate":
-            fail(
-              scope,
-              step.range,
-              LiftDiagnostics.EFFX3001.emit({
-                _tag: "UnknownAnnotationKey",
-                subject: scope.subject,
-                key: annotationKey(step),
-              }),
-            );
+          case "annotate": {
+            const annotation = readAnnotate(scope, step, draft.definitionAnnotations);
+
+            if (Option.isSome(annotation)) draft.definitionAnnotations.push(annotation.value);
+
             break;
+          }
+
           default:
             fail(
               scope,
@@ -434,6 +429,7 @@ export const recognizeEndpoint = (
           },
           problems: draft.problems,
           access: draft.access,
+          annotations: draft.definitionAnnotations,
         }
       : undefined;
 

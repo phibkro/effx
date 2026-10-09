@@ -4,6 +4,7 @@ import {
   compileCollected,
   hasErrors,
   lift,
+  liftRegistryOf,
   type Collected,
   type CompileResult,
   type LiftResult,
@@ -36,5 +37,8 @@ export const roundtrip = Effect.fnUntraced(function* (spec: GroupSpec) {
 
   const files = Option.getOrThrow(original.files.value);
 
-  return { original, lifted: lift(modelOf(files, universe), liftInput) } satisfies Roundtrip;
+  return {
+    original,
+    lifted: lift(modelOf(files, universe), liftInput, liftRegistryOf([])),
+  } satisfies Roundtrip;
 });

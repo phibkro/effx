@@ -8,6 +8,7 @@ import {
   compileCollected,
   dense,
   lift,
+  liftRegistryOf,
   printSuggestion,
   renderPatch,
   type EffectModel,
@@ -56,7 +57,7 @@ const model = (file: SourceFile): EffectModel =>
   });
 
 const outcome = (body: ReadonlyArray<string>, options: LiftInput = input()) =>
-  lift(model(source(body)), options);
+  lift(model(source(body)), options, liftRegistryOf([]));
 
 const unsupported = (body: ReadonlyArray<string>) => {
   const result = outcome(body);
@@ -182,17 +183,21 @@ describe("lift repair: shared references and source ownership", () => {
 
       const both = { ...file, contents: file.contents.replace(".add(Read)", ".add(Read, Other)") };
 
-      const result = lift(model(both), {
-        ...input(),
-        names: pinned
-          ? {
-              "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
-                module: "./src/endpoint-problems",
-                export: "ReadCodes",
-              },
-            }
-          : {},
-      });
+      const result = lift(
+        model(both),
+        {
+          ...input(),
+          names: pinned
+            ? {
+                "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
+                  module: "./src/endpoint-problems",
+                  export: "ReadCodes",
+                },
+              }
+            : {},
+        },
+        liftRegistryOf([]),
+      );
 
       assert.deepStrictEqual(result.unsupported, []);
       assert.strictEqual(
@@ -208,6 +213,7 @@ describe("lift repair: shared references and source ownership", () => {
             root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
           }),
           input(),
+          liftRegistryOf([]),
         ).refactors.length,
         0,
       );
@@ -290,7 +296,7 @@ describe("lift repair: shared references and source ownership", () => {
       })),
     };
 
-    const result = lift(replaced, input());
+    const result = lift(replaced, input(), liftRegistryOf([]));
     assert.deepStrictEqual(result.unsupported, []);
     const printed = printSuggestion(result.collected, { module: input().output.module });
     assert.isTrue(Result.isSuccess(printed));
@@ -326,6 +332,7 @@ describe("lift repair: shared references and source ownership", () => {
         root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
       }),
       input(),
+      liftRegistryOf([]),
     );
 
     const printed = printSuggestion(result.collected, {
@@ -391,8 +398,8 @@ describe("lift repair: shared references and source ownership", () => {
           })),
         };
 
-        const called = lift(original, input());
-        const chainResult = lift(chained, input());
+        const called = lift(original, input(), liftRegistryOf([]));
+        const chainResult = lift(chained, input(), liftRegistryOf([]));
 
         const replacedText = (result: ReturnType<typeof lift>) =>
           result.refactors
@@ -423,7 +430,7 @@ describe("lift repair: shared references and source ownership", () => {
           contents: base.contents.replace(/\n/gu, "\r\n").replace(/\r\n$/u, ""),
         };
 
-        const result = lift(model(file), input());
+        const result = lift(model(file), input(), liftRegistryOf([]));
 
         const patched = applyPatch(filesOf(file), yield* patchOf(file, result)).find(
           (entry) => entry.path === file.path,
@@ -510,6 +517,7 @@ it.effect("densifies configured pattern identifiers before dropping operationId"
         root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
       }),
       { ...input(), project: { ...project, naming: { problemIdentifier: "{Group}{Key}Problem" } } },
+      liftRegistryOf([]),
     );
 
     const compact = dense(result.collected);

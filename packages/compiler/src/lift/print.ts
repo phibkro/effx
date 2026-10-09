@@ -256,6 +256,14 @@ export const printSuggestion = (
           `.http.${method}(${value(annotation.name === "Http.Problems" ? withTuple(arg) : arg, undefined, 2, true)})`,
         ];
 
+      // A definition annotation (spec 0020): printed as the builder step the user applied, so the frontend
+      // recollects the same annotation with the same `definition` export (L5).
+      if (annotation.definition !== undefined && arg !== undefined) {
+        const applied = annotation.args.map((argument) => flat(argument, undefined)).join(", ");
+
+        return [`.with(${local(annotation.definition)}(${applied}))`];
+      }
+
       problems.push(`${declaration.id}: annotation ${annotation.name} has no builder form`);
 
       return [];

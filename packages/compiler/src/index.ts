@@ -56,7 +56,7 @@ export { decodeArgs } from "./args.ts";
 export * as Extensions from "./extensions/index.ts";
 
 // Typed annotation definitions (spec 0020): the compiler half of `Annotation.define`.
-export { dataOf, extension, implement } from "./annotation.ts";
+export { dataOf, extension, implement, liftRegistryOf } from "./annotation.ts";
 
 export type {
   ImplementOptions,
@@ -64,6 +64,12 @@ export type {
   ReadArgs,
   ReadContext,
   Resolved,
+  LiftRecognitionError,
+  LiftSite,
+  DefinitionLift,
+  LiftRegistry,
+  LiftDefinitionEntry,
+  LiftRecognition,
 } from "./annotation.ts";
 
 export { LawViolation, laws } from "./laws.ts";

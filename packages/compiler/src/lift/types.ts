@@ -1,6 +1,7 @@
 import type { SchemaRef, SymbolRef } from "@effx/ir";
 import type { AccessContractData } from "../extensions/access-contract.ts";
 import type { Cause } from "./causes.ts";
+import type { Annotation } from "../Collected.ts";
 import type { CodeReference, Refactor } from "./result.ts";
 
 /*
@@ -73,6 +74,11 @@ export interface Recognized {
   readonly metadata: ContractMetadata;
   readonly problems: ProblemsUse | undefined;
   readonly access: AccessUse | undefined;
+  /**
+   * The definition annotations the `.annotate` steps produced, in step order (spec 0019 §5, S1). Atomicity
+   * is the engine's: a recognized endpoint carries them only when every cause was cleared.
+   */
+  readonly annotations: ReadonlyArray<Annotation>;
 }
 
 export interface Outcome {

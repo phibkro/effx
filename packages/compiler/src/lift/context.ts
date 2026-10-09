@@ -1,10 +1,19 @@
 import { Option } from "effect";
 import { StableId, type SchemaRef, type SymbolRef } from "@effx/ir";
+import type { LiftRegistry } from "../annotation.ts";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import type { Cause } from "./causes.ts";
-import type { EffectModel, MiddlewareFact, SchemaFact, ValueRecord, WrapperFact } from "./model.ts";
+import type {
+  DefinitionRecord,
+  EffectModel,
+  MiddlewareFact,
+  SchemaFact,
+  ValueRecord,
+  WrapperFact,
+} from "./model.ts";
+import type { LiftInput } from "./input.ts";
 import { refIdentity } from "./refs.ts";
-import type { LiftInput, LiftRule } from "./rules.ts";
+import type { LiftRule } from "./rules.ts";
 import type { Finding, SourceFileRecord, SourceRange } from "./source.ts";
 import { groupExportPart } from "../generate/http-contracts.ts";
 import type { CodeReference, Refactor } from "./result.ts";
@@ -45,6 +54,12 @@ export interface Context {
   readonly problemRules: ReadonlyArray<ProblemRule>;
   readonly metadataRules: ReadonlyArray<MetadataRule>;
   readonly accessRules: ReadonlyArray<AccessRule>;
+  /** Definition records by reference identity (both the definition's own ref and its effect key's). */
+  readonly definitionsByRef: ReadonlyMap<string, DefinitionRecord>;
+  /** Definition records by annotation name. */
+  readonly definitionsByName: ReadonlyMap<string, DefinitionRecord>;
+  /** The selected definition-owned hooks the caller composed with `liftRegistryOf`. */
+  readonly registry: LiftRegistry;
   /** Names already taken per file, extended as exports are planned (collision-free by construction). */
   readonly taken: Map<string, Set<string>>;
   /** Successful extraction plans shared by every consumer of the same resolved union. */
@@ -69,7 +84,11 @@ const rulesOf = <Tag extends LiftRule["_tag"]>(
   tag: Tag,
 ): ReadonlyArray<RuleOf<Tag>> => rules.filter(isRule(tag));
 
-export const makeContext = (model: EffectModel, input: LiftInput): Context => ({
+export const makeContext = (
+  model: EffectModel,
+  input: LiftInput,
+  registry: LiftRegistry,
+): Context => ({
   model,
   input,
   files: indexBy(model.files, (file) => file.file),
@@ -78,16 +97,43 @@ export const makeContext = (model: EffectModel, input: LiftInput): Context => ({
   markers: indexBy(model.markers, (fact) => refIdentity(fact.ref)),
   values: indexBy(model.values, (value) => refIdentity(value.symbol)),
   wrappers: indexBy(model.wrappers, (wrapper) => refIdentity(wrapper.helper)),
-  successRules: indexBy(rulesOf(input.rules, "SuccessWrapper"), (rule) => refIdentity(rule.callee)),
-  noSchemaRules: indexBy(rulesOf(input.rules, "NoSchemaSuccess"), (rule) =>
+  successRules: indexBy(rulesOf(aggregateRules(input, registry), "SuccessWrapper"), (rule) =>
     refIdentity(rule.callee),
   ),
-  problemRules: rulesOf(input.rules, "ProblemRegistry"),
-  metadataRules: rulesOf(input.rules, "Metadata"),
-  accessRules: rulesOf(input.rules, "Access"),
+  noSchemaRules: indexBy(rulesOf(aggregateRules(input, registry), "NoSchemaSuccess"), (rule) =>
+    refIdentity(rule.callee),
+  ),
+  problemRules: rulesOf(aggregateRules(input, registry), "ProblemRegistry"),
+  metadataRules: rulesOf(aggregateRules(input, registry), "Metadata"),
+  accessRules: rulesOf(aggregateRules(input, registry), "Access"),
+  definitionsByRef: definitionsByRefOf(model),
+  definitionsByName: indexBy(model.definitions, (record) => record.name),
+  registry,
   taken: new Map(),
   codePlans: new Map(),
 });
+
+/**
+ * The rules one `lift` call sees: the frozen project rules first, then the definition-owned rule data of
+ * the selected implementations, in implementation order (spec 0019 §5, S1). One rules list, one engine.
+ */
+const aggregateRules = (input: LiftInput, registry: LiftRegistry): ReadonlyArray<LiftRule> => [
+  ...input.rules,
+  ...registry.rules,
+];
+
+/** Definition records indexed by BOTH the definition's ref and its declared key's ref. */
+const definitionsByRefOf = (model: EffectModel): ReadonlyMap<string, DefinitionRecord> => {
+  const byRef = new Map<string, DefinitionRecord>();
+
+  for (const record of model.definitions) {
+    byRef.set(refIdentity(record.ref), record);
+
+    if (record.key !== undefined) byRef.set(refIdentity(record.key.ref), record);
+  }
+
+  return byRef;
+};
 
 /** `Group.key` as users write it; the key falls back to the declared symbol when it is not a literal. */
 export const subjectOf = (group: string, key: Option.Option<string>, symbol: SymbolRef): string =>

@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   Terms,
   lift,
+  liftRegistryOf,
   type BindingRecord,
   type HandlerRegistration,
   type LiftInput,
@@ -33,6 +34,7 @@ const liftOf = (group: string, lines: ReadonlyArray<string>, input?: LiftInput) 
       root: { symbol: { module: `./src/${group}`, export: "Root" }, id: `${group}-root` },
     }),
     input ?? sourceInput(group),
+    liftRegistryOf([]),
   );
 
 const read = (key: string, path = "/g/read") => [
@@ -105,7 +107,7 @@ describe("a group the core cannot represent is blocked as a whole", () => {
       root: { symbol: { module: "./src/outer", export: "Root" }, id: "outer-root" },
     });
 
-    const result = lift(model, sourceInput("outer"));
+    const result = lift(model, sourceInput("outer"), liftRegistryOf([]));
     const [root] = model.roots;
 
     assert.deepStrictEqual(result.unsupported, []);
@@ -258,7 +260,7 @@ describe("the binding report is a static key comparison and is never verified", 
   });
 
   const bound = (...records: ReadonlyArray<BindingRecord>) =>
-    lift({ ...model, bindings: records }, sourceInput("bound"));
+    lift({ ...model, bindings: records }, sourceInput("bound"), liftRegistryOf([]));
 
   it("is equal and silent when the keys are exactly the group's endpoint keys", () => {
     const result = bound(binding([registered("read"), registered("write")]));
@@ -304,6 +306,7 @@ describe("the binding report is a static key comparison and is never verified", 
         ],
       },
       sourceInput("bound"),
+      liftRegistryOf([]),
     );
 
     const sites = result.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX3202");

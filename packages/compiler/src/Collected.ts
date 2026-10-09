@@ -1,7 +1,38 @@
 import { type Effect, Schema } from "effect";
 import { SchemaRef, StableId, SymbolRef } from "@effx/ir";
 import { Diagnostic, Location, type StageResult } from "./Diagnostic.ts";
+import {
+  EmitMode as EmitSchema,
+  Naming as NamingSchema,
+  ProjectResolution as ProjectSchema,
+  TargetProfile as TargetSchema,
+} from "./Project.ts";
+import type {
+  EmitMode as EmitModeData,
+  Naming as NamingData,
+  ProjectResolution as ProjectResolutionData,
+  TargetProfile as TargetProfileData,
+} from "./Project.ts";
+import { LiftProjectInput } from "./lift/input.ts";
 import type { CompilerFault } from "./CompilerFault.ts";
+
+export const TargetProfile = TargetSchema;
+
+export type TargetProfile = TargetProfileData;
+
+export const EmitMode = EmitSchema;
+
+export type EmitMode = EmitModeData;
+
+export const Naming = NamingSchema;
+
+export type Naming = NamingData;
+
+/** @internal */
+export const ProjectResolution = ProjectSchema;
+
+/** @internal */
+export type ProjectResolution = ProjectResolutionData;
 
 /**
  * Frontend-neutral annotation argument. Decorators and builder chains both lower to this,
@@ -122,37 +153,6 @@ export const Declaration = Schema.Struct({
 /** @internal */
 export type Declaration = typeof Declaration.Type;
 
-export const TargetProfile = Schema.Literals(["effect-4.0", "effect-4.0-rc"]);
-
-export type TargetProfile = typeof TargetProfile.Type;
-
-export const EmitMode = Schema.Literals(["contract", "handlers", "all"]);
-
-export type EmitMode = typeof EmitMode.Type;
-
-/** Declared naming policy; omission preserves legacy problem-contract IR. */
-export const Naming = Schema.Struct({
-  problemIdentifier: Schema.optionalKey(Schema.String),
-});
-
-export type Naming = typeof Naming.Type;
-
-/** @internal */
-export const ProjectResolution = Schema.Struct({
-  naming: Schema.optionalKey(Naming),
-  target: TargetProfile,
-  emit: EmitMode,
-  strictAccess: Schema.optionalKey(Schema.Boolean),
-  allowImportingTsExtensions: Schema.Boolean,
-  /** One output-independent base for local symbols in canonical IR. */
-  canonicalImportBase: Schema.String,
-  /** Actual directory where this pass emits files. */
-  outputDir: Schema.String,
-});
-
-/** @internal */
-export type ProjectResolution = typeof ProjectResolution.Type;
-
 /** @internal */
 export const SpreadSource = Schema.Struct({
   declarationId: Schema.String,
@@ -243,6 +243,13 @@ export const ProjectConfig = Schema.Struct({
   target: Schema.optionalKey(TargetProfile),
   emit: Schema.optionalKey(EmitMode),
   strictAccess: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The frozen inert lift facts (the data half of one `lift` call): rules, pinned names, an optional
+   * `emptyInput`, the suggestion module and inert projection references. Executable hooks never enter the
+   * config; definition-owned lift hooks arrive only through selected `Extension` implementations
+   * (spec 0019 §5.2).
+   */
+  lift: Schema.optionalKey(LiftProjectInput),
 });
 
 export type ProjectConfig = typeof ProjectConfig.Type;

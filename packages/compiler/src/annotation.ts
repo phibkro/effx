@@ -12,8 +12,8 @@ import type {
   SymbolMarker,
 } from "@effx/runtime";
 import { RuntimeDiagnostics } from "@effx/runtime/diagnostics";
-import { type ApplicationIR, type ExtensionNode, StableId, SymbolRef } from "@effx/ir";
-import type { Annotation, Declaration } from "./Collected.ts";
+import { type ApplicationIR, type ExtensionNode, SchemaRef, StableId, SymbolRef } from "@effx/ir";
+import type { Annotation, Declaration, ProjectResolution } from "./Collected.ts";
 import type { Diagnostic } from "./Diagnostic.ts";
 import { CoreDiagnostics, HttpDiagnostics } from "./diagnostics/index.ts";
 import { SchemaArg, SymbolArg, decodeArgs } from "./args.ts";
@@ -26,6 +26,9 @@ import {
   type Interpreter,
   type InterpretContext,
 } from "./Extension.ts";
+import type { SourceRange } from "./lift/source.ts";
+import type { LiftRule } from "./lift/rules.ts";
+import type { Term } from "./generate/term.ts";
 import { printable } from "./print-args.ts";
 import { member, methodCall } from "./generate/term.ts";
 import { refTerm } from "./generate/emit.ts";
@@ -157,15 +160,98 @@ export interface ReadContext {
   readonly ctx: InterpretContext;
 }
 
+/**
+ * The closed failure a recognizer returns instead of arguments (spec 0019 §5, S1): one tag plus the
+ * construct that names the site's neutral form. Schema-derived data only: never a thrown value, never
+ * application payload.
+ */
+export interface LiftRecognitionError {
+  readonly _tag: "Unsupported";
+  readonly construct: string;
+}
+
+/**
+ * The neutral data the core hands a recognizer (spec 0019 §5, S1). Pure and synchronous; built per
+ * invocation from data the analyzed model already recorded. `plan` is exactly the definition's own
+ * lowering plan — never a second plan — and `schema` is derived once per registry from that same plan,
+ * so no endpoint derives its own codec.
+ */
+export interface LiftSite<D extends DefinitionData = DefinitionData> {
+  readonly definition: D;
+  readonly plan: ArgsPlan;
+  readonly schema: ArgsCodec<D>;
+  /** The term the frontend lowered for the annotation's argument list. */
+  readonly value: Term;
+  /** `<group>.<endpoint key>`, as users write the site. */
+  readonly subject: string;
+  /** Source range of the `.annotate` step. */
+  readonly range: SourceRange;
+  readonly names: Readonly<Record<string, SymbolRef>>;
+  readonly emptyInput: SchemaRef | undefined;
+  readonly project: ProjectResolution | undefined;
+}
+
+/**
+ * A definition-owned compiler lift (spec 0019 §5, S1): inert rule DATA validated as `LiftRule`s, and the
+ * optional recognizer the core invokes only at this definition's registered effect key. Both are
+ * compiler-side; neither enters runtime `Definition` data, the IR, or `LiftInput`.
+ */
+export interface DefinitionLift<D extends DefinitionData = DefinitionData> {
+  readonly rules?: ReadonlyArray<LiftRule>;
+  readonly recognize?: (site: LiftSite<D>) => Result.Result<ReadArgs<D>, LiftRecognitionError>;
+}
+
+/**
+ * The recognizer at the erased registry boundary. The returned arguments stay `unknown` here and are
+ * re-typed by the definition's own decode (`decodeSchemaOf` derives the exact codec from the same plan
+ * the site carries), so no second cast ever narrows what a recognizer may return.
+ */
+export type LiftRecognition = (
+  site: LiftSite<DefinitionData>,
+) => Result.Result<unknown, LiftRecognitionError>;
+
+/**
+ * One entry the lift registry carries per definition (spec 0019 §5, S1): the definition value itself,
+ * its aggregate rule data and its recognizer.
+ */
+export interface LiftDefinitionEntry {
+  readonly definition: DefinitionData;
+  readonly rules: ReadonlyArray<LiftRule>;
+  readonly recognize: LiftRecognition | undefined;
+}
+
+/** The registry `lift(model, input, registry)` consumes: per-definition entries and the shared rules. */
+export interface LiftRegistry {
+  /** Entries by annotation name, in implementation order; the first implementation of a name wins. */
+  readonly definitions: ReadonlyMap<string, LiftDefinitionEntry>;
+  /** Definition-owned rule data, in implementation order, behind the input's own rules. */
+  readonly rules: ReadonlyArray<LiftRule>;
+  /** The derived lowered-args codec of each definition, derived ONCE per registry (never per endpoint). */
+  readonly codecs: ReadonlyMap<string, ArgsCodec>;
+}
+
 export interface Implementation<D extends DefinitionData = DefinitionData> {
   readonly definition: D;
   readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   readonly interpreter: Interpreter;
   readonly analyses: ReadonlyArray<Analysis>;
   readonly generators: ReadonlyArray<Generator>;
+  /**
+   * The erased definition-owned lift hook (spec 0019 §5, S1). Erased because `Implementation<D>` must
+   * stay assignable to `Implementation` for `extension()`; the site carries the definition itself and the
+   * result is validated by the definition's own decode, so the type-level erasure never changes what a
+   * recognizer receives or returns.
+   */
+  readonly lift?: LiftImplementation;
 }
 
-export interface ImplementOptions<Read> {
+/** The erased per-definition lift hook an `implement()` built from its `DefinitionLift<D>`. */
+export interface LiftImplementation {
+  readonly rules: ReadonlyArray<LiftRule>;
+  readonly recognize: LiftRecognition | undefined;
+}
+
+export interface ImplementOptions<Read, D extends DefinitionData = DefinitionData> {
   /** Explanations owned by this implementation, collected by extension(). */
   readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   /** IR analyses that belong to this annotation (diagnostics only). */
@@ -192,6 +278,11 @@ export interface ImplementOptions<Read> {
    * (`@Errors`/`@Requirements` are decoded and reported by the operation they sit on).
    */
   readonly malformed?: "report" | "ignore";
+  /**
+   * The definition-owned compiler lift seam (spec 0019 §5, S1). Omitted: the framework's default
+   * recognizer lowers the site's term by `definition.plan` and decodes with the definition's own codec.
+   */
+  readonly lift?: DefinitionLift<D>;
 }
 
 /** The decode Schema of a definition: lowered `args` in, what `read` receives out. */
@@ -398,10 +489,24 @@ const effectAnalysis =
  */
 export const implement = <D extends DefinitionData>(
   definition: D,
-  options: ImplementOptions<ReadArgs<D>> = {},
+  options: ImplementOptions<ReadArgs<D>, D> = {},
 ): Implementation<D> => {
   const decode = decoderOf(definition);
   const read = options.read ?? declarativeRead<ReadArgs<D>>(definition);
+
+  const recognizer = options.lift?.recognize;
+
+  const recognize: LiftRecognition | undefined =
+    recognizer === undefined
+      ? undefined
+      : (site) => {
+          // SAFETY: `recognizer` is typed for this definition's exact `D`; the erased registry invokes it
+          // only with a site built from the SAME definition value, because the registry keys by the
+          // definition's own name and `definitionDiagnostics` rejects duplicate names. The returned
+          // arguments stay `unknown` here and are validated by `decodeSchemaOf(definition)` before they
+          // enter an annotation.
+          return recognizer(site as Parameters<typeof recognizer>[0]);
+        };
 
   const interpreter: Interpreter = (annotation, declaration, ctx) => {
     const guard = options.before?.(annotation, declaration);
@@ -454,10 +559,22 @@ export const implement = <D extends DefinitionData>(
     generators: options.write === undefined ? [] : [options.write],
   };
 
-  return options.diagnosticEntries === undefined
+  // SAFETY boundary: the erased hook is only built in the same branch that `options.lift` narrows, and the
+  // recognizer uses one documented cast (see `recognize`) instead of narrowing a copy by alias.
+  return options.lift === undefined
     ? implementation
-    : { ...implementation, diagnosticEntries: options.diagnosticEntries };
+    : adjusted(implementation, { rules: options.lift.rules ?? [], recognize });
 };
+
+/** Assigns `lift` onto an implementation while keeping the property's exact shape. */
+function adjusted<D extends DefinitionData>(
+  implementation: Implementation<D>,
+  lift: LiftImplementation,
+): Implementation<D> {
+  const copy: Implementation<D> & { lift: LiftImplementation } = { ...implementation, lift };
+
+  return copy;
+}
 
 /**
  * An `Extension` whose interpreters are derived from its implementations. A definition with an `effect`
@@ -486,6 +603,11 @@ export const extension = (
       ]),
     ),
     annotations: implementations.map((implementation) => implementation.definition),
+    lifts: implementations.flatMap((implementation) =>
+      implementation.lift === undefined
+        ? []
+        : [{ definition: implementation.definition, lift: implementation.lift }],
+    ),
     analyses: [
       ...implementations.flatMap((implementation) => implementation.analyses),
       ...effectful.map(effectAnalysis),
@@ -515,6 +637,42 @@ export const definitionsOf = (
       ]),
     ),
   );
+
+/**
+ * The lift registry of the SELECTED extensions (spec 0019 §5, S1): one entry per definition that declares
+ * a compiler lift, keyed by annotation name, and the definition-owned rule data in implementation order.
+ * There is no second registry convention: duplicate definition names and duplicate effect keys stay
+ * reported by `definitionDiagnostics(extensions)`, which the pipeline already runs, and a name only
+ * appears once here (first implementation in extension order).
+ */
+export const liftRegistryOf = (extensions: ReadonlyArray<Extension>): LiftRegistry => {
+  const definitions = new Map<string, LiftDefinitionEntry>();
+  const rules: Array<LiftRule> = [];
+
+  for (const extension of extensions) {
+    for (const entry of extension.lifts ?? []) {
+      const known = definitions.get(entry.definition.name);
+
+      if (known === undefined) {
+        definitions.set(entry.definition.name, {
+          definition: entry.definition,
+          rules: entry.lift.rules,
+          recognize: entry.lift.recognize,
+        });
+
+        rules.push(...entry.lift.rules);
+      }
+    }
+  }
+
+  // The codec is derived once per registry: every endpoint that reads the same definition reads the SAME
+  // lowered-args Schema, so no endpoint ever runs `decodeSchemaOf` again (spec 0019 §5, S1).
+  const codecs = new Map<string, ArgsCodec>(
+    [...definitions].map(([name, { definition }]) => [name, decodeSchemaOf(definition)]),
+  );
+
+  return { definitions, rules, codecs };
+};
 
 const nameGrammar = /^[A-Za-z][A-Za-z0-9._-]*$/u;
 

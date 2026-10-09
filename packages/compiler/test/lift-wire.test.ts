@@ -10,6 +10,7 @@ import {
   dense,
   hasErrors,
   lift,
+  liftRegistryOf,
   printSuggestion,
   renderPatch,
   type ProjectConfig,
@@ -136,33 +137,37 @@ const model = modelOf(sourceFiles, {
   root: { symbol: { module: "./src/original", export: "Root" }, id: "wire-root" },
 });
 
-const result = lift(model, {
-  group: "wire",
-  rules: [
-    {
-      _tag: "ProblemRegistry",
-      response: { module: "./src/problems", export: "Problems", member: "responses" },
-      union: { module: "./src/problems", export: "Problems", member: "union" },
-      registry: { module: "./src/problems", export: "registry" },
+const result = lift(
+  model,
+  {
+    group: "wire",
+    rules: [
+      {
+        _tag: "ProblemRegistry",
+        response: { module: "./src/problems", export: "Problems", member: "responses" },
+        union: { module: "./src/problems", export: "Problems", member: "union" },
+        registry: { module: "./src/problems", export: "registry" },
+      },
+      {
+        _tag: "SuccessWrapper",
+        callee: { module: "./src/types", export: "Responses", member: "created" },
+        responseHeaders: schema("ResponseHeaders"),
+        status: 201,
+      },
+    ],
+    names: {},
+    emptyInput: schema("EmptyInput"),
+    output: { module: "./src/suggestion.effx" },
+    project: {
+      target: "effect-4.0",
+      emit: "contract",
+      allowImportingTsExtensions: true,
+      canonicalImportBase: "/wire",
+      outputDir: "/wire/.effx/generated",
     },
-    {
-      _tag: "SuccessWrapper",
-      callee: { module: "./src/types", export: "Responses", member: "created" },
-      responseHeaders: schema("ResponseHeaders"),
-      status: 201,
-    },
-  ],
-  names: {},
-  emptyInput: schema("EmptyInput"),
-  output: { module: "./src/suggestion.effx" },
-  project: {
-    target: "effect-4.0",
-    emit: "contract",
-    allowImportingTsExtensions: true,
-    canonicalImportBase: "/wire",
-    outputDir: "/wire/.effx/generated",
   },
-});
+  liftRegistryOf([]),
+);
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 

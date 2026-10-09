@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
-import { ProjectResolution } from "../Collected.ts";
 
 /*
  * Lift rules are DATA (spec 0019 §5.2, §0.2): Schema-decoded JSON that maps an application helper to the
@@ -138,22 +137,6 @@ export const LiftRule = Schema.TaggedUnion({
 
 export type LiftRule = typeof LiftRule.Type;
 
-/**
- * Everything the pure core needs besides the model. `names` pins the real exports that enter the IR hash. Its
- * keys are exactly: a resolver id (the value an access builder passes as its resolver), which maps to the
- * exported resolver symbol; `<group>.<endpointKey>#<role>` with role `params|query|headers|payload|success`,
- * which maps to the export planned for an inline request or success schema; `<module>#<export>#codes` for the
- * code tuple planned for a problem union; and `<module>#<export>#headers` for the header schema planned for
- * a success wrapper. A name that is not pinned is derived deterministically; one that cannot be resolved is a
- * diagnostic, never a placeholder.
- */
-export const LiftInput = Schema.Struct({
-  group: Schema.String,
-  rules: Schema.Array(LiftRule),
-  names: Schema.Record(Schema.String, SymbolRef),
-  emptyInput: Schema.optionalKey(SchemaRef),
-  output: Schema.Struct({ module: Schema.String }),
-  project: Schema.optionalKey(ProjectResolution),
-});
-
-export type LiftInput = typeof LiftInput.Type;
+// `LiftInput` and the shared inert facts live in `./input.ts`: the one place the serializable lift
+// settings meet `ProjectResolution`, so `Collected.ts` can offer the same inert facts in
+// `ProjectConfig.lift` without importing this module's `LiftInput` (spec 0019 §5.2, no Schema cycle).

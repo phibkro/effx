@@ -1,16 +1,27 @@
 import { Option, Predicate, Result, Schema } from "effect";
 import type { SymbolRef } from "@effx/ir";
-import { LiftDiagnostics } from "../diagnostics/index.ts";
+import type { DefinitionData } from "@effx/runtime";
+import type { ArgsPlan } from "@effx/runtime";
+import { RuntimeDiagnostics } from "@effx/runtime/diagnostics";
+import { LiftDiagnostics, HttpDiagnostics } from "../diagnostics/index.ts";
 import { AccessContractData } from "../extensions/access-contract.ts";
+import type { LiftDefinitionEntry, LiftRecognitionError, LiftSite } from "../annotation.ts";
+import { AnnotationArg, type Annotation } from "../Collected.ts";
 import { nameOfSymbol, type AccessRule, type MetadataRule } from "./context.ts";
-import type { StepRecord } from "./model.ts";
+import type { Cause } from "./causes.ts";
+import type { DefinitionRecord, StepRecord } from "./model.ts";
 import { nativeName } from "./native.ts";
-import { sameRef, symbolRefOf } from "./refs.ts";
+import { refIdentity, sameRef, symbolRefOf } from "./refs.ts";
 import type { ArgSpec } from "./rules.ts";
+import { lowerPlanArgs } from "./plan-args.ts";
 import { fail, failUnrecognized, nativeOf, open, type Scope } from "./scope.ts";
+import type { SourceRange, TermSlot } from "./source.ts";
 import { evaluate, type TemplateArgs } from "./template.ts";
 import type { AccessUse, MetadataUse } from "./types.ts";
+import { SchemaArg, SymbolArg } from "../args.ts";
+import type { RefLike } from "../generate/term.ts";
 import {
+  rootOf,
   callView,
   descend,
   fieldOf,
@@ -22,9 +33,10 @@ import {
   refOf,
   stringField,
   stringOf,
-  unwrap,
   type CallView,
   type Cursor,
+  type LoweredSlot,
+  unwrap,
 } from "./view.ts";
 
 /*
@@ -582,6 +594,510 @@ export const readApply = (
   );
 
   return failed;
+};
+
+/** The key an `.annotate(Key, value)` step names for its faithful 3001 diagnostic (the blank reject text). */
+export const annotationKeyOf = (step: Extract<StepRecord, { readonly _tag: "Method" }>): string => {
+  const [first] = step.args;
+
+  return first === undefined || first._tag === "Unlowered"
+    ? "(unreadable key)"
+    : Option.match(refOf(first.term), {
+        onNone: () => "(non-reference key)",
+        onSome: (reference) => nameOfSymbol(reference),
+      });
+};
+
+/** The 3001 blanket rejection the engine reported for unclaimed keys, kept exactly as it spelled them. */
+const unknownKey = (scope: Scope, at: SourceRange, key: string): Option.Option<Annotation> => {
+  fail(
+    scope,
+    at,
+    LiftDiagnostics.EFFX3001.emit({
+      _tag: "UnknownAnnotationKey",
+      subject: scope.subject,
+      key,
+    }),
+  );
+
+  return Option.none();
+};
+
+/** The canonical definition record a `.annotate` key names, or none after a registered rejection cause. */
+const annotateRecordOf = (scope: Scope, cursor: Cursor): Option.Option<DefinitionRecord> => {
+  const key = unwrap(cursor.term);
+
+  if (key._tag === "Ref") {
+    const record = scope.ctx.definitionsByRef.get(refIdentity(key.ref));
+
+    return record === undefined ? Option.none() : Option.some(record);
+  }
+
+  // The writer's spelling: `.annotate(<Definition>.effect.key, value)`. A member chain of any other shape
+  // cannot be resolved to a literal key identity: EFFX3012, never approximated (spec 0019 §0.6, S1).
+  if (key._tag !== "Member" || key.member !== "key") {
+    fail(
+      scope,
+      rangeOf(cursor),
+      LiftDiagnostics.EFFX3012.emit({
+        subject: scope.subject,
+        construct: "a member chain that is not a registered definition `effect.key` spelling",
+      }),
+    );
+
+    return Option.none();
+  }
+
+  const effect = unwrap(key.term);
+
+  if (effect._tag !== "Member" || effect.member !== "effect") {
+    fail(
+      scope,
+      rangeOf(cursor),
+      LiftDiagnostics.EFFX3012.emit({
+        subject: scope.subject,
+        construct: "a member chain whose `.effect.key` shape the analyzed source does not resolve",
+      }),
+    );
+
+    return Option.none();
+  }
+
+  const owner = unwrap(effect.term);
+
+  if (owner._tag !== "Ref") {
+    fail(
+      scope,
+      rangeOf(cursor),
+      LiftDiagnostics.EFFX3012.emit({
+        subject: scope.subject,
+        construct:
+          "a `.effect.key` chain whose definition export the analyzed source does not resolve",
+      }),
+    );
+
+    return Option.none();
+  }
+
+  const record = scope.ctx.definitionsByRef.get(refIdentity(owner.ref));
+
+  return record === undefined ? Option.none() : Option.some(record);
+};
+
+/** The cross-check between a source record's key fact and the selected definition's own key id. */
+const annotateCrossCheck = (
+  scope: Scope,
+  at: SourceRange,
+  record: DefinitionRecord,
+  definition: DefinitionData,
+): ReadonlyArray<Cause> => {
+  if (definition.effect === undefined) {
+    return [
+      {
+        at,
+        diagnostic: LiftDiagnostics.EFFX3012.emit({
+          subject: scope.subject,
+          construct: `the definition ${definition.name} does not declare an effect clause for its annotated key`,
+        }),
+      },
+    ];
+  }
+
+  if (record.key !== undefined && definition.effect.key.key !== record.key.id) {
+    return [
+      {
+        at,
+        diagnostic: LiftDiagnostics.EFFX3012.emit({
+          subject: scope.subject,
+          construct: `the annotated key id ${record.key.id} does not match the definition's own key id`,
+        }),
+      },
+    ];
+  }
+
+  return [];
+};
+
+/** The lowered annotation values, both the slots and the lowered argument list, per successful site. */
+interface LoweredAnnotationValues {
+  readonly slots: ReadonlyArray<LoweredSlot>;
+  readonly args: ReadonlyArray<AnnotationArg>;
+}
+
+/** The lowered annotation values: value slots opened, never silently approximated (spec 0019 §0.6). */
+const annotateValues = (
+  scope: Scope,
+  plan: ArgsPlan,
+  valueSlots: ReadonlyArray<TermSlot>,
+): LoweredAnnotationValues | undefined => {
+  for (const slot of valueSlots) {
+    if (slot._tag !== "Lowered") {
+      open(scope, slot, "metadata", "annotate value");
+
+      return undefined;
+    }
+  }
+
+  const slots: ReadonlyArray<LoweredSlot> = valueSlots.filter(
+    (slot): slot is LoweredSlot => slot._tag === "Lowered",
+  );
+
+  const lowered = lowerPlanArgs(
+    scope,
+    plan,
+    slots.map((slot) => rootOf(slot)),
+  );
+
+  if (Result.isFailure(lowered)) return undefined;
+
+  return { slots, args: lowered.success };
+};
+
+const annotateRefsOf = (
+  _scope: Scope,
+  args: ReadonlyArray<AnnotationArg>,
+): ReadonlyArray<RefLike> =>
+  args.reduce<ReadonlyArray<RefLike>>((refs, arg) => annotateRefWalk(arg, refs), []);
+
+/** The two tagged argument shapes that carry a reference, decoded at the walk boundary. */
+const RefArg = Schema.Union([SchemaArg, SymbolArg]);
+
+const annotateRefWalk = (
+  arg: AnnotationArg,
+  refs: ReadonlyArray<RefLike>,
+): ReadonlyArray<RefLike> => {
+  if (Predicate.isString(arg) || Predicate.isNumber(arg) || Predicate.isBoolean(arg)) return refs;
+
+  if (Array.isArray(arg)) {
+    return arg.reduce<ReadonlyArray<RefLike>>((all, item) => annotateRefWalk(item, all), refs);
+  }
+
+  const reference = Schema.decodeUnknownOption(RefArg)(arg);
+
+  if (Option.isSome(reference)) return [...refs, reference.value.ref];
+
+  // Every remaining tagged member (Lambda, capability and concealment shapes) carries no reference.
+  if ("_tag" in arg) return refs;
+
+  return Object.values(arg).reduce<ReadonlyArray<RefLike>>(
+    (all, child) => annotateRefWalk(child, all),
+    refs,
+  );
+};
+
+/** The `adapterPrerequisites` resolution rule applied to one argument reference (a real export). */
+const resolvesRef = (scope: Scope, ref: RefLike): boolean =>
+  scope.ctx.schemaFacts.get(refIdentity(ref)) !== undefined ||
+  scope.ctx.markers.get(refIdentity(ref)) !== undefined ||
+  scope.ctx.values.get(refIdentity(ref)) !== undefined ||
+  scope.ctx.wrappers.get(refIdentity(ref)) !== undefined ||
+  scope.ctx.filesByModule.get(ref.module)?.exports.includes(ref.export) === true;
+
+/** The first unresolved reference cause of the produced arguments, or none when every ref resolves. */
+const annotateRefIssue = (
+  scope: Scope,
+  at: SourceRange,
+  refs: ReadonlyArray<RefLike>,
+): Option.Option<Cause> => {
+  for (const ref of refs) {
+    if (resolvesRef(scope, ref)) continue;
+
+    return Option.some({
+      at,
+      diagnostic: LiftDiagnostics.EFFX3011.emit({
+        subject: scope.subject,
+        reason: "unresolved-ref",
+        construct: nameOfSymbol(ref),
+      }),
+    });
+  }
+
+  return Option.none();
+};
+
+/**
+ * The annotation arguments a recognizer produced: decoded once against the definition's codec, encoded
+ * once to the lowered form, and decoded back once, so no hook output is trusted without both proof
+ * directions (spec 0019 §5, S1; the writer prints the lowered form). `undefined` means a registered 3011
+ * cause already reported the step.
+ */
+/** The default lowering decode: one decode of lowered args against the definition codec, authoritative. */
+const annotateArgsDecoded = (
+  scope: Scope,
+  at: SourceRange,
+  definition: DefinitionData,
+  loweredArgs: ReadonlyArray<AnnotationArg>,
+): boolean => {
+  const codec = scope.ctx.registry.codecs.get(definition.name);
+
+  if (codec === undefined) return false;
+
+  const decoded = Schema.decodeResult(codec)(loweredArgs);
+
+  if (Result.isFailure(decoded)) {
+    scope.causes.push({
+      at,
+      diagnostic: LiftDiagnostics.EFFX3011.emit({
+        subject: scope.subject,
+        reason: "decode-failed",
+        issue: decoded.failure.toString(),
+      }),
+    });
+
+    return false;
+  }
+
+  const issue = annotateRefIssue(scope, at, annotateRefsOf(scope, loweredArgs));
+
+  if (Option.isSome(issue)) {
+    scope.causes.push(issue.value);
+
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * The definition's recognizer at the erased registry boundary and the validation of what it produced:
+ * a throw cannot escape (the registered `hook-threw` cause carries no payload), a non-`Result` is
+ * `invalid-return`, and the produced value is decoded, encoded and decoded back through the definition's
+ * own codec (spec 0019 §5, S1). `None` without causes keeps the recognized nothing; `Some` carries the
+ * lowered arguments that entered the annotation.
+ */
+const recognizedArgsOf = (
+  scope: Scope,
+  at: SourceRange,
+  entry: LiftDefinitionEntry,
+  site: LiftSite,
+): Option.Option<ReadonlyArray<AnnotationArg>> => {
+  const hook = entry.recognize;
+
+  if (hook === undefined) return Option.none();
+
+  let outcome: Result.Result<unknown, LiftRecognitionError>;
+
+  try {
+    outcome = hook(site);
+  } catch {
+    scope.causes.push({
+      at,
+      diagnostic: LiftDiagnostics.EFFX3011.emit({
+        subject: scope.subject,
+        reason: "hook-threw",
+      }),
+    });
+
+    return Option.none();
+  }
+
+  if (Result.isSuccess(outcome)) {
+    const decoded = Schema.decodeUnknownResult(site.schema)(outcome.success);
+
+    if (Result.isFailure(decoded)) {
+      scope.causes.push({
+        at,
+        diagnostic: LiftDiagnostics.EFFX3011.emit({
+          subject: scope.subject,
+          reason: "decode-failed",
+          issue: decoded.failure.message,
+        }),
+      });
+
+      return Option.none();
+    }
+
+    const lowered = Schema.encodeResult(site.schema)(decoded.success);
+
+    if (Result.isFailure(lowered)) {
+      scope.causes.push({
+        at,
+        diagnostic: LiftDiagnostics.EFFX3011.emit({
+          subject: scope.subject,
+          reason: "encode-failed",
+          issue: lowered.failure.message,
+        }),
+      });
+
+      return Option.none();
+    }
+
+    const symmetric = Schema.decodeResult(site.schema)(lowered.success);
+
+    if (Result.isFailure(symmetric)) {
+      scope.causes.push({
+        at,
+        diagnostic: LiftDiagnostics.EFFX3011.emit({
+          subject: scope.subject,
+          reason: "decode-failed",
+          issue: symmetric.failure.message,
+        }),
+      });
+
+      return Option.none();
+    }
+
+    const issue = annotateRefIssue(scope, at, annotateRefsOf(scope, lowered.success));
+
+    if (Option.isSome(issue)) {
+      scope.causes.push(issue.value);
+
+      return Option.none();
+    }
+
+    return Option.some(lowered.success);
+  }
+
+  const construct = outcome.failure.construct;
+
+  if (Predicate.isString(construct) !== true) {
+    scope.causes.push({
+      at,
+      diagnostic: LiftDiagnostics.EFFX3011.emit({
+        subject: scope.subject,
+        reason: "invalid-return",
+      }),
+    });
+
+    return Option.none();
+  }
+
+  scope.causes.push({
+    at,
+    diagnostic: LiftDiagnostics.EFFX3011.emit({
+      subject: scope.subject,
+      reason: "hook-failed",
+      construct,
+    }),
+  });
+
+  return Option.none();
+};
+
+/** The one real `.annotate` reader of the lift core (spec 0019 §5, S1). */
+export const readAnnotate = (
+  scope: Scope,
+  step: Extract<StepRecord, { readonly _tag: "Method" }>,
+  definitionAnnotations: ReadonlyArray<Annotation>,
+): Option.Option<Annotation> => {
+  const at = step.range;
+  const [keySlot, ...valueSlots] = step.args;
+
+  if (keySlot === undefined || keySlot._tag === "Unlowered")
+    return unknownKey(scope, at, annotationKeyOf(step));
+
+  const record = annotateRecordOf(scope, rootOf(keySlot));
+
+  if (Option.isNone(record)) {
+    // A resolvable reference no selected definition claims stays the faithful 3001 diagnostic: the key
+    // is spelled the way the term spells it (a `Member` key is already an EFFX3012 cause above).
+    const key = unwrap(keySlot.term);
+
+    return unknownKey(
+      scope,
+      at,
+      key._tag === "Ref" ? nameOfSymbol(key.ref) : annotationKeyOf(step),
+    );
+  }
+
+  const entry = scope.ctx.registry.definitions.get(record.value.name);
+
+  if (entry === undefined) return unknownKey(scope, at, record.value.name);
+
+  const definition = entry.definition;
+
+  // A definition recorded EFFX1301 problems at build time: they become per-site causes here and block the
+  // site, exactly as `definitionDiagnostics` reports them in the forward pipeline (spec 0020 §3).
+  for (const problem of definition.diagnostics) {
+    scope.causes.push({
+      at,
+      diagnostic: { ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity },
+    });
+  }
+
+  if (definition.diagnostics.length > 0) return Option.none();
+
+  const crossCheck = annotateCrossCheck(scope, at, record.value, definition);
+
+  if (crossCheck.length > 0) {
+    scope.causes.push(...crossCheck);
+
+    return Option.none();
+  }
+
+  if (
+    definition.cardinality === "one" &&
+    definitionAnnotations.filter((annotation) => annotation.name === definition.name).length > 0
+  ) {
+    scope.causes.push({
+      at,
+      diagnostic: HttpDiagnostics["EFFX2402"].emit({
+        _tag: "DuplicateAnnotation",
+        subject: scope.subject,
+        annotation: definition.name,
+      }),
+    });
+
+    return Option.none();
+  }
+
+  const values = annotateValues(scope, definition.plan, valueSlots);
+
+  if (values === undefined) return Option.none();
+
+  const name = definition.name;
+  const codec = scope.ctx.registry.codecs.get(name);
+  const recognize = entry.recognize;
+
+  if (codec === undefined) return Option.none();
+
+  if (recognize !== undefined) {
+    // The recognizer only sees the site it claims: one value lowering to its own single positional
+    // argument. Anything else has no site representation, so the hook never runs (no silent fallback).
+    if (
+      values.slots.length !== 1 ||
+      definition.plan.items.length !== 1 ||
+      definition.plan.rest !== undefined
+    ) {
+      scope.causes.push({
+        at,
+        diagnostic: LiftDiagnostics.EFFX3011.emit({
+          subject: scope.subject,
+          reason: "hook-arity",
+        }),
+      });
+
+      return Option.none();
+    }
+
+    const [slot] = values.slots;
+
+    if (slot === undefined || recognize === undefined) return Option.none();
+
+    const site: LiftSite = {
+      definition,
+      plan: definition.plan,
+      schema: codec,
+      value: slot.term,
+      subject: scope.subject,
+      range: slot.range,
+      names: scope.ctx.input.names,
+      emptyInput: scope.ctx.input.emptyInput,
+      project: scope.ctx.input.project,
+    };
+
+    const produced = recognizedArgsOf(scope, at, entry, site);
+
+    if (Option.isNone(produced)) return Option.none();
+
+    return Option.some({ name, args: [...produced.value], definition: record.value.ref });
+  }
+
+  const valid = annotateArgsDecoded(scope, at, definition, values.args);
+
+  return valid !== true
+    ? Option.none()
+    : Option.some({ name, args: values.args, definition: record.value.ref });
 };
 
 /** Merges metadata contributions; two different values for one field are a cause, never a silent choice. */

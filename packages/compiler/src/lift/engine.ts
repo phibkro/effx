@@ -26,7 +26,8 @@ import type { EffectModel, EndpointRecord } from "./model.ts";
 import { adapterPrerequisites } from "./prerequisites.ts";
 import { planWrapperHeaders } from "./wrappers.ts";
 import type { CodeReference, LiftResult, Refactor } from "./result.ts";
-import type { LiftInput } from "./rules.ts";
+import type { LiftRegistry } from "../annotation.ts";
+import type { LiftInput } from "./input.ts";
 import { schemaUseOf } from "./schema-use.ts";
 import type { Outcome, Recognized } from "./types.ts";
 import { stringOf } from "./view.ts";
@@ -301,8 +302,8 @@ const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
  * carries the suggestion's declarations, the wire-preserving refactors, the decisions to review, every
  * unsupported declaration with all its causes, the unresolved adapter prerequisites and the binding reports.
  */
-export const lift = (model: EffectModel, input: LiftInput): LiftResult => {
-  const ctx = makeContext(model, input);
+export const lift = (model: EffectModel, input: LiftInput, registry: LiftRegistry): LiftResult => {
+  const ctx = makeContext(model, input, registry);
   const selection = selectGroup(ctx);
 
   switch (selection._tag) {

@@ -1,4 +1,5 @@
 import type { Effect, Option } from "effect";
+import type { LiftImplementation } from "./annotation.ts";
 import type { DefinitionData } from "@effx/runtime";
 import type { ApplicationIR, Edge, GraphIndex, Node, OperationNode, StableId } from "@effx/ir";
 import type { Annotation, Collected, Declaration, HttpApiGroupInventory } from "./Collected.ts";
@@ -132,12 +133,29 @@ export interface Expansion {
  */
 export type Expand = (collected: Collected) => Expansion;
 
+/**
+ * One definition-owned compiler lift entry an `extension()` aggregates (spec 0019 §5, S1): the
+ * definition value the extension declares plus the erased hook `implement()` built. Subsidiary to
+ * `liftRegistryOf(extensions)`; not the old `Extension.lifters` proposal — the definition-owned
+ * `implement({ lift })` interface is the one that exists.
+ */
+export interface ExtensionLiftEntry {
+  readonly definition: DefinitionData;
+  readonly lift: LiftImplementation;
+}
+
 export interface Extension {
   readonly name: string;
   /** Entry declarations, Schema-decoded and collision-checked with the bundled catalogue before frontend analysis. */
   readonly diagnosticEntries?: ReadonlyArray<DiagnosticEntry>;
   /** Definitions this extension implements; their plans drive frontend lowering (spec 0020). */
   readonly annotations?: ReadonlyArray<DefinitionData>;
+  /**
+   * The per-definition compiler lift entries `extension()` aggregates (spec 0019 §5, S1). Subsidiary seam
+   * for `liftRegistryOf(extensions)`; not the old `Extension.lifters` proposal — the definition-owned
+   * `implement({ lift })` interface is the one that exists.
+   */
+  readonly lifts?: ReadonlyArray<ExtensionLiftEntry>;
   readonly interpreters: Readonly<Record<string, Interpreter>>;
   readonly analyses: ReadonlyArray<Analysis>;
   /**

@@ -206,6 +206,7 @@ export const operationDeclaration = (parts: OperationParts): Option.Option<Decla
             ]),
           ),
         ]),
+    ...recognized.annotations.map((entry): Annotation => entry),
     ...Option.match(access, {
       onNone: () => [],
       onSome: (arg) => [annotation("Http.Access", arg)],

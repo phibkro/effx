@@ -8,6 +8,8 @@ export { lift } from "./engine.ts";
 
 export * from "./frontend.ts";
 
+export * from "./input.ts";
+
 export * from "./model.ts";
 
 export * from "./native.ts";

@@ -267,4 +267,5 @@ export const profileModel: EffectModel = {
     },
   ],
   bindings: [],
+  definitions: [],
 };

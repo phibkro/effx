@@ -1280,5 +1280,7 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
     groups,
     endpoints,
     bindings: [],
+    /** The collected lift sources record no definition facts of their own. */
+    definitions: [],
   };
 };

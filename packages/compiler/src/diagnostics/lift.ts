@@ -309,6 +309,82 @@ const d3010 = defineDiagnostic(
   ({ subject, decision, value }) => `${subject}: review ${decision} decision ${value}`,
 );
 
+/** The closed reasons an annotation-lift site can fail; `construct`/`issue` are always Schema-derived. */
+const LiftReason = Schema.Literals([
+  "hook-failed",
+  "hook-threw",
+  "hook-arity",
+  "invalid-return",
+  "encode-failed",
+  "decode-failed",
+  "unresolved-ref",
+]);
+
+const d3011 = defineDiagnostic(
+  {
+    code: "EFFX3011",
+    owner: "lift",
+    title: "Annotation lift could not run",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "A registered annotation definition's compiler lift failed at one `.annotate` site: the definition-owned recognizer rejected the site, threw, returned a non-Result value, produced arguments that do not satisfy the definition's own lowered-args schema, or named a reference the analyzed project does not record. The diagnostic carries a closed reason and, where the recognizer's own schema-defined failure named one, the construct text; it never carries the thrown value, a message, a cause or argument payload. The site is blocked: no annotation, refactor or code plan is produced for it, and no fallback recognition runs after the hook claimed the key.",
+    examples: [
+      {
+        before: ".annotate(RateLimit.effect.key, { perMinute: -1 })",
+        after: ".annotate(RateLimit.effect.key, { perMinute: 60 })",
+        explanation:
+          "The recognizer returned its own Unsupported construct; lift blocks the site with the reason named instead of guessing.",
+      },
+    ],
+  } as const,
+  Schema.Struct({
+    subject: Subject,
+    reason: LiftReason,
+    construct: Schema.optionalKey(Schema.String),
+    issue: Schema.optionalKey(Schema.String),
+  }),
+  ({ subject, reason, construct, issue }) => {
+    const why =
+      reason === "hook-failed"
+        ? `the definition's recognize hook rejected the site${construct === undefined ? "" : ` (${construct})`}`
+        : reason === "hook-threw"
+          ? "the definition's recognize hook threw; lift treats the site as failing and carries only the closed reason"
+          : reason === "invalid-return"
+            ? "the definition's recognize hook returned a value that is not its declared Result"
+            : reason === "encode-failed"
+              ? `the recognizer's arguments do not encode against the definition's lowered-args schema${issue === undefined ? "" : ` (${issue})`}`
+              : reason === "decode-failed"
+                ? `the lowered arguments do not decode against the definition's lowered-args schema${issue === undefined ? "" : ` (${issue})`}`
+                : `the produced arguments reference ${construct ?? "an export"} the analyzed project does not record`;
+
+    return `${subject}: annotation lift could not run: ${why}`;
+  },
+);
+
+const d3012 = defineDiagnostic(
+  {
+    code: "EFFX3012",
+    owner: "lift",
+    title: "Effect key is not statically resolvable",
+    severity: "error",
+    severityPolicy: { kind: "fixed" },
+    explanation:
+      "An `.annotate` effect key is not a statically resolvable registered definition key: the source names a key-shaped reference (a `.key` or `.effect.key` chain, or a definition whose recorded key id differs from the runtime definition's own key id) and the analyzed source provides no literal key identity for it. Lift never evaluates application code, so such a key cannot become an annotation. It is distinct from EFFX3001 (a registered key that no selected definition claims, reported as today) and does not reuse the two-owners EFFX1304 entry or the check-only EFFX3103.",
+    examples: [
+      {
+        before: ".annotate(keyOfSomeService.id, { perMinute: 60 })",
+        after: ".annotate(RateLimit.effect.key, { perMinute: 60 })",
+        explanation:
+          "Write the Context key of a registered definition's effect clause through its literal key identity; lift never evaluates a key supplier.",
+      },
+    ],
+  } as const,
+  Schema.Struct({ subject: Subject, construct: Schema.String }),
+  ({ subject, construct }) =>
+    `${subject}: .annotate key is not statically resolvable to a registered definition key: ${construct}`,
+);
+
 const d3101 = defineDiagnostic(
   {
     code: "EFFX3101",
@@ -356,12 +432,7 @@ const d3102 = defineDiagnostic(
       : `group ${group}: check passed after applying ${applied.join(", ")}`,
 );
 
-const CheckReason = Schema.Literals([
-  "overlay-compile",
-  "root-build",
-  "projection-hook",
-  "rule-exception",
-]);
+const CheckReason = Schema.Literals(["overlay-compile", "root-build", "projection-hook"]);
 
 const d3103 = defineDiagnostic(
   {
@@ -371,7 +442,7 @@ const d3103 = defineDiagnostic(
     severity: "error",
     severityPolicy: { kind: "fixed" },
     explanation:
-      "The overlay does not compile, a root cannot be built, a registered projection hook threw, or a trusted lifter-rule hook raised an exception. Lift stays total: a rule exception becomes this diagnostic and never an exit by exception. It is not a pass.",
+      "The overlay does not compile, a root cannot be built, or a registered projection hook threw. Lift stays total: a check-time exception becomes this diagnostic and never an exit by exception. It is not a pass. The definition-owned output-recognizer exceptions of the compiler lift are EFFX3011, not this entry: the 0019 check and the recognition paths report through separate closed reasons.",
     examples: [
       {
         before: "effx lift --check  // the overlay has a type error",
@@ -445,6 +516,8 @@ export const LiftDiagnostics = {
   [d3008.entry.code]: d3008,
   [d3009.entry.code]: d3009,
   [d3010.entry.code]: d3010,
+  [d3011.entry.code]: d3011,
+  [d3012.entry.code]: d3012,
   [d3101.entry.code]: d3101,
   [d3102.entry.code]: d3102,
   [d3103.entry.code]: d3103,
@@ -464,6 +537,8 @@ export const liftEntries: ReadonlyArray<DiagnosticEntry> = [
   d3008.entry,
   d3009.entry,
   d3010.entry,
+  d3011.entry,
+  d3012.entry,
   d3101.entry,
   d3102.entry,
   d3103.entry,

@@ -8,6 +8,7 @@ import {
   bundledDiagnosticEntries,
   compileCollected,
   lift,
+  liftRegistryOf,
   printSuggestion,
   renderPatch,
   type LiftResult,
@@ -37,7 +38,7 @@ const model = modelOf(profileFiles, sourceUniverse);
 
 const input = sourceInput("profile");
 
-const lifted = lift(model, input);
+const lifted = lift(model, input, liftRegistryOf([]));
 
 const texts = new Map(profileFiles.map((entry) => [entry.path, entry.contents] as const));
 
@@ -162,7 +163,7 @@ describe("refactors are patches that a person can apply", () => {
       Effect.gen(function* () {
         const patch = yield* patchOf(profileFiles, lifted);
         const patched = applyPatch(profileFiles, patch);
-        const again = lift(modelOf(patched, sourceUniverse), input);
+        const again = lift(modelOf(patched, sourceUniverse), input, liftRegistryOf([]));
 
         assert.isTrue(
           patched.some((entry, index) => entry.contents !== profileFiles[index]?.contents),
@@ -211,7 +212,12 @@ describe("refactors are patches that a person can apply", () => {
 });
 
 describe("the negative inventory: one endpoint per way a declaration is unsupported", () => {
-  const result = lift(modelOf(negativeFiles, negativeUniverse), sourceInput("negative"));
+  const result = lift(
+    modelOf(negativeFiles, negativeUniverse),
+    sourceInput("negative"),
+    liftRegistryOf([]),
+  );
+
   const source = negativeFile.contents;
 
   it("suggests nothing for a group none of whose endpoints can be lifted", () => {
@@ -275,6 +281,7 @@ describe("the negative inventory: one endpoint per way a declaration is unsuppor
         files: original.files.toReversed(),
       },
       sourceInput("negative"),
+      liftRegistryOf([]),
     );
 
     const bySubject = (left: { readonly subject: string }, right: { readonly subject: string }) =>
@@ -288,7 +295,12 @@ describe("the negative inventory: one endpoint per way a declaration is unsuppor
 });
 
 describe("the core is pure and every diagnostic it emits is registered", () => {
-  const negative = lift(modelOf(negativeFiles, negativeUniverse), sourceInput("negative"));
+  const negative = lift(
+    modelOf(negativeFiles, negativeUniverse),
+    sourceInput("negative"),
+    liftRegistryOf([]),
+  );
+
   const registry = new Map(bundledDiagnosticEntries.map((entry) => [entry.code, entry] as const));
 
   it.effect("never mutates its model or its rules, and the model is plain serializable data", () =>
@@ -297,7 +309,7 @@ describe("the core is pure and every diagnostic it emits is registered", () => {
       const encodeInput = Schema.encodeEffect(Schema.toCodecJson(LiftInput));
       const before = [yield* encodeModel(model), yield* encodeInput(input)];
 
-      const again = lift(model, input);
+      const again = lift(model, input, liftRegistryOf([]));
 
       assert.deepStrictEqual([yield* encodeModel(model), yield* encodeInput(input)], before);
       assert.deepStrictEqual(again, lifted);

@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option, Result } from "effect";
 import { IRArbitrary, canonical } from "@effx/ir";
-import { dense, lift, printSuggestion, type Collected } from "@effx/compiler";
+import { dense, lift, liftRegistryOf, printSuggestion, type Collected } from "@effx/compiler";
 import { expandGroupDefaults } from "../src/group-defaults.ts";
 import { profileFullModel, profileInput } from "./lift-profile.ts";
 import { compiled, roundtrip } from "./lift-pipeline.ts";
@@ -13,7 +13,7 @@ import { GroupSpec } from "./lift-universe.ts";
  * rebuilds `c`, and both compile to one canonical IR).
  */
 
-const lifted = lift(profileFullModel, profileInput);
+const lifted = lift(profileFullModel, profileInput, liftRegistryOf([]));
 
 const options = {
   module: profileInput.output.module,

@@ -7,6 +7,7 @@ import {
   LiftDiagnostics,
   compileCollected,
   lift,
+  liftRegistryOf,
   type EffectModel,
   type LiftInput,
   type LiftResult,
@@ -20,7 +21,7 @@ import { schemaOf } from "./lift-support.ts";
  * decisions that are never "verified", and the totality and order laws of §10.
  */
 
-const lifted = lift(profileFullModel, profileInput);
+const lifted = lift(profileFullModel, profileInput, liftRegistryOf([]));
 
 const declaration = (result: LiftResult, id: string) =>
   result.collected.declarations.find((candidate) => candidate.id === id);
@@ -152,7 +153,7 @@ describe("an unsupported endpoint keeps every cause and no suggestion", () => {
       ),
     };
 
-    const alone = lift(without, profileInput);
+    const alone = lift(without, profileInput, liftRegistryOf([]));
 
     assert.deepStrictEqual(alone.collected, lifted.collected);
     assert.deepStrictEqual(alone.refactors, lifted.refactors);
@@ -203,16 +204,20 @@ describe("refactors are typed edits with real references", () => {
       },
     ]);
 
-    const pinned = lift(profileFullModel, {
-      ...profileInput,
-      names: {
-        ...profileInput.names,
-        "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
-          module: "./src/endpoint-problems",
-          export: "ProfileReadCodes",
+    const pinned = lift(
+      profileFullModel,
+      {
+        ...profileInput,
+        names: {
+          ...profileInput.names,
+          "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
+            module: "./src/endpoint-problems",
+            export: "ProfileReadCodes",
+          },
         },
       },
-    });
+      liftRegistryOf([]),
+    );
 
     assert.deepStrictEqual(
       pinned.refactors.flatMap((planned) =>
@@ -223,16 +228,20 @@ describe("refactors are typed edits with real references", () => {
   });
 
   it("diagnoses a pin that names an export which already exists instead of overwriting it", () => {
-    const taken = lift(profileFullModel, {
-      ...profileInput,
-      names: {
-        ...profileInput.names,
-        "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
-          module: "./src/endpoint-problems",
-          export: "ProfileReadOwnProfileProblem",
+    const taken = lift(
+      profileFullModel,
+      {
+        ...profileInput,
+        names: {
+          ...profileInput.names,
+          "./src/endpoint-problems#ProfileReadOwnProfileProblem#codes": {
+            module: "./src/endpoint-problems",
+            export: "ProfileReadOwnProfileProblem",
+          },
         },
       },
-    });
+      liftRegistryOf([]),
+    );
 
     assert.strictEqual(taken.refactors.length, 0);
     assert.strictEqual(taken.unsupported[0]?.primary.code, "EFFX3001");
@@ -275,7 +284,11 @@ describe("decisions are reviewable and never verified", () => {
 
 describe("the group is found or diagnosed", () => {
   it("reports EFFX3008 for a group no declaration has", () => {
-    const missing = lift(profileFullModel, { ...profileInput, group: "nobody" });
+    const missing = lift(
+      profileFullModel,
+      { ...profileInput, group: "nobody" },
+      liftRegistryOf([]),
+    );
 
     assert.deepStrictEqual(
       missing.diagnostics.map((diagnostic) => diagnostic.code),
@@ -296,6 +309,7 @@ describe("the group is found or diagnosed", () => {
         roots: [root, { ...root, symbol: { module: "./src/api", export: "InternalNativeApi" } }],
       },
       profileInput,
+      liftRegistryOf([]),
     );
 
     assert.strictEqual(twice.diagnostics[0]?.code, "EFFX3008");
@@ -329,7 +343,7 @@ describe("adapter prerequisites name only symbols that do not resolve", () => {
     };
 
     assert.isTrue(
-      lift(profileFullModel, extra).adapterPrerequisites.some(
+      lift(profileFullModel, extra, liftRegistryOf([])).adapterPrerequisites.some(
         (entry) => entry.ref.export === "documentMutationResponse",
       ),
     );
@@ -347,12 +361,19 @@ describe("lifting is total and order independent", () => {
   });
 
   it("does not depend on the order of the inventories of the model", () => {
-    assert.deepStrictEqual(lift(permuted(profileFullModel), profileInput), lifted);
+    assert.deepStrictEqual(
+      lift(permuted(profileFullModel), profileInput, liftRegistryOf([])),
+      lifted,
+    );
   });
 
   it("does not depend on the order of the rules", () => {
     assert.deepStrictEqual(
-      lift(profileFullModel, { ...profileInput, rules: profileRules.toReversed() }),
+      lift(
+        profileFullModel,
+        { ...profileInput, rules: profileRules.toReversed() },
+        liftRegistryOf([]),
+      ),
       lifted,
     );
   });
@@ -389,7 +410,7 @@ describe("lifting is total and order independent", () => {
             rules: profileRules.filter((_, index) => !broken.rules.includes(index)),
           };
 
-          const result = lift(model, input);
+          const result = lift(model, input, liftRegistryOf([]));
           const operations = Math.max(result.collected.declarations.length - 1, 0);
 
           // A blocked or missing group suggests nothing and says why; otherwise every endpoint of the
