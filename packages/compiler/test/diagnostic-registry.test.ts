@@ -13,16 +13,19 @@ import { inspectDiagnosticSource } from "./fixtures/diagnostic-conformance.ts";
 const root = new URL("../../../", import.meta.url).pathname;
 
 describe("diagnostic registry conformance", () => {
-  it.effect("composes all 68 reserved legacy entries plus the bootstrap contract error", () =>
+  it.effect("composes every bundled entry once, including the bootstrap contract error", () =>
     Effect.gen(function* () {
       const registry = yield* composeRegistry(bundledDiagnosticEntries);
-      assert.strictEqual(registry.entries.length, 69);
+      assert.strictEqual(registry.entries.length, bundledDiagnosticEntries.length);
       const keys = Object.keys(DiagnosticDefinitions).toSorted();
       assert.deepStrictEqual(
         keys,
         registry.entries.map((entry) => entry.code),
       );
-      assert.strictEqual(new Set(bundledDiagnosticEntries.map((entry) => entry.code)).size, 69);
+      assert.strictEqual(
+        new Set(bundledDiagnosticEntries.map((entry) => entry.code)).size,
+        bundledDiagnosticEntries.length,
+      );
 
       for (const [code, definition] of Object.entries(DiagnosticDefinitions)) {
         assert.strictEqual(definition.entry.code, code);
@@ -210,7 +213,7 @@ describe("diagnostic registry conformance", () => {
 
   it("allows only the named runtime definition projection adapter", () => {
     const source =
-      'const definitionDiagnostics = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });';
+      'const definitionProblemDiagnostics = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });';
 
     assert.deepStrictEqual(
       inspectDiagnosticSource("packages/compiler/src/annotation.ts", source).violations,
@@ -224,13 +227,13 @@ describe("diagnostic registry conformance", () => {
     assert.isTrue(
       inspectDiagnosticSource(
         "packages/compiler/src/annotation.ts",
-        source.replace("definitionDiagnostics", "injected"),
+        source.replace("definitionProblemDiagnostics", "injected"),
       ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
     );
     assert.isTrue(
       inspectDiagnosticSource(
         "packages/compiler/src/annotation.ts",
-        'const definitionDiagnostics = () => { const injected = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity }); };',
+        'const definitionProblemDiagnostics = () => { const injected = () => ({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity }); };',
       ).violations.some((violation) => violation.includes("raw Diagnostic construction")),
     );
   });

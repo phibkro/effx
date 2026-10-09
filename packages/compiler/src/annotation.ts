@@ -683,6 +683,22 @@ export const liftRegistryOf = (extensions: ReadonlyArray<Extension>): LiftRegist
   return { definitions, rules, codecs };
 };
 
+/**
+ * The diagnostics a runtime definition collected at build time (`EFFX1301`), with canonical severity
+ * restored. The one place this projection exists: the forward pipeline and the lift both call it.
+ */
+export const definitionProblemDiagnostics = (
+  definition: DefinitionData,
+): ReadonlyArray<Diagnostic> => {
+  const diagnostics: Array<Diagnostic> = [];
+
+  for (const problem of definition.diagnostics) {
+    diagnostics.push({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });
+  }
+
+  return diagnostics;
+};
+
 const nameGrammar = /^[A-Za-z][A-Za-z0-9._-]*$/u;
 
 /**
@@ -711,10 +727,7 @@ export const definitionDiagnostics = (
         );
       }
 
-      for (const problem of definition.diagnostics) {
-        // Runtime definition diagnostics are the factory's preserved code/message projection.
-        diagnostics.push({ ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity });
-      }
+      diagnostics.push(...definitionProblemDiagnostics(definition));
 
       const owner = seen.get(definition.name);
 

@@ -262,7 +262,7 @@ export const inspectDiagnosticSource = (file: string, source: string): Conforman
         return (
           ts.isVariableDeclaration(declaration) &&
           ts.isIdentifier(declaration.name) &&
-          declaration.name.text === "definitionDiagnostics"
+          declaration.name.text === "definitionProblemDiagnostics"
         );
       }
     }

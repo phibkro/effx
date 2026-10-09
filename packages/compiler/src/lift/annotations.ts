@@ -2,10 +2,10 @@ import { Option, Predicate, Result, Schema } from "effect";
 import type { SymbolRef } from "@effx/ir";
 import type { DefinitionData } from "@effx/runtime";
 import type { ArgsPlan } from "@effx/runtime";
-import { RuntimeDiagnostics } from "@effx/runtime/diagnostics";
 import { LiftDiagnostics, HttpDiagnostics } from "../diagnostics/index.ts";
 import { AccessContractData } from "../extensions/access-contract.ts";
 import {
+  definitionProblemDiagnostics,
   LiftRecognitionErrorSchema,
   type LiftDefinitionEntry,
   type LiftRecognitionError,
@@ -1020,11 +1020,8 @@ export const readAnnotate = (
 
   // A definition recorded EFFX1301 problems at build time: they become per-site causes here and block the
   // site, exactly as `definitionDiagnostics` reports them in the forward pipeline (spec 0020 §3).
-  for (const problem of definition.diagnostics) {
-    scope.causes.push({
-      at,
-      diagnostic: { ...problem, severity: RuntimeDiagnostics["EFFX1301"].entry.severity },
-    });
+  for (const diagnostic of definitionProblemDiagnostics(definition)) {
+    scope.causes.push({ at, diagnostic });
   }
 
   if (definition.diagnostics.length > 0) return Option.none();
