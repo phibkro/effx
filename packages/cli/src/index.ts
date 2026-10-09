@@ -40,7 +40,15 @@ export {
   type PreparedLift,
 } from "./lift-command.ts";
 
-export { liftCheckPassed, runLiftCheck, type LiftCheckRequest } from "./lift-check.ts";
+export {
+  defaultLiftCheckBounds,
+  liftCheckPassed,
+  runLiftCheck,
+  type LiftCheckBounds,
+  type LiftCheckRequest,
+} from "./lift-check.ts";
+
+export { LiftForm, LiftJsonReport, LiftUsageError, type LiftRunParams } from "./lift.ts";
 
 export { ExecutableInventory } from "./config-runtime.ts";
 

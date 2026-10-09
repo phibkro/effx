@@ -51,14 +51,22 @@ import {
 
 type CheckDraft = { -readonly [K in keyof LiftCheckResult]: LiftCheckResult[K] };
 
-/** Explicit execution bounds: per-pipe capture and the forced-stop deadline granted to each child. */
-const WITNESS_CAPTURE_BYTES = 16 * 1024 * 1024;
+/**
+ * The explicit execution bounds of one check run (spec 0019 §2.4): the per-pipe capture cap and the
+ * forced-stop deadline granted to the witness and to the binding typecheck.
+ */
+export interface LiftCheckBounds {
+  readonly captureBytes: number;
+  readonly witnessDeadlineMs: number;
+  readonly typecheckDeadlineMs: number;
+}
 
-const WITNESS_DEADLINE_MS = 120_000;
-
-const TYPECHECK_CAPTURE_BYTES = 8 * 1024 * 1024;
-
-const TYPECHECK_DEADLINE_MS = 600_000;
+/** Reviewed defaults: a 16 MiB cap per pipe, two minutes for the witness, ten for the typecheck. */
+export const defaultLiftCheckBounds: LiftCheckBounds = {
+  captureBytes: 16 * 1024 * 1024,
+  witnessDeadlineMs: 120_000,
+  typecheckDeadlineMs: 600_000,
+};
 
 const MAX_TYPECHECK_DIAGNOSTICS = 20;
 
@@ -66,6 +74,8 @@ const MAX_TYPECHECK_DIAGNOSTICS = 20;
 export interface LiftCheckRequest {
   readonly run: LiftRunParams;
   readonly extensions: ReadonlyArray<Extension>;
+  /** Defaults to `defaultLiftCheckBounds`. */
+  readonly bounds?: LiftCheckBounds;
 }
 
 /** A form that cannot run: data, converted to `FormOutcome.Impossible` at the form boundary. */
@@ -231,6 +241,7 @@ const bindingGate = Effect.fnUntraced(function* (
 ) {
   const path = yield* Path.Path;
   const { run, extensions } = request;
+  const bounds = request.bounds ?? defaultLiftCheckBounds;
 
   if (facts.unreadableKeys > 0 || generated.unreadableKeys > 0) {
     return {
@@ -339,8 +350,8 @@ const bindingGate = Effect.fnUntraced(function* (
     binary: toolchain.runtime,
     cwd: overlay.projectRoot,
     args: [toolchain.typescript, "-p", project, "--noEmit", "--pretty", "false"],
-    captureBytes: TYPECHECK_CAPTURE_BYTES,
-    forcedStopMs: TYPECHECK_DEADLINE_MS,
+    captureBytes: bounds.captureBytes,
+    forcedStopMs: bounds.typecheckDeadlineMs,
   });
 
   if (receipt.exit._tag !== "Exit") {
@@ -378,6 +389,110 @@ const bindingGate = Effect.fnUntraced(function* (
             ),
           ],
   } satisfies BindingConclusion;
+});
+
+/** The witness stage of one form: mounts the original and the generated group alone and compares them. */
+const reflectForm = Effect.fnUntraced(function* (
+  request: LiftCheckRequest,
+  facts: CheckFacts,
+  overlay: Overlay,
+  generatedModel: EffectModel,
+  generated: GroupKeys,
+) {
+  const path = yield* Path.Path;
+  const { model } = request.run;
+  const bounds = request.bounds ?? defaultLiftCheckBounds;
+
+  const original = fileOfModule(model, facts.group.module);
+
+  if (Option.isNone(original)) {
+    return yield* unavailable(
+      "root-build",
+      `the original group module ${facts.group.module} is not part of the analyzed project`,
+    );
+  }
+
+  const generatedFile = fileOfModule(generatedModel, generated.group.module);
+
+  if (Option.isNone(generatedFile)) {
+    return yield* unavailable(
+      "overlay-compile",
+      `the generated group module ${generated.group.module} was not analyzed`,
+    );
+  }
+
+  const projections = yield* Effect.forEach(
+    request.run.project.lift?.projections ?? [],
+    (projection) => {
+      const hookFile = fileOfModule(model, projection.hook.module);
+
+      return Option.isNone(hookFile)
+        ? Effect.fail(
+            unavailable(
+              "projection-hook",
+              `projection hook module ${projection.hook.module} is not part of the analyzed project`,
+            ),
+          )
+        : Effect.succeed({
+            name: projectionName(projection.key),
+            hook: {
+              file: hookFile.value,
+              export: projection.hook.export,
+              member: projection.hook.member,
+            },
+          });
+    },
+  );
+
+  const plan: WitnessPlan = {
+    rootId: facts.rootId,
+    original: { file: original.value, export: facts.group.export, member: facts.group.member },
+    generated: {
+      file: generatedFile.value,
+      export: generated.group.export,
+      member: generated.group.member,
+    },
+    projections,
+  };
+
+  const witness = yield* overlay.writeFile(
+    path.join(".effx", "lift-check.ts"),
+    witnessProgram(plan),
+  );
+
+  const toolchain = yield* LiftToolchain;
+  const execution = yield* LiftCheckExecution;
+
+  const receipt = yield* execution.runChild({
+    binary: toolchain.runtime,
+    cwd: overlay.projectRoot,
+    args: ["--no-env-file", "--no-install", witness],
+    captureBytes: bounds.captureBytes,
+    forcedStopMs: bounds.witnessDeadlineMs,
+  });
+
+  if (receipt.exit._tag !== "Exit" || receipt.exit.code !== 0) {
+    return yield* unavailable("root-build", `the witness ${describeStop(receipt)}`);
+  }
+
+  if (receipt.stdoutTruncated) {
+    return yield* unavailable("root-build", "the witness output exceeded its capture bound");
+  }
+
+  const document = yield* decodeWitness(receipt);
+
+  if (document._tag === "Failed") {
+    return yield* unavailable(reasonOf(document.stage), `${document.stage}: ${document.cause}`);
+  }
+
+  const compared = wireCompare(document.pair.original, document.pair.generated);
+
+  const outcome: FormOutcome =
+    compared._tag === "Pass"
+      ? { _tag: "Pass", reflections: document.pair, deltas: compared.applied }
+      : { _tag: "Mismatch", reflections: document.pair, differences: compared.differences };
+
+  return outcome;
 });
 
 /** One form: scoped overlay, real COLLECT/compile/generate, one witness child, mechanical comparison. */
@@ -444,13 +559,17 @@ const checkForm = Effect.fnUntraced(function* (
     { discard: true },
   );
 
-  const contractFile = path.join(overlay.outDir, onlyContract.path);
-
   // The ACTUAL generated group export, read by the same frontend that reads every other group.
   const frontend = yield* LiftFrontend;
 
   const analyzed = yield* frontend.analyze(
-    overlayProject(path, run.project, overlay, "contract", contractFile),
+    overlayProject(
+      path,
+      run.project,
+      overlay,
+      "contract",
+      path.join(overlay.outDir, onlyContract.path),
+    ),
   );
 
   const generatedModel = Option.getOrUndefined(analyzed.value);
@@ -472,95 +591,14 @@ const checkForm = Effect.fnUntraced(function* (
     );
   }
 
-  const original = fileOfModule(model, facts.group.module);
-
-  if (Option.isNone(original)) {
-    return yield* unavailable(
-      "root-build",
-      `the original group module ${facts.group.module} is not part of the analyzed project`,
-    );
-  }
-
-  const generatedFile = fileOfModule(generatedModel, generated.value.group.module);
-
-  if (Option.isNone(generatedFile)) {
-    return yield* unavailable(
-      "overlay-compile",
-      `the generated group module ${generated.value.group.module} was not analyzed`,
-    );
-  }
-
-  const projections = yield* Effect.forEach(run.project.lift?.projections ?? [], (projection) => {
-    const hookFile = fileOfModule(model, projection.hook.module);
-
-    return Option.isNone(hookFile)
-      ? Effect.fail(
-          unavailable(
-            "projection-hook",
-            `projection hook module ${projection.hook.module} is not part of the analyzed project`,
-          ),
-        )
-      : Effect.succeed({
-          name: projectionName(projection.key),
-          hook: {
-            file: hookFile.value,
-            export: projection.hook.export,
-            member: projection.hook.member,
-          },
-        });
-  });
-
-  const plan: WitnessPlan = {
-    rootId: facts.rootId,
-    original: { file: original.value, export: facts.group.export, member: facts.group.member },
-    generated: {
-      file: generatedFile.value,
-      export: generated.value.group.export,
-      member: generated.value.group.member,
-    },
-    projections,
-  };
-
-  const witness = yield* overlay.writeFile(
-    path.join(".effx", "lift-check.ts"),
-    witnessProgram(plan),
+  // A witness failure is this form's outcome; the binding gate stays independent evidence either way.
+  const outcome = yield* reflectForm(request, facts, overlay, generatedModel, generated.value).pipe(
+    Effect.catchTag("FormUnavailable", (error) => Effect.succeed(impossible(error))),
   );
-
-  const toolchain = yield* LiftToolchain;
-  const execution = yield* LiftCheckExecution;
-
-  const receipt = yield* execution.runChild({
-    binary: toolchain.runtime,
-    cwd: overlay.projectRoot,
-    args: ["--no-env-file", "--no-install", witness],
-    captureBytes: WITNESS_CAPTURE_BYTES,
-    forcedStopMs: WITNESS_DEADLINE_MS,
-  });
 
   const binding = withBinding
     ? Option.some(yield* bindingGate(request, facts, generated.value, overlay))
     : Option.none<BindingConclusion>();
-
-  if (receipt.exit._tag !== "Exit" || receipt.exit.code !== 0) {
-    return yield* unavailable("root-build", `the witness ${describeStop(receipt)}`);
-  }
-
-  if (receipt.stdoutTruncated) {
-    return yield* unavailable("root-build", "the witness output exceeded its capture bound");
-  }
-
-  const document = yield* decodeWitness(receipt);
-
-  if (document._tag === "Failed") {
-    return yield* unavailable(reasonOf(document.stage), `${document.stage}: ${document.cause}`);
-  }
-
-  const compared = wireCompare(document.pair.original, document.pair.generated);
-
-  const outcome: FormOutcome =
-    compared._tag === "Pass"
-      ? { _tag: "Pass", reflections: document.pair, deltas: compared.applied }
-      : { _tag: "Mismatch", reflections: document.pair, differences: compared.differences };
 
   return { outcome, binding } satisfies FormRun;
 });
