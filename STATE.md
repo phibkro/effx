@@ -190,7 +190,8 @@ Focused HTTP, SDK, People/Schools/Profile backend, database and Foldkit suites a
 
 ## Deferred / notes
 
-- Target-module tests cover stable/rc family remapping and installed `effect/Schema`/`effect/sql/SqlError` leaves; unknown target exports diagnose before generation.
+- Target-module tests cover the single stable family mapping and installed `effect/Schema`/`effect/sql/SqlError` leaves; `effect/unstable/*` HTTP/RPC/CLI paths are not supported modules of the target map.
+- Known gap (2026-10-09): a running `effx dev` completes an extra cycle when an unrelated symlink appears or disappears in the project root (observed: cycles 2 and 3 around `output-alias` in `scripts/watch-editor-smoke.ts`). `watch-editor-smoke.ts` now reads cycle receipts in order until the edit's own receipt (empty `generated:` list); whether the product should ignore such entries is undecided and not claimed either way.
 - Static-method operation classes are intentional source syntax; the lint config excludes `typescript/no-extraneous-class` for operation files and fixtures.
 - `examples/users` uses an in-memory `Ref<HashMap>` store, not SQL persistence; writes survive requests within a server process, not restarts.
 - On a fresh clone, run `bun run --cwd examples/users effx:build` before root/example typecheck or tests: example entry points import gitignored `.effx/generated/*.ts`.
