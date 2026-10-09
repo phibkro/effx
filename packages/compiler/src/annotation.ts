@@ -187,7 +187,7 @@ export interface LiftSite<D extends DefinitionData = DefinitionData> {
   readonly range: SourceRange;
   readonly names: Readonly<Record<string, SymbolRef>>;
   readonly emptyInput: SchemaRef | undefined;
-  readonly project: ProjectResolution | undefined;
+  readonly project: ProjectResolution;
 }
 
 /**

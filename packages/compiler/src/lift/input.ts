@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
-import { ProjectResolution } from "../Project.ts";
 import { LiftRule } from "./rules.ts";
 
 // One source for the project-config data and the pure lift input. Projection refs are appended only to
@@ -34,7 +33,6 @@ export type LiftProjectInput = typeof LiftProjectInput.Type;
 export const LiftInput = Schema.Struct({
   ...LiftProjectFields,
   group: Schema.String,
-  project: Schema.optionalKey(ProjectResolution),
 });
 
 export type LiftInput = typeof LiftInput.Type;

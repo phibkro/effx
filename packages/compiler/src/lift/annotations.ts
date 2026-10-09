@@ -1094,7 +1094,7 @@ export const readAnnotate = (
       range: slot.range,
       names: scope.ctx.input.names,
       emptyInput: scope.ctx.input.emptyInput,
-      project: scope.ctx.input.project,
+      project: scope.ctx.model.project,
     };
 
     const produced = recognizedArgsOf(scope, at, entry, site);
