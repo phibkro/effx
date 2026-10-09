@@ -131,7 +131,9 @@ const smoke = Effect.gen(function* () {
         allowImportingTsExtensions: true,
         types: ["bun"],
       },
-      include: ["src/**/*.ts", ".effx/generated/**/*.ts", "smoke.spec.ts"],
+      // Generated output is reached through imports; listing it would make the project overlap
+      // effx-owned output, which the LSP refuses to analyse.
+      include: ["src/**/*.ts", "smoke.spec.ts"],
     }),
   );
   yield* fs.writeFileString(path.join(consumer, "smoke.spec.ts"), protocolTest);
