@@ -1,4 +1,4 @@
-import { Crypto, Effect, Exit, FileSystem, Option, Path, Schema, Scope } from "effect";
+import { Crypto, Effect, Exit, FileSystem, Option, Path, Schema, Scope, Semaphore } from "effect";
 import {
   bundledDiagnosticEntries,
   compile,
@@ -10,6 +10,7 @@ import { resolveProject, rereadProject, type Project } from "./commands.ts";
 import {
   makeProjectSession,
   type ProjectSession,
+  type SessionClosed,
   type SessionEvent,
   type ProjectSnapshot,
 } from "./project-session.ts";
@@ -26,8 +27,11 @@ import {
 import {
   makeWatchFiles,
   sameFingerprint,
+  type WatchChanges,
+  type WatchClosed,
   type WatchFiles,
   type WatchInput,
+  type WatchSnapshot,
 } from "./watch-files.ts";
 import {
   capabilities,
@@ -121,6 +125,129 @@ export const awaitCoverageBaseline = Effect.fnUntraced(function* (watch: WatchFi
   if (Option.isNone(polled)) yield* watch.waitForPass(replaced.pass);
 });
 
+/** What the watch saw while an analysis ran: a fresh pass, the snapshot it produced, and
+ * every external change noticed since the previous analysis consumed its own. @internal */
+export const observeAnalysis = Effect.fnUntraced(function* (watch: WatchFiles) {
+  yield* watch.poll;
+  const previous = yield* watch.current;
+  const previousChanges = yield* watch.takeChanges;
+
+  return { previous, previousChanges };
+});
+
+export class CoverageFault extends Schema.TaggedError<CoverageFault>()("CoverageFault", {
+  stage: Schema.Literals(["Install", "Baseline", "Verify", "Session"]),
+}) {}
+
+export interface CoverageInstall {
+  readonly watch: WatchFiles;
+  readonly session: Pick<ProjectSession, "invalidate" | "restartRequired">;
+  /** One permit orders this analysis's coverage change against the watch loop. */
+  readonly gate: Semaphore.Semaphore;
+  readonly inputs: ReadonlyArray<WatchInput>;
+  readonly exclusions: ReadonlyArray<string>;
+  /** Observation before this analysis's compile finished: snapshot and changes taken then. */
+  readonly previous: WatchSnapshot;
+  readonly previousChanges: WatchChanges;
+  /** Exact texts the compile read, and the subset served from editor overlays. */
+  readonly read: ReadonlyMap<string, string>;
+  readonly overlaid: ReadonlySet<string>;
+}
+
+/** Installs the coverage a finished analysis observed and decides whether that analysis
+ * must be repeated. replaceInputs always marks the watch dirty; that signal is this
+ * analysis's own change and is consumed under the gate, so it neither wakes the watch
+ * loop into superseding this analysis nor forces a second compile. A second analysis
+ * is requested only for a real change: an external edit observed before or after the
+ * baseline, a covered executable change, or a file whose saved text no longer equals
+ * the text the compile read (an edit between the read and the new baseline, which the
+ * baseline pass would otherwise adopt silently). Inputs observed but never read
+ * (existence probes, directory listings) have no text to compare; their changes after
+ * the compile are detected only from the baseline on. @internal */
+export const installCoverage = Effect.fnUntraced(function* (
+  input: CoverageInstall,
+): Effect.fn.Return<void, CoverageFault, FileSystem.FileSystem> {
+  const fs = yield* FileSystem.FileSystem;
+  const { watch } = input;
+
+  const window = yield* input.gate.withPermit(
+    Effect.gen(function* () {
+      // Edits noticed before this call are external; the next take sees only our signal.
+      const before = yield* watch.takeChanges;
+
+      yield* watch
+        .replaceInputs(input.inputs, input.exclusions)
+        .pipe(Effect.mapError(() => new CoverageFault({ stage: "Install" })));
+      yield* watch.takeChanges;
+      yield* awaitCoverageBaseline(watch).pipe(
+        Effect.mapError(() => new CoverageFault({ stage: "Baseline" })),
+      );
+      const current = yield* watch.current;
+      const after = yield* watch.takeChanges;
+
+      return { before, after, current };
+    }),
+  );
+
+  const executableChanged =
+    input.previousChanges.executableDirty ||
+    window.before.executableDirty ||
+    window.after.executableDirty ||
+    input.previous.fingerprints.some((previous) => {
+      if (previous.input.kind !== "executable") return false;
+
+      const next = window.current.fingerprints.find(
+        (candidate) =>
+          candidate.input.path === previous.input.path &&
+          candidate.input.kind === previous.input.kind &&
+          candidate.input.directory === previous.input.directory &&
+          candidate.input.recursive === previous.input.recursive,
+      );
+
+      return next === undefined || !sameFingerprint(previous, next);
+    });
+
+  if (executableChanged)
+    return yield* input.session
+      .restartRequired("Covered executable input changed")
+      .pipe(Effect.mapError(() => new CoverageFault({ stage: "Session" })));
+
+  const edited = yield* Effect.forEach(
+    [...input.read].filter(([file]) => !input.overlaid.has(file)),
+    ([file, text]) =>
+      fs.readFileString(file).pipe(
+        Effect.map((saved) => saved !== text),
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(true)),
+        Effect.mapError(() => new CoverageFault({ stage: "Verify" })),
+      ),
+    { concurrency: 16 },
+  );
+
+  if (
+    input.previousChanges.dirty ||
+    window.before.dirty ||
+    window.after.dirty ||
+    edited.some(Boolean)
+  )
+    yield* input.session.invalidate.pipe(
+      Effect.mapError(() => new CoverageFault({ stage: "Session" })),
+    );
+});
+
+/** One watch-loop step. Taking the changes waits for any analysis holding the gate, so an
+ * analysis's own coverage signal is never mistaken for an external edit. @internal */
+export const applyWatchChanges = Effect.fnUntraced(function* (
+  watch: WatchFiles,
+  session: Pick<ProjectSession, "invalidate" | "restartRequired">,
+  gate: Semaphore.Semaphore,
+): Effect.fn.Return<void, WatchClosed | CompilerFault | SessionClosed> {
+  yield* watch.awaitChanges;
+  const changes = yield* gate.withPermit(watch.takeChanges);
+
+  if (changes.executableDirty) yield* session.restartRequired("Covered executable input changed");
+  else if (changes.dirty) yield* session.invalidate;
+});
+
 /** Portable one-project LSP owner. Building this Effect performs no work. The outer
  * scope owns transport/client liveness; shutdown closes the nested project owner
  * before replying null, leaving transport alive until exit or EOF. No disk emission. */
@@ -129,6 +256,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
   const fs = yield* FileSystem.FileSystem;
   const cwd = path.resolve(options.cwd ?? path.resolve());
   const rootScope = yield* Effect.scope;
+  const coverageGate = yield* Semaphore.make(1);
   let projectScope: Scope.Closeable | undefined;
   let project: Project | undefined;
   let session: ProjectSession | undefined;
@@ -401,9 +529,10 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       analyzedSources.set(snapshot, locations);
     }
 
-    yield* watch!.poll.pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
-    const previous = yield* watch!.current;
-    const previousChanges = yield* watch!.takeChanges;
+    const { previous, previousChanges } = yield* observeAnalysis(watch!).pipe(
+      Effect.mapError(() => unavailable("Watch reconciliation unavailable")),
+    );
+
     executableInputs = withKnownExecutableFiles(executableInputs, yield* loadedExecutableFiles());
     // A failed attempt contributes recovery coverage, never a successful snapshot.
     const observedSources = new Map<string, WatchInput>();
@@ -424,41 +553,29 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
     }
 
     const nextSourceInputs = [...observedSources.values()];
-    yield* watch!
-      .replaceInputs(
-        [...executableInputs, ...nextSourceInputs],
-        [...ownedIdentities, path.join(project!.rootDir, ".git")],
-      )
-      .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
     sourceInputs = nextSourceInputs;
-    yield* awaitCoverageBaseline(watch!).pipe(
-      Effect.mapError(() => unavailable("Watch reconciliation unavailable")),
+
+    yield* installCoverage({
+      watch: watch!,
+      session: session!,
+      gate: coverageGate,
+      inputs: [...executableInputs, ...nextSourceInputs],
+      exclusions: [...ownedIdentities, path.join(project!.rootDir, ".git")],
+      previous,
+      previousChanges,
+      read: texts,
+      overlaid: new Set([...sources.keys()].map((file) => path.resolve(file))),
+    }).pipe(
+      Effect.mapError((fault) =>
+        unavailable(
+          fault.stage === "Install"
+            ? "Watch coverage unavailable"
+            : fault.stage === "Session"
+              ? "Session unavailable"
+              : "Watch reconciliation unavailable",
+        ),
+      ),
     );
-    const current = yield* watch!.current;
-    const changes = yield* watch!.takeChanges;
-
-    const executableChanged =
-      previousChanges.executableDirty ||
-      previous.fingerprints.some((before) => {
-        if (before.input.kind !== "executable") return false;
-
-        const after = current.fingerprints.find(
-          (next) =>
-            next.input.path === before.input.path &&
-            next.input.kind === before.input.kind &&
-            next.input.directory === before.input.directory &&
-            next.input.recursive === before.input.recursive,
-        );
-
-        return after === undefined || !sameFingerprint(before, after);
-      });
-
-    if (executableChanged)
-      yield* session!
-        .restartRequired("Covered executable input changed")
-        .pipe(Effect.mapError(() => unavailable("Session unavailable")));
-    else if (previousChanges.dirty || changes.dirty)
-      yield* session!.invalidate.pipe(Effect.mapError(() => unavailable("Session unavailable")));
 
     if (attempt._tag === "Faulted") return yield* attempt.fault;
 
@@ -666,12 +783,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       );
       yield* Effect.gen(function* () {
         while (state === "running") {
-          yield* watch!.awaitChanges;
-          const changes = yield* watch!.takeChanges;
-
-          if (changes.executableDirty)
-            yield* session!.restartRequired("Covered executable input changed");
-          else if (changes.dirty) yield* session!.invalidate;
+          yield* applyWatchChanges(watch!, session!, coverageGate);
         }
       }).pipe(
         Effect.catch(() => log("Analysis unavailable: filesystem observation failed", 1)),
