@@ -131,6 +131,28 @@ if (mode === "flood") {
     });
     void Effect.runPromise(Effect.sleep(Duration.seconds(60)));
   }
+} else if (mode === "daemon") {
+  const script = process.argv[1];
+
+  if (script === undefined) {
+    process.exitCode = 2;
+  } else {
+    // The descendant starts its own session, so the group kill cannot reach it, and it inherits both pipes.
+    const daemon = Bun.spawn([process.execPath, script, "linger"], {
+      stdin: "ignore",
+      stdout: "inherit",
+      stderr: "inherit",
+      env: {},
+      detached: true,
+    });
+
+    daemon.unref();
+    writeFully(2, `daemon-pid ${daemon.pid}\n`);
+    process.exitCode = 0;
+  }
+} else if (mode === "linger") {
+  // Holds the inherited pipes open and ends by itself, so an aborted test cannot leak it.
+  void Effect.runPromise(Effect.sleep(Duration.seconds(30)));
 } else {
   writeFully(2, `unknown mode: ${mode}`);
   process.exitCode = 2;

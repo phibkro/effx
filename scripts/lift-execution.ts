@@ -7,6 +7,7 @@ import {
   Exit,
   Fiber,
   Layer,
+  Option,
   Path,
   PlatformError,
   Stream,
@@ -27,8 +28,10 @@ import process from "node:process";
  * The single native process adapter for spec 0019 §2.4. Two independent pipe readers and the real process
  * exit run with explicit concurrency three; each reader retains only a bounded byte prefix while continuing
  * to drain beyond its cap. A deadline requests process-group termination, escalates to SIGKILL through the
- * installed spawner, then joins the real reader/exit fiber before returning any stopped receipt. The child
- * options use a fresh root-owned empty environment with `extendEnv: false`: no caller or application env is
+ * installed spawner and observes the leader's real exit before any stopped receipt exists. A descendant
+ * that left the process group may keep a pipe open, so the readers then get one bounded grace and the
+ * receipt keeps exactly the prefix they observed: stopped, partial, and never fabricated. The child options
+ * use a fresh root-owned empty environment with `extendEnv: false`: no caller or application env is
  * inherited. No stdout/stderr/source payload is logged here.
  */
 
@@ -49,6 +52,8 @@ interface ObservedWork {
 }
 
 const forcedKillGrace = Duration.millis(250);
+
+const drainGrace = Duration.seconds(2);
 
 const reviewedChildEnvironment: Readonly<Record<string, string>> = Object.freeze({});
 
@@ -200,12 +205,37 @@ const completeOwned = Effect.fnUntraced(function* (
         return receiptOf(work, startedAt, endedAt, false);
       }
 
-      // The forced-stop path is uninterruptible until the process-group kill, escalation, and actual exit
-      // plus pipe-drain completion have all been observed. This is not a fabricated fallback receipt.
-      return yield* Effect.uninterruptible(
+      // The forced-stop path is uninterruptible until the process-group kill, escalation and the leader's
+      // actual exit have been observed. Only the bounded reader grace may be interrupted by the caller.
+      return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          yield* handle.kill({ killSignal: "SIGTERM", forceKillAfter: forcedKillGrace });
-          const work = yield* Fiber.join(completionFiber);
+          // A kill that finds no process group fails only when the leader is gone too; a running leader that
+          // cannot be signalled is a real custody failure and propagates.
+          yield* handle
+            .kill({ killSignal: "SIGTERM", forceKillAfter: forcedKillGrace })
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.flatMap(handle.isRunning, (running) =>
+                  running ? Effect.fail(cause) : Effect.void,
+                ),
+              ),
+            );
+
+          const settled = yield* restore(
+            Fiber.join(completionFiber).pipe(Effect.timeoutOption(drainGrace)),
+          );
+
+          // Readers still open after the grace: the real exit and the bytes observed so far are the receipt.
+          const work: ObservedWork = Option.isSome(settled)
+            ? settled.value
+            : {
+                termination: yield* Effect.exit(handle.exitCode),
+                stdout: textOf(stdoutCapture),
+                stderr: textOf(stderrCapture),
+                stdoutTruncated: stdoutCapture.truncated,
+                stderrTruncated: stderrCapture.truncated,
+              };
+
           const endedAt = yield* DateTime.now;
 
           return receiptOf(work, startedAt, endedAt, true);

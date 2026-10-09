@@ -62,6 +62,10 @@ const waitForMarker = Effect.fnUntraced(function* (fs: FileSystem.FileSystem, ma
 const pidIsAlive = (pid: number) =>
   Effect.map(Effect.exit(Effect.sync(() => process.kill(pid, 0))), (exit) => Exit.isSuccess(exit));
 
+/** The pid the daemon probe reports on its stderr pipe. */
+const daemonPidOf = (stderr: string): number =>
+  Number(/^daemon-pid (?<pid>\d+)$/mu.exec(stderr)?.groups?.["pid"] ?? Number.NaN);
+
 /** The real Bun platform backend plus the one native lift-check adapter. */
 const testLayer = liftCheckExecutionLayer.pipe(Layer.provideMerge(BunServices.layer));
 
@@ -236,5 +240,33 @@ describe("lift check native child custody (spec 0019 §2.4 step 5)", () => {
         assert.isFalse(descendantAlive);
       }).pipe(Effect.provide(testLayer)),
     20_000,
+  );
+
+  it.live(
+    "bounds the forced stop when a descendant outside the process group keeps the pipes open",
+    () =>
+      Effect.gen(function* () {
+        const receipt = yield* runProbe(probeSpec("daemon", [], 500, 64 * 1024));
+        const daemon = daemonPidOf(receipt.stderr);
+        const daemonAlive = yield* pidIsAlive(daemon);
+
+        // The descendant owns its session: the group cleanup neither can nor claims to reach it.
+        if (daemonAlive) yield* Effect.sync(() => process.kill(daemon, "SIGKILL"));
+
+        assert.isTrue(Number.isInteger(daemon));
+        assert.isTrue(daemonAlive);
+        assert.strictEqual(receipt.timedOut, true);
+        assert.include(receipt.stderr, "daemon-pid");
+        assert.isTrue(receipt.durationMs >= 500);
+
+        // A stop at the deadline that still reports the leader's real exit: nothing is fabricated.
+        assert.deepStrictEqual(receipt.exit, {
+          _tag: "Stopped",
+          reason: "deadline",
+          signal: "unknown",
+          exitCode: 0,
+        });
+      }).pipe(Effect.provide(testLayer)),
+    30_000,
   );
 });
