@@ -1,6 +1,5 @@
 ---
 "@effx/runtime": minor
-"@effx/frontend-ts": minor
 "@effx/compiler": minor
 ---
 

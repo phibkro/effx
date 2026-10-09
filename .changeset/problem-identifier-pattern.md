@@ -1,6 +1,5 @@
 ---
 "@effx/compiler": minor
-"@effx/frontend-ts": minor
 "@effx/cli": minor
 ---
 
