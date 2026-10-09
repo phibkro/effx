@@ -1,8 +1,10 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
+import { digestTree } from "../tools/testing/projects.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
 import { publicInstall, workspaceOverrides } from "./install-public.ts";
+import { api, support } from "./test/lift-sources.ts";
 
 // EX-0023: reuse the scoped, bounded native child adapter. No child output is logged.
 // This root owns the disposable consumer, all children, and its socket server until scope close.
@@ -28,6 +30,21 @@ const decodeManifest = Schema.decodeEffect(
 const decodeUser = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Struct({ id: Schema.String, displayName: Schema.String })),
   { onExcessProperty: "error" },
+);
+
+const decodeLiftReport = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      form: Schema.Literal("both"),
+      suggestions: Schema.Array(Schema.String),
+      check: Schema.Struct({
+        group: Schema.String,
+        verbose: Schema.TaggedStruct("Pass", {}),
+        dense: Schema.TaggedStruct("Pass", {}),
+        binding: Schema.TaggedStruct("Passed", {}),
+      }),
+    }),
+  ),
 );
 
 const run = Effect.fnUntraced(function* (cwd: string, args: ReadonlyArray<string>, step: string) {
@@ -174,6 +191,71 @@ const smoke = Effect.gen(function* () {
   yield* requireThat(
     refusal.code !== 0 && refusal.text.includes("effect-4.0"),
     "removed RC CLI choice",
+  );
+
+  // The installed packed root lifts and mechanically checks a pure-Effect project (spec 0019 §2.4): the
+  // real overlay, witness child and binding typecheck run against the consumer's installed stable Effect.
+  const liftRoot = path.join(consumer, "lift-consumer");
+
+  yield* fs.makeDirectory(path.join(liftRoot, "src"), { recursive: true });
+  yield* fs.writeFileString(path.join(liftRoot, "src/support.ts"), support);
+  yield* fs.writeFileString(path.join(liftRoot, "src/api.ts"), api);
+  yield* fs.writeFileString(
+    path.join(liftRoot, "tsconfig.json"),
+    yield* encodeJson({
+      compilerOptions: {
+        target: "ESNext",
+        module: "ESNext",
+        moduleResolution: "bundler",
+        strict: true,
+        noEmit: true,
+        allowImportingTsExtensions: true,
+      },
+      include: ["src/**/*.ts"],
+      effx: { projectRoot: "." },
+    }),
+  );
+
+  const liftArgs = [
+    cli,
+    "lift",
+    "--group",
+    "profile",
+    "--module",
+    "src/profile.effx.ts",
+    "--check",
+    "--form",
+    "both",
+  ];
+
+  const liftBefore = yield* digestTree(liftRoot);
+  const liftText = yield* run(liftRoot, liftArgs, "installed lift check text report");
+
+  yield* requireThat(
+    liftText.includes("verbose: PASS") &&
+      liftText.includes("dense: PASS") &&
+      liftText.includes("binding: PASSED"),
+    "installed lift check passes both forms and the binding gate",
+  );
+
+  const liftJson = (yield* run(
+    liftRoot,
+    [...liftArgs, "--json"],
+    "installed lift check JSON report",
+  ))
+    .split("\n")
+    .find((line) => line.startsWith("{"));
+
+  const liftReport = yield* decodeLiftReport(liftJson ?? "");
+
+  yield* requireThat(
+    liftReport.suggestions.length === 2 && liftReport.check.group === "profile",
+    "installed lift report carries both suggestions",
+  );
+
+  yield* requireThat(
+    JSON.stringify(yield* digestTree(liftRoot)) === JSON.stringify(liftBefore),
+    "installed lift check wrote nothing into the analyzed project",
   );
 
   // The maintained peer creates real inherited descriptors; only the installed packed root runs.
