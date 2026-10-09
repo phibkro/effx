@@ -20,6 +20,7 @@
   ],
   "type": "module",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "default": "./dist/effx.js"
     },
@@ -34,7 +35,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build src/main.ts --target=bun --outfile dist/effx.js --external @typescript/typescript6 --external @cedar-policy/cedar-wasm && bun build src/config.ts --target=bun --outfile dist/config.js --external @effx/compiler && bunx tsc --ignoreConfig --noCheck --noResolve --declaration --emitDeclarationOnly --outDir dist src/config.ts"
+    "build": "bun ../../scripts/build-lsp-native.ts && bun build ../../scripts/effx.ts --target=bun --outfile dist/effx.js --external @typescript/typescript6 --external @cedar-policy/cedar-wasm && bun build src/config.ts --target=bun --outfile dist/config.js --external @effx/compiler && bunx tsc --ignoreConfig --noCheck --noResolve --declaration --emitDeclarationOnly --outDir dist src/config.ts"
   },
   "dependencies": {
     "@effx/compiler": "0.1.0",

@@ -133,6 +133,7 @@ export const ExtraReceipt = Schema.Struct({
       "reopened-device",
       "reopened-inode",
       "reopened-flags",
+      "reopened-shared-flags",
     ]),
   ),
   failureTag: Schema.optionalKey(

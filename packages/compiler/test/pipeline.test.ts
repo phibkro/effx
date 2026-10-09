@@ -191,7 +191,7 @@ describe("pipeline", () => {
         {
           ...collected,
           project: {
-            target: "effect-4.0-rc",
+            target: "effect-4.0",
             emit: "contract",
             allowImportingTsExtensions: true,
             canonicalImportBase: "/source/.effx/generated",
@@ -205,7 +205,7 @@ describe("pipeline", () => {
         {
           ...collected,
           project: {
-            target: "effect-4.0-rc",
+            target: "effect-4.0",
             emit: "handlers",
             allowImportingTsExtensions: false,
             canonicalImportBase: "/source/.effx/generated",
@@ -221,11 +221,11 @@ describe("pipeline", () => {
       );
       assert.strictEqual(
         Option.getOrThrow(contract.files.value)[0]?.contents,
-        "effect-4.0-rc/contract/true//source/.effx/generated//artifacts/contract",
+        "effect-4.0/contract/true//source/.effx/generated//artifacts/contract",
       );
       assert.strictEqual(
         Option.getOrThrow(handlers.files.value)[0]?.contents,
-        "effect-4.0-rc/handlers/false//source/.effx/generated//artifacts/handlers",
+        "effect-4.0/handlers/false//source/.effx/generated//artifacts/handlers",
       );
       assert.strictEqual(
         canonical(Option.getOrThrow(defaults.ir.value)),

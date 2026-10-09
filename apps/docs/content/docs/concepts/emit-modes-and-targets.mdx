@@ -8,7 +8,7 @@ Two settings change the generated files without changing the IR.
 | Setting | Question it answers | Literals |
 | --- | --- | --- |
 | `EmitMode` | Which projections does this pass write? | `contract`, `handlers`, `all` |
-| `TargetProfile` | Which Effect package paths and API names do the files use? | `effect-4.0`, `effect-4.0-rc` |
+| `TargetProfile` | Which Effect package paths and API names do the files use? | `effect-4.0` |
 
 Source: `packages/compiler/src/Collected.ts` (`EmitMode`, `TargetProfile`, `ProjectResolution`, `ProjectConfig`), `packages/compiler/src/Extension.ts` (`GenerationContext`), `docs/specs/0010-target-profiles-and-emit-modes.md`.
 
@@ -69,35 +69,33 @@ A backend package and a shared contract package can build from the same source w
 
 The two projects set one shared source identity with `effx.projectRoot` in each `tsconfig`, a path relative to that tsconfig. `ProjectConfig.projectRoot` supplies the same value programmatically. Local symbols and StableIds use that root, not the output directory (spec 0010, `packages/frontend-ts/src/project.ts`).
 
-<Callout type="info">
-  The CLI has no `--out-dir` flag. The output directory comes from project resolution, `.effx/generated` next to the tsconfig by default. `ProjectConfig.outDir` exists for programmatic callers (`packages/compiler/src/Collected.ts`).
-</Callout>
+The output directory is selected by `--out-dir`, config `outDir`, or tsconfig
+`effx.outDir`. The default is `.effx/generated` next to the tsconfig.
 
-## Target profiles
+## Stable Effect target
 
-A target profile selects the Effect import paths of every generated file. One table covers all generators (`packages/compiler/src/generate/target.ts`).
+`effect-4.0` is the only target. It requires a stable installed Effect release
+in `>=4.0.0 <5`. Prereleases are not supported. The compiler reads the target
+project's own `effect/package.json`, not the CLI's bundled Effect. An explicit
+target cannot override an unsupported installed version. Missing or unsupported
+packages produce `EFFX2701` and prevent generation.
 
-| Import | `effect-4.0` | `effect-4.0-rc` |
-| --- | --- | --- |
-| core | `effect` | `effect` |
-| http | `effect/http` | `effect/unstable/http` |
-| http api | `effect/http-api` | `effect/unstable/httpapi` |
-| net | `effect/net` | `effect/unstable/net` |
-| rpc | `effect/rpc` | `effect/unstable/rpc` |
-| cli | `effect/cli` | `effect/unstable/cli` |
-| sql | `effect/sql` | `effect/unstable/sql` |
+Every generator uses the same native module names:
 
-For the rc profile the spelling is `httpapi`, not `http-api`. An unsupported subpath is an error, not a guessed import (spec 0010).
-
-### How the target is chosen
-
-| Source | Rule |
+| Import | Module |
 | --- | --- |
-| `--target <value>` | an explicit target wins |
-| Installed Effect | otherwise the frontend reads the target project's own `effect/package.json`. Version `4.0.0` selects `effect-4.0`. Version `4.0.0-rc.<n>` selects `effect-4.0-rc`. |
-| Neither works | an `EFFX2701` diagnostic with a location, and generation is skipped |
+| core | `effect` |
+| http | `effect/http` |
+| http api | `effect/http-api` |
+| net | `effect/net` |
+| rpc | `effect/rpc` |
+| cli | `effect/cli` |
+| sql | `effect/sql` |
 
-The compiler does not use the CLI's own bundled Effect to choose the target. Source: `packages/frontend-ts/src/project.ts`, spec 0010.
+Application module leaves are checked against the installed package exports.
+Unsupported subpaths produce a diagnostic; the compiler does not rename them.
+Source: `packages/compiler/src/generate/target.ts`,
+`packages/frontend-ts/src/project.ts`, spec 0010's stable-only amendment.
 
 ### Relative import suffix
 
@@ -107,6 +105,6 @@ Relative imports in generated files end in `.js`, unless the target tsconfig set
 
 | Item | Status |
 | --- | --- |
-| `--emit contract`, `--emit handlers`, `--emit all` | implemented (`packages/cli/src/main.ts`). STATE.md: "Gate 3 compiler prerequisites (target/split emit)", build, DoD met locally. |
-| `--target` and rc profile | implemented, tested against an isolated Effect `4.0.0-rc.116` fixture (STATE.md) |
+| `--emit contract`, `--emit handlers`, `--emit all` | implemented (`scripts/effx.ts`). STATE.md: "Gate 3 compiler prerequisites (target/split emit)", build, DoD met locally. |
+| `--target effect-4.0` | stable Effect 4 only; isolated fixture: `packages/frontend-ts/test/fixtures/stable-v4` |
 | `effx.config.ts` | implemented (spec 0015): `emit`, `target`, `outDir`, `strictAccess` and `project` are optional config fields; precedence is flag, then config, then the tsconfig `effx` block, then the default ([CLI](/docs/cli)). |

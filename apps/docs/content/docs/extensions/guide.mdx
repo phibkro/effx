@@ -101,7 +101,7 @@ application. An explicit file that is missing or invalid fails before compilatio
 | `project` | `string?` | tsconfig to compile; relative to the config file |
 | `outDir` | `string?` | generated-file directory; relative to the config file |
 | `emit` | `EmitMode?` | `contract`, `handlers` or `all` |
-| `target` | `TargetProfile?` | `effect-4.0` or `effect-4.0-rc` |
+| `target` | `TargetProfile?` | `effect-4.0` |
 | `strictAccess` | `boolean?` | promote missing-access warnings to errors |
 | `extensions` | `Extension[]` or `(builtin) => Extension[]` | an array **appends** to the built-ins; the callback receives them and returns the complete ordered list |
 | `generators` | `{ http?, rpc?, cli?, client?, foldkit? }` | `false` turns off one built-in file generator. Omitted means on |
@@ -121,7 +121,7 @@ operations. The example's extension imports only `@effx/compiler`, `@effx/ir` an
 
 ```
 cd examples/extension-openapi-tags
-bun ../../packages/cli/src/main.ts check --project tsconfig.json
+bun ../../scripts/effx.ts check --project tsconfig.json
 ```
 
 Output of that command when this page was written (`EFFX0001` and `EFFX2204` are built-in warnings; the TypeScript versions depend on your install):

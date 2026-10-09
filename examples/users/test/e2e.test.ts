@@ -20,7 +20,7 @@ it.live("builds and serves both generated projections on one Bun server", () =>
     const fs = yield* FileSystem.FileSystem;
     const originalProjectDir = yield* path.fromFileUrl(new URL("..", import.meta.url));
     const projectDir = yield* copyUsersExample();
-    const main = new URL("../../../packages/cli/src/main.ts", import.meta.url).pathname;
+    const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
     const build = Bun.spawnSync(
       ["bun", main, "build", "--project", path.join(projectDir, "tsconfig.json")],

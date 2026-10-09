@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { StreamMessageWriter } from "vscode-languageserver-protocol/node";
+import { StreamMessageWriter, type NotificationMessage } from "vscode-languageserver-protocol/node";
 import { Effect, Schema } from "effect";
 import { LinuxFixtureReceipt, LinuxPeerFault, LinuxPeerResult } from "./lsp-linux.contract.ts";
 
@@ -252,11 +252,13 @@ const main = Effect.gen(function* () {
           chain = chain.then(() => {
             if (!active || peerFault) return;
 
-            return socketWriter.write({
+            const message: NotificationMessage = {
               jsonrpc: "2.0",
               method: "synthetic",
               params: { text: "x".repeat(65400) },
-            });
+            };
+
+            return socketWriter.write(message);
           });
         }
 

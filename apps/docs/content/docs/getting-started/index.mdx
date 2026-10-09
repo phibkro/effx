@@ -13,8 +13,8 @@ This page follows the `examples/users` slice. Every code block below is included
 
 | Where | Command | Notes |
 | --- | --- | --- |
-| Monorepo root | `bun run effx <command> --project examples/users/tsconfig.json` | Root script `effx` is `bun packages/cli/src/main.ts`. `--project` is resolved against the working directory. |
-| Example package | `bun run --cwd examples/users effx:build` | The script `effx:build` in `examples/users/package.json` is `bun ../../packages/cli/src/main.ts build`. `--project` defaults to `tsconfig.json` in that directory. |
+| Monorepo root | `bun run effx <command> --project examples/users/tsconfig.json` | Root script `effx` is `bun scripts/effx.ts`. `--project` is resolved against the working directory. |
+| Example package | `bun run --cwd examples/users effx:build` | The script `effx:build` in `examples/users/package.json` is `bun ../../scripts/effx.ts build`. `--project` defaults to `tsconfig.json` in that directory. |
 | Published package | not available | Nothing is published. Do not rely on a `bunx effx` or `npm install` flow. |
 
 Install the workspace dependencies first with `bun install` at the repository root. `AGENTS.md` notes that the Oxlint plugin dependency is a local path pin to a sibling checkout.
@@ -145,7 +145,7 @@ The `examples/users/package.json` scripts:
 
 | Script | Command it runs | Needs |
 | --- | --- | --- |
-| `effx:build` | `bun ../../packages/cli/src/main.ts build` | nothing |
+| `effx:build` | `bun ../../scripts/effx.ts build` | nothing |
 | `serve` | `bun src/server-main.ts` | a prior build. Reads `PORT` (default 3000). |
 | `client` | `bun src/client-main.ts` | a prior build and a running server. Reads `EFFX_URL` (default `http://localhost:3000`). |
 | `cli` | `bun src/cli-main.ts` | a prior build |

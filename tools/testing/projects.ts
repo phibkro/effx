@@ -32,6 +32,7 @@ const repositoryCopy = Effect.fnUntraced(function* (prefix: string) {
     path.join(directory, "packages", "frontend-ts", "src"),
   );
   yield* fs.symlink(path.join(repoRoot, "node_modules"), path.join(directory, "node_modules"));
+  yield* fs.symlink(path.join(repoRoot, "scripts"), path.join(directory, "scripts"));
 
   for (const name of ["package.json", "tsconfig.json"])
     yield* fs.copyFile(path.join(repoRoot, name), path.join(directory, name));
@@ -58,13 +59,13 @@ export const copyUsersFixture = Effect.fnUntraced(function* () {
   return directory;
 });
 
-/** The rc.116 copy keeps its target dependencies and checked-in projection seeds. */
-export const copyRc116Fixture = Effect.fnUntraced(function* () {
+/** The stable Effect 4 copy keeps its target dependencies and checked-in projection seeds. */
+export const copyStableV4Fixture = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const relative = "packages/frontend-ts/test/fixtures/rc116";
+  const relative = "packages/frontend-ts/test/fixtures/stable-v4";
   const source = path.join(repoRoot, relative);
-  const directory = path.join(yield* repositoryCopy("rc116-test-"), relative);
+  const directory = path.join(yield* repositoryCopy("stable-v4-test-"), relative);
   yield* fs.makeDirectory(directory, { recursive: true });
 
   for (const name of yield* fs.readDirectory(source)) {

@@ -1,4 +1,4 @@
-import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
+import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -7,7 +7,7 @@ import { type CompileResult, type Diagnostic, Extensions, compile } from "@effx/
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { type ApplicationIR, semanticHash } from "@effx/ir";
 
-const contactConfig = new URL("./fixtures/rc116/tsconfig.contact.effx.json", import.meta.url)
+const contactConfig = new URL("./fixtures/stable-v4/tsconfig.contact.effx.json", import.meta.url)
   .pathname;
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
@@ -57,7 +57,7 @@ const accessOf = Effect.fn("accessOf")(function* (ir: ApplicationIR) {
   return yield* decodeAccess(contracts[0]);
 });
 
-describe("Contact Command/SnapshotRead claim (rc.116 fixture)", () => {
+describe("Contact Command/SnapshotRead claim (stable Effect 4 fixture)", () => {
   it.effect(
     "lowers the declared claim into the one AccessContract of the Contact command",
     () =>
@@ -239,7 +239,7 @@ describe("Contact Command/SnapshotRead claim (rc.116 fixture)", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const fixtureRoot = yield* copyRc116Fixture();
+        const fixtureRoot = yield* copyStableV4Fixture();
 
         const result = yield* compileContact(
           "contact-message.effx.ts",

@@ -84,8 +84,8 @@ const fixture = (includeLocal: boolean) => {
   return { ir, index: IRGraph.toGraph(ir) };
 };
 
-const rc: GenerationContext = {
-  target: "effect-4.0-rc",
+const stable: GenerationContext = {
+  target: "effect-4.0",
   emit: "all",
   allowImportingTsExtensions: false,
   canonicalImportBase: "/app/.effx/generated",
@@ -98,7 +98,7 @@ describe("executable RPC and CLI projections", () => {
       const { ir, index } = fixture(true);
 
       for (const generator of [rpcGenerator, cliGenerator]) {
-        const generated = generator(ir, index, rc);
+        const generated = generator(ir, index, stable);
         expectTypeOf<Effect.Success<typeof generated>>().toEqualTypeOf<
           ReadonlyArray<{ readonly path: string; readonly contents: string }>
         >();
@@ -113,7 +113,7 @@ describe("executable RPC and CLI projections", () => {
       const { ir, index } = fixture(false);
 
       for (const emit of ["contract", "handlers", "all"] as const) {
-        const context: GenerationContext = { ...rc, emit };
+        const context: GenerationContext = { ...stable, emit };
         assert.deepStrictEqual(yield* rpcGenerator(ir, index, context), []);
         assert.deepStrictEqual(yield* cliGenerator(ir, index, context), []);
       }
@@ -123,27 +123,27 @@ describe("executable RPC and CLI projections", () => {
   it.effect("limits all-mode handlers to locally bound operations and maps rc imports", () =>
     Effect.gen(function* () {
       const { ir, index } = fixture(true);
-      const [rpc] = yield* rpcGenerator(ir, index, rc);
-      const [cli] = yield* cliGenerator(ir, index, rc);
+      const [rpc] = yield* rpcGenerator(ir, index, stable);
+      const [cli] = yield* cliGenerator(ir, index, stable);
       const rpcText = Option.getOrThrow(Option.fromUndefinedOr(rpc)).contents;
       const cliText = Option.getOrThrow(Option.fromUndefinedOr(cli)).contents;
 
       assert.include(rpcText, 'Rpc.make("App.Local"');
-      assert.include(rpcText, 'from "effect/unstable/rpc"');
-      assert.include(rpcText, 'from "effect/unstable/http"');
-      assert.include(rpcText, 'from "effect/unstable/net"');
+      assert.include(rpcText, 'from "effect/rpc"');
+      assert.include(rpcText, 'from "effect/http"');
+      assert.include(rpcText, 'from "effect/net"');
       assert.include(rpcText, 'from "../src/schemas.js"');
       assert.include(rpcText, 'from "../src/operations.js"');
       assert.notInclude(rpcText, 'Rpc.make("App.External"');
       assert.notInclude(rpcText, '"App.External": (payload)');
 
-      assert.include(cliText, 'from "effect/unstable/cli"');
+      assert.include(cliText, 'from "effect/cli"');
       assert.include(cliText, 'from "../src/schemas.js"');
       assert.include(cliText, 'from "../src/operations.js"');
       assert.include(cliText, 'Command.make("App.Local"');
       assert.notInclude(cliText, 'Command.make("App.External"');
 
-      const ts = { ...rc, allowImportingTsExtensions: true };
+      const ts = { ...stable, allowImportingTsExtensions: true };
       const [tsRpc] = yield* rpcGenerator(ir, index, ts);
       const [tsCli] = yield* cliGenerator(ir, index, ts);
       assert.include(tsRpc!.contents, 'from "../src/schemas.ts"');

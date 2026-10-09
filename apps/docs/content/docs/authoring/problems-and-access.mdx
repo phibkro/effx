@@ -178,7 +178,7 @@ effx build --strict-access
 ```
 
 Source: `packages/compiler/src/Collected.ts` (`strictAccess`), `packages/compiler/src/Extension.ts`,
-`packages/cli/src/main.ts` (`Flag.Boolean("strict-access")`), `docs/specs/0006-access-contract-extension.md`.
+`scripts/effx.ts` (`Flag.Boolean("strict-access")`), `docs/specs/0006-access-contract-extension.md`.
 Spec 0006 states that the CLI's other commands do not claim an access gate.
 
 ### Generated shape: guards
@@ -208,7 +208,7 @@ Source: `docs/specs/0006-access-contract-extension.md` §"HTTP lowering and guar
 
 Class-decorator form with group defaults for problems and access:
 
-<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts</include>
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/stable-v4/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/stable-v4/src/directory-class.effx.ts</include>
 
 Builder form with `Capability.one`, `Concealment.reveal` and `.declare()`: see
 [`profile.effx.ts`](/docs/authoring/http#example-dense-builder-declarations).

@@ -309,7 +309,7 @@ describe("external HTTP client projection", () => {
 
       for (const emit of ["contract", "handlers", "all"] as const) {
         const context: GenerationContext = {
-          target: "effect-4.0-rc",
+          target: "effect-4.0",
           emit,
           allowImportingTsExtensions: false,
         };
@@ -333,7 +333,7 @@ describe("external HTTP client projection", () => {
     }),
   );
 
-  it.effect("maps native imports and rebases source refs for an rc artifact directory", () =>
+  it.effect("maps native imports and rebases source refs for a stable artifact directory", () =>
     Effect.gen(function* () {
       const ir = graph(
         declaration("Profile.Update", "effx", "External", "PATCH", "/profile", {
@@ -343,7 +343,7 @@ describe("external HTTP client projection", () => {
       );
 
       const context: GenerationContext = {
-        target: "effect-4.0-rc",
+        target: "effect-4.0",
         emit: "all",
         allowImportingTsExtensions: false,
         canonicalImportBase: "/app/.effx/generated",
@@ -352,13 +352,10 @@ describe("external HTTP client projection", () => {
 
       const [file] = yield* clientGenerator(ir, IRGraph.toGraph(ir), context);
       const contents = Option.getOrThrow(Option.fromUndefinedOr(file)).contents;
-      assert.include(contents, 'from "effect/unstable/httpapi"');
-      assert.include(contents, 'from "effect/unstable/http"');
       assert.include(contents, 'from "./http.js"');
       assert.include(contents, 'from "../src/errors.js"');
       assert.include(contents, 'client["profile"]["updateOwnProfile"](');
       assert.include(contents, 'ForApi<typeof Api>["profile"]["updateOwnProfile"]');
-      assert.notInclude(contents, 'from "effect/http-api"');
 
       const [tsFile] = yield* clientGenerator(ir, IRGraph.toGraph(ir), {
         ...context,

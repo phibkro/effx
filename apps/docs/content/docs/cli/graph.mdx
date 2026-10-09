@@ -20,10 +20,10 @@ Source: `graphCommand` in `packages/cli/src/commands.ts`, `packages/cli/src/grap
 | `--config` | path to an `effx.config.ts` module, default discovery beside the selected tsconfig |
 | `--out-dir` | output directory for generated files. Accepted, but `graph` writes nothing. |
 | `--strict-access`, `--no-strict-access` | boolean flag, default `false` |
-| `--target` | `effect-4.0` or `effect-4.0-rc`, default resolved from the installed Effect |
+| `--target` | `effect-4.0`, default resolved from the installed Effect |
 | `--emit` | `contract`, `handlers` or `all`, default `all` |
 
-These are the six shared flags that the root command defines, so `graph` accepts the same flags as `check` and `build`. See the [CLI overview](/docs/cli#flags) for the table and [Project config](/docs/cli#project-config) for precedence. `graph --emit contract` exits 0 on `examples/users` (observed by running `bun packages/cli/src/main.ts`).
+These are the six shared flags that the root command defines, so `graph` accepts the same flags as `check` and `build`. See the [CLI overview](/docs/cli#flags) for the table and [Project config](/docs/cli#project-config) for precedence. `graph --emit contract` exits 0 on `examples/users` (observed by running `bun scripts/effx.ts`).
 
 Like `inspect`, `graph` compiles with the resolved settings and extension list, writes nothing and prints no diagnostics. A missing or invalid explicit `--config` still fails before compilation.
 

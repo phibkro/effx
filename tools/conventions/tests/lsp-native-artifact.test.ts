@@ -82,7 +82,10 @@ describe("build-time LSP native artifact", () => {
         { ...manifest, abi: { ...manifest.abi, privatePayload: "not-an-approved-field" } },
         {
           ...manifest,
-          abi: { ...manifest.abi, socket_write_now: { args: ["i32", "ptr", "u64"], returns: "i32" } },
+          abi: {
+            ...manifest.abi,
+            socket_write_now: { args: ["i32", "ptr", "u64"], returns: "i32" },
+          },
         },
       ]) {
         const error = yield* Effect.flip(decode(input));

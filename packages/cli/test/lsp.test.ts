@@ -4,7 +4,7 @@ import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compile
 import { BunServices } from "@effect/platform-bun";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import {
-  copyRc116Fixture,
+  copyStableV4Fixture,
   copyUsersFixture,
   encodeJsonString,
 } from "../../../tools/testing/projects.ts";
@@ -963,7 +963,7 @@ describe("maintained LSP client project journeys", () => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          const directory = yield* copyRc116Fixture();
+          const directory = yield* copyStableV4Fixture();
           const handlerConfig = path.join(directory, "project", "handlers", "tsconfig.effx.json");
           const producerConfig = path.join(directory, "project", "contract", "tsconfig.effx.json");
           const ownContracts = path.join(directory, "project", "handlers", ".effx", "generated");
@@ -993,7 +993,7 @@ describe("maintained LSP client project journeys", () => {
 
           const original = yield* fs.readFileString(declaration);
           yield* build(
-            yield* resolveProject(handlerConfig, true, "effect-4.0-rc", "contract"),
+            yield* resolveProject(handlerConfig, true, "effect-4.0", "contract"),
             fixtureVersions,
           );
           yield* fs.makeDirectory(producerSourceDirectory, { recursive: true });
@@ -1052,7 +1052,7 @@ describe("maintained LSP client project journeys", () => {
               handlerConfig,
               "--strict-access",
               "--target",
-              "effect-4.0-rc",
+              "effect-4.0",
               "--emit",
               "handlers",
             ],
@@ -1070,7 +1070,7 @@ describe("maintained LSP client project journeys", () => {
             producerSource.replace("Read own profile", "Read own profile updated"),
           );
           yield* build(
-            yield* resolveProject(ownProducerConfig, true, "effect-4.0-rc", "contract"),
+            yield* resolveProject(ownProducerConfig, true, "effect-4.0", "contract"),
             fixtureVersions,
           );
           yield* peer.notification("textDocument/didChange", {
@@ -1083,7 +1083,7 @@ describe("maintained LSP client project journeys", () => {
             producerSource.replace("profile.readOwnProfile", "profile.readChanged"),
           );
           yield* build(
-            yield* resolveProject(producerConfig, true, "effect-4.0-rc", "contract"),
+            yield* resolveProject(producerConfig, true, "effect-4.0", "contract"),
             fixtureVersions,
           );
           yield* fs.remove(alias);

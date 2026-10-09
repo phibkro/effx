@@ -16,7 +16,7 @@ import { RateLimit } from "../../frontend-ts/test/fixtures/users/src/rate-limit.
 
 const fixtureRoot = new URL("../../frontend-ts/test/fixtures/users/", import.meta.url).pathname;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const configUrl = new URL("../src/config.ts", import.meta.url).href;
 

@@ -1,6 +1,4 @@
-#!/usr/bin/env bun
 /** @effect-diagnostics unstableApiUsage:off -- effect/cli is the only CLI framework; registered in AGENTS.md */
-import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { DEFAULT_CEDAR_NAMESPACE, EmitMode, TargetProfile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { Console, Effect, Layer, Logger, Option, Runtime, Schema, Stdio, Stream } from "effect";
@@ -206,11 +204,8 @@ const cedarCli = Command.make(
   ),
 );
 
-const Services = Layer.mergeAll(
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
-  BunServices.layer,
-  CedarWasm,
-);
+/** Portable compiler graph; the outside-packages process root supplies platform services. */
+export const Services = Layer.mergeAll(TsSourceFrontend.layer, CedarWasm);
 
 const command = root.pipe(
   Command.withSubcommands([
@@ -227,99 +222,67 @@ const command = root.pipe(
   Command.run({ version: versions.effx }),
 );
 
-BunRuntime.runMain(
-  Effect.gen(function* () {
-    const stdio = yield* Stdio.Stdio;
-    const args = yield* stdio.args;
+/** Suspended CLI program; the process root owns execution and native resource lifetimes. */
+export const main = Effect.gen(function* () {
+  const stdio = yield* Stdio.Stdio;
+  const args = yield* stdio.args;
 
-    // Select the output policy only; Command remains authoritative for parsing and validation.
-    let explaining = false;
-    let speakingLsp = false;
+  // Select the output policy only; Command remains authoritative for parsing and validation.
+  let explaining = false;
+  let speakingLsp = false;
 
-    for (let index = 0; index < args.length; index++) {
-      const argument = args[index]!;
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index]!;
 
-      if (
-        [
-          "--project",
-          "--config",
-          "--out-dir",
-          "--target",
-          "--emit",
-          "--exec-file",
-          "--exec-dir",
-          "--log-level",
-          "--completions",
-        ].includes(argument)
-      ) {
-        index++;
-        continue;
-      }
-
-      if (argument.startsWith("-")) continue;
-
-      explaining = argument === "explain";
-      speakingLsp = argument === "lsp";
-      break;
+    if (
+      [
+        "--project",
+        "--config",
+        "--out-dir",
+        "--target",
+        "--emit",
+        "--exec-file",
+        "--exec-dir",
+        "--log-level",
+        "--completions",
+      ].includes(argument)
+    ) {
+      index++;
+      continue;
     }
 
-    if (!explaining && !speakingLsp) return yield* command;
+    if (argument.startsWith("-")) continue;
 
-    const explanationCommand = command.pipe(
-      Effect.provideService(CliConfig.CliConfig, {
-        builtIns: [GlobalFlag.Help, GlobalFlag.Version],
-      }),
-    );
+    explaining = argument === "explain";
+    speakingLsp = argument === "lsp";
+    break;
+  }
 
-    const console = yield* Console.Console;
+  if (!explaining && !speakingLsp) return yield* command;
 
-    if (speakingLsp) {
-      return yield* explanationCommand.pipe(
-        Effect.provideService(Console.Console, {
-          assert: console.assert.bind(console),
-          clear: console.clear.bind(console),
-          count: console.count.bind(console),
-          countReset: console.countReset.bind(console),
-          debug: console.error.bind(console),
-          dir: console.dir.bind(console),
-          dirxml: console.dirxml.bind(console),
-          error: console.error.bind(console),
-          group: console.group.bind(console),
-          groupCollapsed: console.groupCollapsed.bind(console),
-          groupEnd: console.groupEnd.bind(console),
-          info: console.error.bind(console),
-          log: console.error.bind(console),
-          table: console.table.bind(console),
-          time: console.time.bind(console),
-          timeEnd: console.timeEnd.bind(console),
-          timeLog: console.timeLog.bind(console),
-          trace: console.trace.bind(console),
-          warn: console.warn.bind(console),
-        }),
-        Effect.provideService(Logger.LogToStderr, true),
-      );
-    }
+  const explanationCommand = command.pipe(
+    Effect.provideService(CliConfig.CliConfig, {
+      builtIns: [GlobalFlag.Help, GlobalFlag.Version],
+    }),
+  );
 
-    if (args.some((argument) => ["--help", "-h", "--version", "-v"].includes(argument))) {
-      return yield* explanationCommand;
-    }
+  const console = yield* Console.Console;
 
-    // Native CLI parse failures always print help via log. Explain requires usage on stderr.
+  if (speakingLsp) {
     return yield* explanationCommand.pipe(
-      Effect.catchTag("ShowHelp", () => Effect.fail(new ExplainFailed({ exitCode: 2 }))),
       Effect.provideService(Console.Console, {
         assert: console.assert.bind(console),
         clear: console.clear.bind(console),
         count: console.count.bind(console),
         countReset: console.countReset.bind(console),
-        debug: console.debug.bind(console),
+        debug: console.error.bind(console),
         dir: console.dir.bind(console),
         dirxml: console.dirxml.bind(console),
         error: console.error.bind(console),
         group: console.group.bind(console),
         groupCollapsed: console.groupCollapsed.bind(console),
         groupEnd: console.groupEnd.bind(console),
-        info: console.info.bind(console),
+        info: console.error.bind(console),
         log: console.error.bind(console),
         table: console.table.bind(console),
         time: console.time.bind(console),
@@ -328,6 +291,37 @@ BunRuntime.runMain(
         trace: console.trace.bind(console),
         warn: console.warn.bind(console),
       }),
+      Effect.provideService(Logger.LogToStderr, true),
     );
-  }).pipe(Effect.provideService(Logger.LogToStderr, true), Effect.provide(Services)),
-);
+  }
+
+  if (args.some((argument) => ["--help", "-h", "--version", "-v"].includes(argument))) {
+    return yield* explanationCommand;
+  }
+
+  // Native CLI parse failures always print help via log. Explain requires usage on stderr.
+  return yield* explanationCommand.pipe(
+    Effect.catchTag("ShowHelp", () => Effect.fail(new ExplainFailed({ exitCode: 2 }))),
+    Effect.provideService(Console.Console, {
+      assert: console.assert.bind(console),
+      clear: console.clear.bind(console),
+      count: console.count.bind(console),
+      countReset: console.countReset.bind(console),
+      debug: console.debug.bind(console),
+      dir: console.dir.bind(console),
+      dirxml: console.dirxml.bind(console),
+      error: console.error.bind(console),
+      group: console.group.bind(console),
+      groupCollapsed: console.groupCollapsed.bind(console),
+      groupEnd: console.groupEnd.bind(console),
+      info: console.info.bind(console),
+      log: console.error.bind(console),
+      table: console.table.bind(console),
+      time: console.time.bind(console),
+      timeEnd: console.timeEnd.bind(console),
+      timeLog: console.timeLog.bind(console),
+      trace: console.trace.bind(console),
+      warn: console.warn.bind(console),
+    }),
+  );
+}).pipe(Effect.provideService(Logger.LogToStderr, true));

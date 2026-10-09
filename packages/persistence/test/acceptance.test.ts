@@ -32,15 +32,6 @@ import { subprocess } from "./process.ts";
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
-const rc116Roots = [
-  `${repoRoot}packages/frontend-ts/test/fixtures/rc116/`,
-  new URL("../../../../effx/packages/frontend-ts/test/fixtures/rc116/", import.meta.url).pathname,
-];
-
-const EffectPackage = Schema.fromJsonString(Schema.Struct({ version: Schema.String }));
-
-const decodeEffectPackage = Schema.decodeEffect(EffectPackage);
-
 const Services = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
 
 const extensions = [...Extensions.builtin, persistenceExtension];
@@ -825,34 +816,13 @@ export class LocalUsers {
   );
 
   it.live(
-    "generated ports typecheck against stable and installed rc.116 through target mapping",
+    "generated ports typecheck against the installed stable Effect cohort",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        let rc116Root: string | undefined;
 
-        for (const candidate of rc116Roots) {
-          const packageFile = path.join(candidate, "node_modules/effect/package.json");
-
-          if (!(yield* fs.exists(packageFile))) continue;
-
-          const installed = yield* fs
-            .readFileString(packageFile)
-            .pipe(Effect.flatMap(decodeEffectPackage));
-
-          if (installed.version === "4.0.0-rc.116") {
-            rc116Root = candidate;
-            break;
-          }
-        }
-
-        if (rc116Root === undefined)
-          return yield* Effect.die(
-            "install rc.116 dependencies with the fixture frozen lock before acceptance; source fixture paths remain read-only",
-          );
-
-        for (const target of ["effect-4.0", "effect-4.0-rc"] as const) {
+        for (const target of ["effect-4.0"] as const) {
           const fixture = yield* workspace();
 
           const generated = yield* generate(fixture, ["src/ports.ts"], target);
@@ -868,18 +838,8 @@ export class LocalUsers {
                   ...fixture.paths,
                   // Apply one installed family to app schemas and parent-root runtime sources alike.
                   // A temp node_modules symlink cannot redirect imports beside the runtime sources.
-                  effect: [
-                    path.join(
-                      target === "effect-4.0-rc" ? rc116Root : repoRoot,
-                      "node_modules/effect/dist/index.d.ts",
-                    ),
-                  ],
-                  "effect/*": [
-                    path.join(
-                      target === "effect-4.0-rc" ? rc116Root : repoRoot,
-                      "node_modules/effect/dist/*.d.ts",
-                    ),
-                  ],
+                  effect: [path.join(repoRoot, "node_modules/effect/dist/index.d.ts")],
+                  "effect/*": [path.join(repoRoot, "node_modules/effect/dist/*.d.ts")],
                 },
               },
               include: [".effx/generated/users-port.ts"],

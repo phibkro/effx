@@ -30,7 +30,8 @@ Schema-defined semantic IR, analyses read the IR graph, generators emit ordinary
 Rules: native Effect first; pure total transformations stay plain functions; no `async/await`;
 no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServices` only at
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
-`effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
+`effect/cli` is bound in the portable command graph `packages/cli/src/main.ts`.
+The sole process root `scripts/effx.ts` provides native capabilities and runs it.
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
 EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent installed
 consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
@@ -90,7 +91,7 @@ Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd
 Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on the merged tree. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
 
 Run `bun run gate` on the committed tree before landing. Check calls that same script.
-The rc.116 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
+The stable Effect 4 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
 Each project owns its output and manifest. `cmp` checks the fresh contract against the tracked golden and does not rewrite it.
 
 ## Package map

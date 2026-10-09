@@ -7,7 +7,7 @@ import { Effect, FileSystem, Path, Schema } from "effect";
 import { testDirectory } from "../../../tools/testing/projects.ts";
 import { ManifestJson } from "../src/manifest.ts";
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const invalidDeclaration = defineDiagnostic(
   {

@@ -236,7 +236,7 @@ describe("Foldkit.Command projection", () => {
 
       for (const emit of ["contract", "handlers", "all"] as const) {
         const context: GenerationContext = {
-          target: "effect-4.0-rc",
+          target: "effect-4.0",
           emit,
           allowImportingTsExtensions: false,
         };
@@ -251,7 +251,7 @@ describe("Foldkit.Command projection", () => {
       const { ir, index } = fixture({ endpointId: "profile.updateOwnProfile" });
 
       const context: GenerationContext = {
-        target: "effect-4.0-rc",
+        target: "effect-4.0",
         emit: "all",
         allowImportingTsExtensions: false,
       };

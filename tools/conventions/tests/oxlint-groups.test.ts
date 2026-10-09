@@ -100,7 +100,7 @@ describe("Effect rule groups", () => {
       [["examples/*/src/**/*.ts"], "effect-library", "portable", undefined, "strict"],
       [
         [
-          "packages/cli/src/main.ts",
+          "scripts/effx.ts",
           "examples/*/src/*-main.ts",
           "examples/*/src/**/*-main.ts",
           "scripts/**/*.ts",

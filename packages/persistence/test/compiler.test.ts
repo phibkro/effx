@@ -454,7 +454,7 @@ describe("persistence compiler", () => {
 
         const rc = yield* persistenceGenerator(ir, IRGraph.toGraph(ir), {
           ...defaultGenerationContext,
-          target: "effect-4.0-rc",
+          target: "effect-4.0",
           emit: "contract",
         });
 

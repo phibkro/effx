@@ -22,12 +22,12 @@ const encodePackagePin = Schema.encodeEffect(
 );
 
 describe("frontend target project", () => {
-  it("recognizes only supported installed Effect profiles", () => {
-    assert.strictEqual(targetProfileFromVersion("4.0.0"), "effect-4.0");
-    assert.strictEqual(targetProfileFromVersion("4.0.0-rc.116"), "effect-4.0-rc");
-    assert.isUndefined(targetProfileFromVersion("3.19.0"));
-    assert.isUndefined(targetProfileFromVersion("4.0.1"));
-    assert.isUndefined(targetProfileFromVersion("4.0.0-beta.1"));
+  it("recognizes stable Effect 4 releases and rejects every prerelease", () => {
+    for (const version of ["4.0.0", "4.0.1", "4.1.0", "4.12.34+build.1"])
+      assert.strictEqual(targetProfileFromVersion(version), "effect-4.0");
+
+    for (const version of ["3.19.0", "5.0.0", "4.0.0-rc.116", "4.0.0-beta.1", "4.01.0", "4.0"])
+      assert.isUndefined(targetProfileFromVersion(version));
   });
   it.effect.each([
     ["6.9.0", "info"],
@@ -104,11 +104,11 @@ describe("frontend target project", () => {
           tsconfigPath: inheritedConfig,
           projectRoot: "..",
           entry: ["../src/operations.ts"],
-          target: "effect-4.0-rc",
+          target: "effect-4.0",
           emit: "handlers",
         });
 
-        assert.strictEqual(explicit.resolution?.target, "effect-4.0-rc");
+        assert.strictEqual(explicit.resolution?.target, "effect-4.0");
         assert.strictEqual(explicit.resolution?.allowImportingTsExtensions, false);
         assert.strictEqual(explicit.resolution?.emit, "handlers");
         assert.strictEqual(explicit.rootDir, path.resolve(fixtureRoot));
@@ -218,7 +218,7 @@ describe("frontend target project", () => {
         '{"compilerOptions":{"module":"ESNext","moduleResolution":"bundler","noEmit":true},"files":["src/entry.ts"]}',
       );
       const sibling = yield* loadProject({ tsconfigPath: sourceConfig });
-      assert.strictEqual(sibling.resolution?.target, "effect-4.0-rc");
+      assert.isUndefined(sibling.resolution);
       assert.isTrue(sibling.resolveEffectModule?.("effect/Schema"));
 
       const installed = yield* loadProject({ tsconfigPath: targetConfig });
@@ -273,7 +273,7 @@ describe("frontend target project", () => {
       assert.isUndefined(missing.project);
 
       const explicitMissing = yield* compile(
-        { tsconfigPath: configFile, target: "effect-4.0-rc" },
+        { tsconfigPath: configFile, target: "effect-4.0" },
         Extensions.builtin,
       );
 
@@ -300,9 +300,9 @@ describe("frontend target project", () => {
       );
       assert.isUndefined(unsupported.resolution);
 
-      const override = yield* loadProject({ tsconfigPath: configFile, target: "effect-4.0-rc" });
-      assert.strictEqual(override.resolution?.target, "effect-4.0-rc");
-      assert.isFalse(override.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2701"));
+      const override = yield* loadProject({ tsconfigPath: configFile, target: "effect-4.0" });
+      assert.isUndefined(override.resolution);
+      assert.isTrue(override.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2701"));
     }).pipe(Effect.scoped, Effect.provide(Services)),
   );
   it.effect("validates tsconfig effx fields and preserves direct compile overrides", () =>
@@ -314,7 +314,7 @@ describe("frontend target project", () => {
       const file = path.join(dir, "tsconfig.effx.json");
       yield* fs.writeFileString(
         file,
-        '{"extends":"../tsconfig.json","include":["../src/operations.ts"],"effx":{"projectRoot":"..","outDir":"generated-other","emit":"contract","target":"effect-4.0-rc","strictAccess":true}}',
+        '{"extends":"../tsconfig.json","include":["../src/operations.ts"],"effx":{"projectRoot":"..","outDir":"generated-other","emit":"contract","target":"effect-4.0","strictAccess":true}}',
       );
       const settings = yield* readTsconfigEffx(file);
       assert.strictEqual(settings?.emit, "contract");
@@ -323,7 +323,7 @@ describe("frontend target project", () => {
       assert.strictEqual(direct.rootDir, fixtureRoot.replace(/\/$/, ""));
       assert.strictEqual(direct.resolution?.outputDir, path.join(dir, "generated-other"));
       assert.strictEqual(direct.resolution?.emit, "contract");
-      assert.strictEqual(direct.resolution?.target, "effect-4.0-rc");
+      assert.strictEqual(direct.resolution?.target, "effect-4.0");
       assert.strictEqual(direct.resolution?.strictAccess, true);
       const strict = yield* compile({ tsconfigPath: file }, Extensions.builtin);
       assert.isTrue(

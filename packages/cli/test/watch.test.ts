@@ -21,7 +21,7 @@ import type { Crypto, Path, PlatformError } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import { expectTypeOf } from "vitest";
 import {
-  copyRc116Fixture,
+  copyStableV4Fixture,
   copyUsersFixture,
   encodeJsonString,
   testDirectory,
@@ -740,7 +740,7 @@ describe("actual scoped effx dev journey", () => {
   it.effect("handler dev observes another project's generated HTTP contract as input", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const copied = yield* copyRc116Fixture();
+      const copied = yield* copyStableV4Fixture();
       const contractConfig = copied + "/project/contract/tsconfig.effx.json";
       const handlerConfig = copied + "/project/handlers/tsconfig.effx.json";
       const handlerSource = copied + "/src/profile.effx.ts";
@@ -769,7 +769,7 @@ describe("actual scoped effx dev journey", () => {
         ', "application executed");\n';
 
       yield* fs.writeFileString(root, (yield* fs.readFileString(root)) + tripwire);
-      const contract = yield* resolveProject(contractConfig, true, "effect-4.0-rc", "contract");
+      const contract = yield* resolveProject(contractConfig, true, "effect-4.0", "contract");
       yield* build(contract, versions);
       const bootstrap = yield* fs.readFileString(generatedContract);
       const beforeWatch = (yield* TestConsole.logLines).length;
@@ -778,7 +778,7 @@ describe("actual scoped effx dev journey", () => {
         observeDev(
           {
             project: handlerConfig,
-            target: "effect-4.0-rc",
+            target: "effect-4.0",
             emit: "handlers",
             strictAccess: true,
             build: true,
@@ -844,7 +844,7 @@ describe("actual scoped effx dev journey", () => {
       const beforeChange = (yield* TestConsole.logLines).length;
       yield* build(contract, versions);
       assert.notStrictEqual(yield* fs.readFileString(generatedContract), bootstrap);
-      const handler = yield* resolveProject(handlerConfig, true, "effect-4.0-rc", "handlers");
+      const handler = yield* resolveProject(handlerConfig, true, "effect-4.0", "handlers");
       const changedCheck = yield* compile(handler.config, handler.extensions);
       assert.isTrue(
         changedCheck.diagnostics.some(

@@ -81,7 +81,7 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
 | `effx graph [name]`        | print a Mermaid graph                                        |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
-`--target`, `--emit`, `--out-dir` (`packages/cli/src/main.ts`).
+`--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
 
 `dev` and `lsp` accept repeatable `--exec-file` and `--exec-dir` launch declarations.
 LSP requires explicit `--config` or launch-time `--trust-config` for discovered executable config.
@@ -323,7 +323,7 @@ backend-only services are allowed (spec 0010, "Declaration-only operations").
 ### Emit modes
 
 `effx build --emit=contract|handlers|all` selects which projection is written
-(`packages/cli/src/main.ts`, spec 0010). The mode is not an IR input, so both
+(`scripts/effx.ts`, spec 0010). The mode is not an IR input, so both
 passes have the same semantic hash.
 
 | Mode       | File (group `invoices`)      | Contents                                                                                  |
@@ -340,7 +340,7 @@ File and export names come from `packages/compiler/src/generate/http-contracts.t
 The generated handlers factory takes two records keyed by the endpoint key and
 the qualified operation id. You write them; effx never invents a handler, a
 principal or a response. Shape taken from a generated fixture
-(`packages/frontend-ts/test/fixtures/rc116/src/fixture-binding.ts`); the module
+(`packages/frontend-ts/test/fixtures/stable-v4/src/fixture-binding.ts`); the module
 path and names below are illustrative and are produced by the build:
 
 ```ts

@@ -5,13 +5,13 @@ import { canonical, semanticHash } from "@effx/ir";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 
-const fixtureRoot = new URL("./fixtures/rc116/", import.meta.url).pathname;
+const fixtureRoot = new URL("./fixtures/stable-v4/", import.meta.url).pathname;
 
-const contractConfig = new URL("./fixtures/rc116/tsconfig.content.effx.json", import.meta.url)
+const contractConfig = new URL("./fixtures/stable-v4/tsconfig.content.effx.json", import.meta.url)
   .pathname;
 
 const handlersConfig = new URL(
-  "./fixtures/rc116/project/content-handlers/tsconfig.effx.json",
+  "./fixtures/stable-v4/project/content-handlers/tsconfig.effx.json",
   import.meta.url,
 ).pathname;
 
@@ -25,7 +25,7 @@ const compileActions = (tsconfigPath: string, emit: "contract" | "handlers") =>
 const errors = (diagnostics: ReadonlyArray<{ readonly severity: string }>) =>
   diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 
-describe("rc.116 colon-action HTTP routes", () => {
+describe("stable Effect 4 colon-action HTTP routes", () => {
   it.effect(
     "preserves articleId in both generated Content actions and typechecks the raw bindings",
     () =>

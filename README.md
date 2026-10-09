@@ -118,4 +118,4 @@ Project specifications and decisions live in [`docs/`](docs/). The planned docum
 
 ## Supported versions
 
-**Effect ≥ 4.0.0 < 5; TypeScript analysis via TS 6.0 (TS 7 JS API pending 7.1, see [ADR 0009](docs/decisions/0009-ts6-frontend-is-a-registered-exception.md)); Bun ≥ 1.3.** Effect `4.0.0-rc.116` is accepted as a temporary compatibility target for the vektorprogrammet migration; the supported Effect release line starts at `4.0.0`.
+**Effect ≥ 4.0.0 < 5 (stable releases only); TypeScript analysis via TS 6.0 (TS 7 JS API pending 7.1, see [ADR 0009](docs/decisions/0009-ts6-frontend-is-a-registered-exception.md)); Bun ≥ 1.3.** Prerelease Effect versions are not supported.

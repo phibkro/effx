@@ -215,6 +215,7 @@ try {
   await mkdir(cliDist, { recursive: true });
   await cp(cliBundle, join(cliDist, "effx.js"));
   await chmod(join(cliDist, "effx.js"), 0o755);
+  await cp(join(root, "packages/cli/native"), join(cliStage, "native"), { recursive: true });
 
   if (cliHasConfig) {
     await cp(cliConfigBundle, join(cliDist, "config.js"));
@@ -225,11 +226,13 @@ try {
   await copyPackageDocs("packages/cli", cliStage);
 
   const cliExports = cliHasConfig
-    ? {
+    ? // Source and installed process roots resolve the same explicit package-owned asset address.
+      {
+        "./package.json": "./package.json",
         ".": { default: "./dist/effx.js" },
         "./config": { types: "./dist/config.d.ts", default: "./dist/config.js" },
       }
-    : { ".": { default: "./dist/effx.js" } };
+    : { "./package.json": "./package.json", ".": { default: "./dist/effx.js" } };
 
   await writePackage(cliStage, {
     name: cliPackage.name,
@@ -237,7 +240,7 @@ try {
     repository: cliPackage.repository,
     license: cliPackage.license,
     type: "module",
-    files: ["dist", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
+    files: ["dist", "native", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
     bin: { effx: "dist/effx.js" },
     exports: cliExports,
     dependencies: {

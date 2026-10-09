@@ -199,7 +199,7 @@ const isClosed = (fd: number): boolean => {
 };
 
 const releaseIO = <A, E>(exit: Exit.Exit<A, E>): boolean => {
-  if (!Exit.isFailure(exit) || Exit.hasInterrupts(exit)) return false;
+  if (!Exit.isFailure(exit) || Cause.hasInterrupts(exit.cause)) return false;
   const defect = Cause.findDefect(exit.cause);
 
   return (
@@ -208,7 +208,8 @@ const releaseIO = <A, E>(exit: Exit.Exit<A, E>): boolean => {
 };
 
 const closedError = <A>(exit: Exit.Exit<A, TransportError>): boolean => {
-  if (!Exit.isFailure(exit) || Exit.hasDies(exit) || Exit.hasInterrupts(exit)) return false;
+  if (!Exit.isFailure(exit) || Cause.hasDies(exit.cause) || Cause.hasInterrupts(exit.cause))
+    return false;
   const error = Cause.findError(exit.cause);
 
   return error._tag === "Success" && error.success.reason === "Closed";
@@ -324,7 +325,9 @@ const refuseAfterClose = Effect.fnUntraced(function* (io: LspIO) {
   const probe = yield* io.probePid(process.pid).pipe(Effect.exit);
   assert.ok(closedError(read));
   assert.ok(closedError(write));
-  assert.ok(Exit.isFailure(probe) && !Exit.hasDies(probe) && !Exit.hasInterrupts(probe));
+  assert.ok(
+    Exit.isFailure(probe) && !Cause.hasDies(probe.cause) && !Cause.hasInterrupts(probe.cause),
+  );
 
   if (Exit.isFailure(probe)) {
     const error = Cause.findError(probe.cause);
@@ -589,7 +592,11 @@ const main = Effect.gen(function* () {
         caller.fill(33);
       });
       const refusal = yield* io.write("forbidden-concurrent-writer").pipe(Effect.exit);
-      assert.ok(Exit.isFailure(refusal) && !Exit.hasDies(refusal) && !Exit.hasInterrupts(refusal));
+      assert.ok(
+        Exit.isFailure(refusal) &&
+          !Cause.hasDies(refusal.cause) &&
+          !Cause.hasInterrupts(refusal.cause),
+      );
 
       if (Exit.isFailure(refusal)) {
         const error = Cause.findError(refusal.cause);

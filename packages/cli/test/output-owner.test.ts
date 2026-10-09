@@ -327,7 +327,7 @@ describe("normal build result writer and cross-process custody", () => {
       yield* assertCustody;
 
       const competitor = yield* subprocess(
-        ["bun", root + "packages/cli/src/main.ts", "build", "--project", project.tsconfigPath],
+        ["bun", root + "scripts/effx.ts", "build", "--project", project.tsconfigPath],
         root,
       );
 
@@ -918,7 +918,7 @@ describe("normal build result writer and cross-process custody", () => {
             yield* fs.chmod(resources.generatedDir, 0o500);
             yield* Scope.close(scope, Exit.void);
           }),
-        ).pipe(Effect.ensuring(fs.chmod(resources.generatedDir, 0o700)));
+        ).pipe(Effect.ensuring(fs.chmod(resources.generatedDir, 0o700).pipe(Effect.orDie)));
 
         const defect = Exit.isFailure(exit) ? Cause.findDefect(exit.cause) : undefined;
 

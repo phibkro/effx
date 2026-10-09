@@ -127,8 +127,8 @@ const observeWrite = Effect.fnUntraced(function* (
   let failureCategory: NonNullable<typeof LinuxFixtureReceipt.Type.failureCategory> | undefined;
 
   if (Exit.isSuccess(exit)) failureCategory = "write-unexpected-success";
-  else if (Exit.hasInterrupts(exit)) failureCategory = "write-unexpected-interrupt";
-  else if (Exit.hasDies(exit)) failureCategory = "write-defect";
+  else if (Cause.hasInterrupts(exit.cause)) failureCategory = "write-unexpected-interrupt";
+  else if (Cause.hasDies(exit.cause)) failureCategory = "write-defect";
   else {
     const error = Cause.findError(exit.cause);
 

@@ -42,3 +42,5 @@ export {
   type LspCallbackRuntime,
   type LspTransport,
 } from "./lsp-transport.ts";
+
+export { main, Services } from "./main.ts";

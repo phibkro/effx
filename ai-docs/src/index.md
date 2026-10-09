@@ -81,7 +81,7 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
 | `effx graph [name]`        | print a Mermaid graph                                        |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
-`--target`, `--emit`, `--out-dir` (`packages/cli/src/main.ts`).
+`--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
 
 `dev` and `lsp` accept repeatable `--exec-file` and `--exec-dir` launch declarations.
 LSP requires explicit `--config` or launch-time `--trust-config` for discovered executable config.
