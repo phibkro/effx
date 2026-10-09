@@ -16,7 +16,11 @@ import { publicInstall, workspaceOverrides } from "./install-public.ts";
  */
 class SmokeFailure extends Schema.TaggedError<SmokeFailure>()("SmokeFailure", {
   journey: Schema.String,
-}) {}
+}) {
+  override get message() {
+    return this.journey;
+  }
+}
 
 const requireThat = (condition: boolean, journey: string) =>
   condition ? Effect.void : Effect.fail(new SmokeFailure({ journey }));
