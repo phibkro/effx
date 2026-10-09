@@ -8,6 +8,17 @@ main `86a7a5eb3b1161988bf7eab4e5921f36d41b8704`. Preserve all active feature
 worktrees and main's staged node_modules deletion. Historical research and
 earlier receipts below are evidence, not an active RC support policy.
 
+Known native build-input defect (2026-10-09):
+`scripts/build-lsp-native.ts:110` and the companion SIGPIPE builder resolve the
+mutable `nixpkgs` registry, then require the fixed source identity in
+`scripts/lsp-native-manifest.ts:4`. The actual registry returned
+`sha256-Miqqk/ammqnTUxaoCyvtwoPeLbI1ksFyLxi/CazZpWY=`, not the required
+`sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=`; regeneration failed at
+the toolchain stage. The stable cutover does not repin that source or mutate the
+published tracked native binary. Pack checks its manifest, source bytes, size,
+and digest, then ships that exact trusted asset. Native regeneration remains a
+separate reproducible-input repair, not an Effect compatibility fallback.
+
 ## Lifecycle
 
 ```

@@ -57,5 +57,5 @@ jobs:
             echo "Notice: BEFORE_SHA $BEFORE_SHA is unreachable; linting only pushed HEAD commit."
             git show -s --format=%B "$HEAD_SHA" | bun --bun commitlint
           fi
-      - name: Run landing gate
+      - name: Run stable Effect ordered landing gate
         run: bun run gate

@@ -3,13 +3,15 @@ import { chmod, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Console, Effect } from "effect";
+import { Console, Effect, Schema } from "effect";
 import cliPackage from "../packages/cli/package.json";
 import compilerPackage from "../packages/compiler/package.json";
 import diagnosticsPackage from "../packages/diagnostics/package.json";
 import irPackage from "../packages/ir/package.json";
 import persistencePackage from "../packages/persistence/package.json";
 import runtimePackage from "../packages/runtime/package.json";
+
+import { NativeAssetManifest } from "./lsp-native-manifest.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -23,6 +25,25 @@ if (dirty.length > 0) {
   throw new Error(
     "Commit the source before packing so the manifest identifies the exact source revision",
   );
+}
+
+// The published native binary is tracked, not rebuilt from a mutable machine registry during pack.
+const native = await Effect.runPromise(
+  Schema.decodeEffect(Schema.fromJsonString(NativeAssetManifest))(
+    await Bun.file(join(root, "packages/cli/native/lsp-readiness.json")).text(),
+  ),
+);
+
+for (const [path, size, expected] of [
+  [join(root, "packages/cli/native", native.library), native.byteLength, native.sha256],
+  [join(root, native.source.file), native.source.byteLength, native.source.sha256],
+] as const) {
+  const file = Bun.file(path);
+  const bytes = await file.arrayBuffer();
+  const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+
+  if (bytes.byteLength !== size || hash !== expected)
+    throw new Error("Published native asset does not match its source and integrity manifest");
 }
 
 const runtimeName = `effx-runtime-${runtimePackage.version}-${revision}.tgz`;

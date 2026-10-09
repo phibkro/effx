@@ -33,9 +33,9 @@ composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind 
 `effect/cli` is bound in the portable command graph `packages/cli/src/main.ts`.
 The sole process root `scripts/effx.ts` provides native capabilities and runs it.
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
-EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for the permanent installed
-consumer command `scripts/watch-editor-smoke.ts`. Native process groups, streams,
-stdin and forced-stop deadlines stay scoped; the script is a composition root.
+EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for installed consumers
+`scripts/watch-editor-smoke.ts` and `scripts/stable-v4-smoke.ts`. The caller Scope
+owns every child and temporary project. Child output payloads are not logged.
 The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
 EX-0023 also owns scripts/test/lsp-linux.test.ts, lsp-linux-extra.test.ts and
 lsp-linux-sigpipe.test.ts for scoped native-host peer invocation. This does not

@@ -40,9 +40,9 @@ jobs:
           scope: "@effx"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Build package tarballs and validate documentation
+      - name: Run stable Effect ordered landing gate
         if: env.NPM_TOKEN != ''
-        run: bun run pack
+        run: bun run gate
       - name: Version and publish packages
         if: env.NPM_TOKEN != ''
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
