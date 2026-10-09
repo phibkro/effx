@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { compile } from "@effx/compiler";
 import type { CompilerFault, SourceFrontend } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
+import { ApplicationIR } from "@effx/ir";
 import {
   Cause,
   Console,
@@ -97,6 +98,8 @@ const observeDev = Effect.fnUntraced(function* (...args: Parameters<typeof dev>)
 const versions = { effx: "test", effect: "4.0.0", typescript: "6.0.3" };
 
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+const decodeIr = Schema.decodeEffect(Schema.fromJsonString(ApplicationIR));
 
 // One controlled clock step admits a native observer pass after an edit. Receipt
 // waiting then suspends for real IO/reporting; elapsed time never signals success.
@@ -569,6 +572,12 @@ describe("actual scoped effx dev journey", () => {
     (hold) =>
       Effect.gen(function* () {
         const { fs, dir, config } = yield* fixture();
+        const project = yield* resolveProject(config);
+        const accepted = yield* compile(project.config, project.extensions);
+        const collected = Option.getOrThrow(accepted.collected.value);
+        const files = Option.getOrThrow(accepted.files.value);
+        assert.isAbove(files.length, 0);
+        const firstArtifact = collected.project!.outputDir + "/" + files[0]!.path;
         const reached = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         const writes: Array<{ file: string; text: string }> = [];
@@ -583,7 +592,7 @@ describe("actual scoped effx dev journey", () => {
           ) {
             const file = args[0];
             const admission = file.endsWith("/.effx-output-owner.lock");
-            const artifact = file.startsWith(dir + "/.effx/generated/");
+            const artifact = file === firstArtifact;
 
             if (!held && hold === "before-output-acquisition" && admission) {
               held = true;
@@ -630,16 +639,58 @@ describe("actual scoped effx dev journey", () => {
           const manifests = writes.filter((entry) => entry.file.endsWith("/manifest.json"));
           const irWrites = writes.filter((entry) => entry.file.endsWith("/ir.json"));
 
+          const snapshots = yield* Effect.forEach(irWrites, (entry) => decodeIr(entry.text));
+
           if (hold === "after-first-artifact") {
             assert.strictEqual(manifests.length, 2);
-            assert.isTrue(irWrites[0]!.text.includes("User.Get"));
-            assert.isTrue(irWrites[1]!.text.includes("User.AfterEdit"));
+            assert.deepStrictEqual(snapshots[0], Option.getOrThrow(accepted.ir.value));
             assert.isTrue(writes.indexOf(manifests[0]!) < writes.indexOf(irWrites[1]!));
           } else {
             assert.strictEqual(manifests.length, 1);
             assert.strictEqual(irWrites.length, 1);
-            assert.isTrue(irWrites[0]!.text.includes("User.AfterEdit"));
-            assert.isFalse(irWrites[0]!.text.includes('"User.Get"'));
+          }
+
+          const latest = snapshots[snapshots.length - 1]!;
+
+          const operation = latest.nodes.find(
+            (node) => node._tag === "Operation" && node.name === "User.AfterEdit",
+          );
+
+          assert.isDefined(operation);
+          assert.isTrue(
+            latest.nodes.some(
+              (node) =>
+                node._tag === "Exposure" &&
+                node.operation === operation!.id &&
+                node.transport._tag === "rpc" &&
+                node.transport.name === "User.Get",
+            ),
+          );
+          const changedCheck = yield* compile(project.config, project.extensions);
+          assert.deepStrictEqual(latest, Option.getOrThrow(changedCheck.ir.value));
+          const changedFiles = Option.getOrThrow(changedCheck.files.value);
+          const batches = hold === "after-first-artifact" ? [files, changedFiles] : [changedFiles];
+          let previousManifest = -1;
+
+          for (const [index, batch] of batches.entries()) {
+            const manifest = writes.indexOf(manifests[index]!);
+
+            const artifacts = writes
+              .slice(previousManifest + 1, manifest)
+              .filter(
+                (entry) =>
+                  entry.file.startsWith(collected.project!.outputDir + "/") &&
+                  !entry.file.endsWith("/.effx-output-owner.lock"),
+              );
+
+            assert.deepStrictEqual(
+              artifacts,
+              batch.map((file) => ({
+                file: collected.project!.outputDir + "/" + file.path,
+                text: file.contents,
+              })),
+            );
+            previousManifest = manifest;
           }
 
           yield* Fiber.interrupt(worker);
@@ -724,15 +775,46 @@ describe("actual scoped effx dev journey", () => {
         assert.strictEqual(refused._tag, "OutputBusy");
 
         const authored = oldOutput + "/authored.ts";
-        yield* fs.writeFileString(authored, "export const current = true;");
+
+        const schema =
+          'import { Schema } from "effect"; export const GetUserInput = Schema.Struct({ id: Schema.String });';
+
+        yield* fs.writeFileString(authored, schema);
+        const app = dir + "/src/operations.ts";
         yield* fs.writeFileString(
-          config,
-          newPolicy.replace('"src/operations.ts"', '"src/operations.ts", "old-output/authored.ts"'),
+          app,
+          (yield* fs.readFileString(app))
+            .replace(
+              'import { ChangeEmailInput, GetUserInput } from "./schemas.ts";',
+              'import { ChangeEmailInput } from "./schemas.ts"; import { GetUserInput } from "../old-output/authored.ts";',
+            )
+            .replace(
+              '@Http.Get("/users/:id")',
+              '@Http.Get("/users/:id")\n  @Http.Contract({ params: GetUserInput })',
+            ),
         );
+        // The existing selected operation consumes this helper. It is not a new
+        // declaration root; imported invalid operations would not diagnose it.
         const included = yield* awaitOutput(migrated.offset, (text) => text.includes("manifest"));
-        yield* fs.writeFileString(authored, 'import "../src/operations.contract-invalid.ts";');
+        const acceptedManifest = yield* fs.readFileString(dir + "/.effx/manifest.json");
+        yield* fs.writeFileString(authored, schema.replace("{ id:", "{ other:"));
         const edited = yield* awaitOutput(included.offset, finished);
-        assert.isFalse(edited.text.includes("0 error(s)"));
+        const changedCheck = yield* compile(project.config, project.extensions);
+        assert.isTrue(
+          changedCheck.diagnostics.some(
+            (entry) => entry.code === "EFFX2402" && entry.severity === "error",
+          ),
+        );
+
+        for (const diagnostic of changedCheck.diagnostics)
+          assert.isTrue(edited.text.includes(diagnostic.message));
+        assert.strictEqual(
+          yield* fs.readFileString(dir + "/.effx/manifest.json"),
+          acceptedManifest,
+        );
+        yield* fs.writeFileString(authored, schema);
+        const repaired = yield* awaitOutput(edited.offset, (text) => text.includes("manifest"));
+        assert.isTrue(repaired.text.includes("0 error(s)"));
         yield* Fiber.interrupt(worker);
       }).pipe(Effect.scoped, Effect.provide(platform)),
   );
