@@ -48,9 +48,7 @@ export const analyze = Effect.fn("LiftTsSourceFrontend.analyze")(function* (
 
   if (resolution === undefined) return StageResult.skip(project.diagnostics);
 
-  const draft = yield* tryTs("lift", () =>
-    modelDraft(makeResolver(project, path), resolution.target),
-  );
+  const draft = yield* tryTs("lift", () => modelDraft(makeResolver(project, path), resolution));
 
   const files: Array<SourceFileRecord> = [];
 

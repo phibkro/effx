@@ -76,75 +76,78 @@ export const declarationChain = (
   context: LiftContext,
   input: ts.Expression,
 ): DeclarationChain | undefined => {
-  let node = unwrap(input);
+  const steps: Array<StepRecord> = [];
 
-  while (ts.isParenthesizedExpression(node)) node = unwrap(node.expression);
+  const walk = (input_: ts.Expression): Omit<DeclarationChain, "steps"> | undefined => {
+    let node = unwrap(input_);
 
-  if (!ts.isCallExpression(node)) return undefined;
-  const native = context.native(node.expression);
+    while (ts.isParenthesizedExpression(node)) node = unwrap(node.expression);
 
-  if (
-    native !== undefined &&
-    (native.kind === "HttpApiEndpoint" ||
-      native.kind === "HttpApiGroup" ||
-      native.kind === "HttpApi")
-  ) {
-    return { kind: native.kind, head: node, steps: [] };
-  }
+    if (!ts.isCallExpression(node)) return undefined;
+    const native = context.native(node.expression);
 
-  if (ts.isPropertyAccessExpression(node.expression)) {
-    const inner = declarationChain(context, node.expression.expression);
+    if (
+      native !== undefined &&
+      (native.kind === "HttpApiEndpoint" ||
+        native.kind === "HttpApiGroup" ||
+        native.kind === "HttpApi")
+    )
+      return { kind: native.kind, head: node };
 
-    if (inner !== undefined) {
-      const steps: Array<StepRecord> = [...inner.steps];
+    if (ts.isPropertyAccessExpression(node.expression)) {
+      const head = walk(node.expression.expression);
 
-      if (node.expression.name.text === "pipe") {
-        for (const argument of node.arguments) {
-          const step = pipeStep(context, argument);
-          steps.push(
-            step ?? {
-              _tag: "Method",
-              name: "pipe",
-              args: [lowerTerm(context, argument)],
-              range: range(argument),
-            },
-          );
-        }
+      if (head !== undefined) {
+        if (node.expression.name.text === "pipe") {
+          for (const argument of node.arguments) {
+            const step = pipeStep(context, argument);
+            steps.push(
+              step ?? {
+                _tag: "Method",
+                name: "pipe",
+                args: [lowerTerm(context, argument)],
+                range: range(argument),
+              },
+            );
+          }
 
-        if (node.arguments.length === 0)
-          steps.push({ _tag: "Method", name: "pipe", args: [], range: suffixRange(node) });
-      } else
-        steps.push({
-          _tag: "Method",
-          name: node.expression.name.text,
-          args: node.arguments.map((argument) => lowerTerm(context, argument)),
-          range: suffixRange(node),
-        });
+          if (node.arguments.length === 0)
+            steps.push({ _tag: "Method", name: "pipe", args: [], range: suffixRange(node) });
+        } else
+          steps.push({
+            _tag: "Method",
+            name: node.expression.name.text,
+            args: node.arguments.map((argument) => lowerTerm(context, argument)),
+            range: suffixRange(node),
+          });
 
-      return { ...inner, steps };
+        return head;
+      }
     }
-  }
 
-  const first = node.arguments[0];
-  const inner = first === undefined ? undefined : declarationChain(context, first);
+    const first = node.arguments[0];
+    const head = first === undefined ? undefined : walk(first);
 
-  if (inner !== undefined)
-    return {
-      ...inner,
-      steps: [
-        ...inner.steps,
-        {
-          _tag: "Apply",
-          form: "wrapper",
-          callee: lowerTerm(context, node.expression),
-          args: node.arguments.slice(1).map((argument) => lowerTerm(context, argument)),
-          range: range(node),
-        },
-      ],
-    };
-  const kind = httpApiKind(context.resolver.project.checker.getTypeAtLocation(node));
+    if (head !== undefined) {
+      steps.push({
+        _tag: "Apply",
+        form: "wrapper",
+        callee: lowerTerm(context, node.expression),
+        args: node.arguments.slice(1).map((argument) => lowerTerm(context, argument)),
+        range: range(node),
+      });
 
-  return kind === undefined ? undefined : { kind, head: node, steps: [] };
+      return head;
+    }
+
+    const kind = httpApiKind(context.resolver.project.checker.getTypeAtLocation(node));
+
+    return kind === undefined ? undefined : { kind, head: node };
+  };
+
+  const head = walk(input);
+
+  return head === undefined ? undefined : { ...head, steps };
 };
 
 /** Bindings are read from the real callback even when it is wrapped in Effect.succeed. */

@@ -137,7 +137,7 @@ describe("production LiftTsSourceFrontend", () => {
         const analyzed = yield* frontend.analyze(fixture);
         const model = Option.getOrThrow(analyzed.value);
         yield* decodeModel(model);
-        assert.strictEqual(model.target, "effect-4.0");
+        assert.strictEqual(model.project.target, "effect-4.0");
         assert.strictEqual(model.endpoints.length, 2);
         assert.strictEqual(model.groups.length, 1);
         assert.strictEqual(model.roots[0]?.symbol.export, "Root");
@@ -170,7 +170,7 @@ describe("production LiftTsSourceFrontend", () => {
         assert.strictEqual(direct?.callee._tag, "Lowered");
 
         if (direct?.callee._tag === "Lowered") {
-          const native = nativeCalleeOf(model.target, model.natives, direct.callee.term);
+          const native = nativeCalleeOf(model.project.target, model.natives, direct.callee.term);
           assert.strictEqual(native?.kind, "HttpApiEndpoint");
           assert.strictEqual(native === undefined ? undefined : nativeName(native), "get");
         }
@@ -186,13 +186,19 @@ describe("production LiftTsSourceFrontend", () => {
             file.sha256,
             Hex.encode(yield* crypto.digest("SHA-256", new TextEncoder().encode(text))),
           );
+          assert.strictEqual(file.end.offset, text.length);
+          const lines = text.split("\n");
+          assert.strictEqual(file.end.line, lines.length);
+          assert.strictEqual(file.end.col, (lines.at(-1)?.length ?? 0) + 1);
           const read = model.endpoints[0];
           assert.strictEqual(read?.range.start.offset, source.indexOf("export const Read"));
           assert.strictEqual(read?.range.start.line, 5);
           assert.strictEqual(read?.range.start.col, 1);
           assert.isTrue(
-            file.imports.some(
-              (binding) => binding.local === "Request" && binding.ref.export === "Input",
+            file.imports.some((entry) =>
+              entry.bindings.some(
+                (binding) => binding.local === "Request" && binding.ref.export === "Input",
+              ),
             ),
           );
         }

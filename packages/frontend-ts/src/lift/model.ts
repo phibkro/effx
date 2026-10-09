@@ -1,40 +1,48 @@
 import { Predicate } from "effect";
 import {
   type BindingRecord,
+  type DefinitionRecord,
   type EffectModel,
   type EndpointRecord,
   type GroupRecord,
-  type ImportBinding,
+  type LocalDeclarationId,
+  type LocalValueRecord,
+  type LocalValueCall,
   type RootRecord,
   type SourceFileRecord,
   type StepRecord,
-  type TargetProfile,
+  type ProjectResolution,
   type ValueRecord,
   type WrapperFact,
   nativeName,
-  symbolRefOf,
 } from "@effx/compiler";
 import { exportedSymbol, origin, type Resolver } from "../resolve.ts";
 import { ts } from "../ts.ts";
-import { LiftContext, finding, position, range, unwrap } from "./context.ts";
+import { LiftContext, finding, range, unwrap } from "./context.ts";
 import { bindingRegistrations, declarationChain, isBuilderGroup } from "./declarations.ts";
 import { lowerOptions, lowerTerm, missingSlot } from "./term.ts";
+import { definitionRecord } from "./keys.ts";
+import { sourceImports } from "./imports.ts";
 
 export interface ModelDraft {
   readonly context: LiftContext;
+  readonly project: ProjectResolution;
   readonly sources: ReadonlyArray<ts.SourceFile>;
   readonly files: ReadonlyArray<Omit<SourceFileRecord, "sha256">>;
   readonly endpoints: ReadonlyArray<EndpointRecord>;
   readonly groups: ReadonlyArray<GroupRecord>;
   readonly roots: ReadonlyArray<RootRecord>;
   readonly values: ReadonlyArray<ValueRecord>;
+  readonly localValues: ReadonlyArray<LocalValueRecord>;
+  readonly localCalls: ReadonlyArray<LocalValueCall>;
+  readonly definitions: ReadonlyArray<DefinitionRecord>;
   readonly wrappers: ReadonlyArray<WrapperFact>;
   readonly bindings: ReadonlyArray<BindingRecord>;
 }
 
 /** Hashing happens outside this deterministic checker-to-data projection. */
-export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraft => {
-  const context = new LiftContext(resolver, target);
+export const modelDraft = (resolver: Resolver, project: ProjectResolution): ModelDraft => {
+  const context = new LiftContext(resolver, project.target);
   const checker = resolver.project.checker;
 
   const sources = resolver.project.program
@@ -51,6 +59,9 @@ export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraf
   const groups: Array<GroupRecord> = [];
   const roots: Array<RootRecord> = [];
   const values: Array<ValueRecord> = [];
+  const localValues: Array<LocalValueRecord> = [];
+  const localCalls: Array<LocalValueCall> = [];
+  const definitions: Array<DefinitionRecord> = [];
   const wrappers: Array<WrapperFact> = [];
   const bindings: Array<BindingRecord> = [];
 
@@ -148,28 +159,9 @@ export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraf
         : checker.getExportsOfModule(moduleSymbol).map((symbol) => symbol.name);
 
     const topLevel: Array<string> = [];
-    const imports: Array<ImportBinding> = [];
-    let importsEnd = 0;
-
-    const importBinding = (name: ts.Identifier): void => {
-      const ref = context.reference(name);
-
-      if (ref !== undefined) imports.push({ local: name.text, ref: symbolRefOf(ref) });
-    };
+    const sourceEdges = sourceImports(context, file);
 
     for (const statement of file.statements) {
-      if (ts.isImportDeclaration(statement)) {
-        importsEnd = statement.end;
-        const clause = statement.importClause;
-
-        if (clause?.name !== undefined) importBinding(clause.name);
-
-        if (clause?.namedBindings !== undefined) {
-          if (ts.isNamespaceImport(clause.namedBindings)) importBinding(clause.namedBindings.name);
-          else for (const element of clause.namedBindings.elements) importBinding(element.name);
-        }
-      }
-
       if (
         (ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement)) &&
         statement.name !== undefined
@@ -188,16 +180,49 @@ export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraf
       idPath: resolver.idPathOf(file.fileName),
       exports,
       topLevel,
-      imports,
-      importsEnd: position(file, importsEnd),
+      ...sourceEdges,
     });
+
+    const localIdentities = new Map<ts.Symbol, LocalDeclarationId>();
 
     const record = (declaration: ts.VariableDeclaration | ts.ClassDeclaration): void => {
       if (declaration.name === undefined || !ts.isIdentifier(declaration.name)) return;
       const symbol = context.symbol(declaration.name);
 
+      if (
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer !== undefined &&
+        (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
+        ts.isVariableStatement(declaration.parent.parent) &&
+        declaration.parent.parent.parent === file &&
+        symbol === undefined
+      ) {
+        const selected = checker.getSymbolAtLocation(declaration.name);
+
+        const id: LocalDeclarationId = {
+          file: file.fileName,
+          offset: declaration.getStart(file),
+          name: declaration.name.text,
+        };
+
+        if (selected !== undefined) localIdentities.set(selected, id);
+        localValues.push({
+          kind: "const",
+          id,
+          range: range(declaration.parent.parent),
+          init: lowerTerm(context, declaration.initializer),
+        });
+      }
+
       if (symbol === undefined) return;
       context.reference(declaration.name);
+
+      if (ts.isVariableDeclaration(declaration)) {
+        const definition = definitionRecord(resolver, declaration, symbol);
+
+        if (definition !== undefined) definitions.push(definition);
+      }
+
       let expression: ts.Expression | undefined;
       const form = ts.isClassDeclaration(declaration) ? "class" : "const";
 
@@ -305,6 +330,37 @@ export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraf
     }
 
     const visitBindings = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && node.arguments.length === 1) {
+        let argument = node.arguments[0];
+
+        if (argument !== undefined) {
+          argument = unwrap(argument);
+
+          while (ts.isParenthesizedExpression(argument)) argument = unwrap(argument.expression);
+
+          if (ts.isIdentifier(argument)) {
+            const selected = checker.getSymbolAtLocation(argument);
+            const identity = selected === undefined ? undefined : localIdentities.get(selected);
+            const callee = context.symbol(node.expression);
+
+            if (identity !== undefined && callee !== undefined) {
+              let envelope: ts.Node = node;
+
+              while (
+                envelope.parent !== undefined &&
+                (ts.isParenthesizedExpression(envelope.parent) ||
+                  ts.isAsExpression(envelope.parent) ||
+                  ts.isTypeAssertionExpression(envelope.parent) ||
+                  ts.isSatisfiesExpression(envelope.parent) ||
+                  ts.isNonNullExpression(envelope.parent))
+              )
+                envelope = envelope.parent;
+              localCalls.push({ range: range(envelope), callee, argument: identity });
+            }
+          }
+        }
+      }
+
       if (ts.isCallExpression(node) && isBuilderGroup(context, node)) {
         const root = node.arguments[0];
         const group = node.arguments[1];
@@ -334,14 +390,28 @@ export const modelDraft = (resolver: Resolver, target: TargetProfile): ModelDraf
     visitBindings(file);
   }
 
-  return { context, sources, files, endpoints, groups, roots, values, wrappers, bindings };
+  return {
+    project,
+    context,
+    sources,
+    files,
+    endpoints,
+    groups,
+    roots,
+    values,
+    localValues,
+    localCalls,
+    definitions,
+    wrappers,
+    bindings,
+  };
 };
 
 export const finishModel = (
   draft: ModelDraft,
   files: ReadonlyArray<SourceFileRecord>,
 ): EffectModel => ({
-  target: draft.context.target,
+  project: draft.project,
   files,
   natives: [...draft.context.natives.values()],
   schemas: [...draft.context.schemas.values()],
@@ -350,6 +420,9 @@ export const finishModel = (
   groups: draft.groups,
   roots: draft.roots,
   values: draft.values,
+  localValues: draft.localValues,
+  localCalls: draft.localCalls,
+  definitions: draft.definitions,
   wrappers: draft.wrappers,
   bindings: draft.bindings,
 });

@@ -12,6 +12,7 @@ import {
 import type { SymbolRef } from "@effx/ir";
 import { ts } from "../ts.ts";
 import { LiftContext, finding, propertyName, range, unwrap } from "./context.ts";
+import { contextKey } from "./keys.ts";
 
 /** A slot is all-or-nothing; all sibling findings survive a failed descendant. */
 export const lowerTerm = (context: LiftContext, input: ts.Expression): TermSlot => {
@@ -60,6 +61,17 @@ export const lowerTerm = (context: LiftContext, input: ts.Expression): TermSlot 
     }
 
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
+      if (
+        ts.isPropertyAccessExpression(node) &&
+        node.name.text === "key" &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "effect"
+      ) {
+        const key = contextKey(context.resolver, node);
+
+        if (key !== undefined) return Terms.ref(key.ref);
+      }
+
       const reference = context.reference(node);
 
       if (reference !== undefined) return Terms.ref(reference);
