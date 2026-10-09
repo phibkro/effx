@@ -6,6 +6,7 @@
       "name": "@effx/root",
       "dependencies": {
         "@effect/platform-bun": "4.0.0",
+        "@effx/cli": "workspace:*",
         "effect": "4.0.0",
       },
       "devDependencies": {

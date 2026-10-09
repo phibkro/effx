@@ -7,7 +7,11 @@ import { acquirePeer } from "./lsp-test-peer.ts";
 // This root owns the disposable consumer, all children, and its socket server until scope close.
 class SmokeFailure extends Schema.TaggedError<SmokeFailure>()("SmokeFailure", {
   step: Schema.String,
-}) {}
+}) {
+  override get message() {
+    return this.step;
+  }
+}
 
 const requireThat = (condition: boolean, step: string) =>
   condition ? Effect.void : Effect.fail(new SmokeFailure({ step }));
