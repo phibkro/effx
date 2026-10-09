@@ -69,6 +69,11 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
   `effx build --project <tsconfig>`. Do not edit it; change the declaration and
   rebuild.
 
+## Compiler lift frontend boundary
+
+`LiftFrontend` is an abstract compiler capability, not a production layer. Its `analyze(project)` returns `Effect<StageResult<EffectModel>, CompilerFault>` (`packages/compiler/src/lift/frontend.ts`). A resolved target returns `Some(model)` with project diagnostics. An unresolved target returns `None` with the existing diagnostics. The model keeps its required target. The frontend supplies no fallback target or fake model. Unsupported source remains model data, and `CompilerFault` is reserved for IO or invariant failures. Call the pure `lift(model, input)` only for a present model.
+
+
 ## Commands
 
 | Command                    | Purpose                                              |
