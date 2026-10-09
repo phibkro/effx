@@ -83,14 +83,11 @@ const InstalledEffect = Schema.fromJsonString(
   Schema.Struct({ name: Schema.Literal("effect"), version: Schema.String }),
 );
 
-/** Only the installed target package version selects an implicit output API profile. */
-export const targetProfileFromVersion = (version: string): TargetProfile | undefined => {
-  if (version === "4.0.0") return "effect-4.0";
-
-  if (/^4\.0\.0-rc\.\d+$/.test(version)) return "effect-4.0-rc";
-
-  return undefined;
-};
+/** Stable Effect 4 releases only; prereleases never select an application profile. */
+export const targetProfileFromVersion = (version: string): TargetProfile | undefined =>
+  /^4\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version)
+    ? "effect-4.0"
+    : undefined;
 
 /** Nearest `package.json` walking up from `dir`; `Option`-like via `undefined` because absence is normal. */
 const typescriptPin = Effect.fn("typescriptPin")(function* (dir: string) {
@@ -241,12 +238,12 @@ export const loadProject = Effect.fn("loadProject")(function* (config: ProjectCo
   const installed =
     packageText === undefined ? Option.none() : Schema.decodeOption(InstalledEffect)(packageText);
 
-  const target =
-    config.target ??
-    settingsEffx?.target ??
-    (Option.isSome(installed) ? targetProfileFromVersion(installed.value.version) : undefined);
+  // Explicit configuration cannot make an unsupported installation compatible.
+  const target = Option.isSome(installed)
+    ? targetProfileFromVersion(installed.value.version)
+    : undefined;
 
-  if (target === undefined || Option.isNone(installed)) {
+  if (target === undefined) {
     const params: Parameters<typeof CoreDiagnostics.EFFX2701.emit>[0] = Option.isSome(installed)
       ? {
           _tag: "EffectVersion",

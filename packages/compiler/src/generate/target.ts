@@ -3,70 +3,29 @@ import type { ApplicationIR } from "@effx/ir";
 import type { GenerationContext } from "../Extension.ts";
 import { defaultGenerationContext } from "../Extension.ts";
 
-/** All generated Effect package imports are selected from this one profile table. */
+/** Stable Effect package families used by every generated projection. */
 const modules = {
-  "effect-4.0": {
-    core: "effect",
-    http: "effect/http",
-    httpApi: "effect/http-api",
-    net: "effect/net",
-    rpc: "effect/rpc",
-    cli: "effect/cli",
-    sql: "effect/sql",
-  },
-  "effect-4.0-rc": {
-    core: "effect",
-    http: "effect/unstable/http",
-    httpApi: "effect/unstable/httpapi",
-    net: "effect/unstable/net",
-    rpc: "effect/unstable/rpc",
-    cli: "effect/unstable/cli",
-    sql: "effect/unstable/sql",
-  },
+  core: "effect",
+  http: "effect/http",
+  httpApi: "effect/http-api",
+  net: "effect/net",
+  rpc: "effect/rpc",
+  cli: "effect/cli",
+  sql: "effect/sql",
 } as const;
 
-// SAFETY: Object.keys returns only keys of this closed literal profile table.
+const moduleNames = Object.values(modules);
 
-const moduleKeys = Object.keys(modules["effect-4.0"]) as Array<
-  keyof (typeof modules)["effect-4.0"]
->;
-
-/** Versioned families map through one table; other installed Effect exports keep their path. */
+/** Check actual installed exports without rewriting application module names. */
 const targetModule = (context: GenerationContext, module: string): string | undefined => {
-  const names = modules[context.target];
-  const stable = modules["effect-4.0"];
-  let inFamily = false;
-
-  for (const name of moduleKeys) {
-    if (name === "core") continue;
-    const source = stable[name];
-    const destination = names[name];
-
-    if (module === source || module === destination) {
-      return context.resolveEffectModule === undefined || context.resolveEffectModule(destination)
-        ? destination
-        : undefined;
-    }
-
-    if (module.startsWith(source + "/")) {
-      inFamily = true;
-      const mapped = destination + module.slice(source.length);
-
-      if (context.resolveEffectModule?.(mapped) === true) return mapped;
-    }
-
-    if (destination !== source && module.startsWith(destination + "/")) {
-      inFamily = true;
-
-      if (context.resolveEffectModule?.(module) === true) return module;
-    }
+  if (context.resolveEffectModule !== undefined) {
+    return context.resolveEffectModule(module) ? module : undefined;
   }
 
-  return !inFamily && context.resolveEffectModule?.(module) === true ? module : undefined;
+  return moduleNames.some((name) => name === module) ? module : undefined;
 };
 
-export const Imports = (context: GenerationContext = defaultGenerationContext) =>
-  modules[context.target];
+export const Imports = (_context: GenerationContext = defaultGenerationContext) => modules;
 
 /** The pipeline checks source modules before rendering; imports remain a total pure projection. */
 export const isTargetModuleSupported = (context: GenerationContext, module: string): boolean =>

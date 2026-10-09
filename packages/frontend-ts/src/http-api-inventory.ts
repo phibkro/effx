@@ -65,8 +65,7 @@ export const httpApiInventory = (
 
     if (
       !closed(checker, groupType) ||
-      (groupType.getProperty("~effect/http-api/HttpApiGroup") === undefined &&
-        groupType.getProperty("~effect/httpapi/HttpApiGroup") === undefined) ||
+      groupType.getProperty("~effect/http-api/HttpApiGroup") === undefined ||
       !identifierMatches(checker, groupType, name, node)
     )
       return {
@@ -86,8 +85,7 @@ export const httpApiInventory = (
 
       if (
         !closed(checker, endpointType) ||
-        (endpointType.getProperty("~effect/http-api/HttpApiEndpoint") === undefined &&
-          endpointType.getProperty("~effect/httpapi/HttpApiEndpoint") === undefined) ||
+        endpointType.getProperty("~effect/http-api/HttpApiEndpoint") === undefined ||
         !identifierMatches(checker, endpointType, key, node)
       )
         return {

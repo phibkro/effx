@@ -686,8 +686,7 @@ export const lowerExpression = (
       const isSecurity =
         securityType !== undefined &&
         (securityType.flags & ts.TypeFlags.Never) === 0 &&
-        (type.getProperty("~effect/http-api/HttpApiMiddleware/Security") !== undefined ||
-          type.getProperty("~effect/httpapi/HttpApiMiddleware/Security") !== undefined);
+        type.getProperty("~effect/http-api/HttpApiMiddleware/Security") !== undefined;
 
       return ok(
         isSecurity

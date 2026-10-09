@@ -212,27 +212,15 @@ export const isServiceValueType = (type: ts.Type): boolean =>
   typeHasProperty(type, SERVICE_TYPE_ID) ||
   (typeHasProperty(type, KEY_TYPE_ID) && typeHasProperty(type, "key"));
 
-/** The installed stable and rc.116 brands discover shape, never native callee authority. */
+/** The installed stable brands discover shape, never native callee authority. */
 export const httpApiKind = (
   type: ts.Type,
 ): "HttpApiEndpoint" | "HttpApiGroup" | "HttpApi" | undefined => {
-  if (
-    typeHasProperty(type, "~effect/http-api/HttpApiEndpoint") ||
-    typeHasProperty(type, "~effect/httpapi/HttpApiEndpoint")
-  )
-    return "HttpApiEndpoint";
+  if (typeHasProperty(type, "~effect/http-api/HttpApiEndpoint")) return "HttpApiEndpoint";
 
-  if (
-    typeHasProperty(type, "~effect/http-api/HttpApiGroup") ||
-    typeHasProperty(type, "~effect/httpapi/HttpApiGroup")
-  )
-    return "HttpApiGroup";
+  if (typeHasProperty(type, "~effect/http-api/HttpApiGroup")) return "HttpApiGroup";
 
-  if (
-    typeHasProperty(type, "~effect/http-api/HttpApi") ||
-    typeHasProperty(type, "~effect/httpapi/HttpApi")
-  )
-    return "HttpApi";
+  if (typeHasProperty(type, "~effect/http-api/HttpApi")) return "HttpApi";
 
   return undefined;
 };

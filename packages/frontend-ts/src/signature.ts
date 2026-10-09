@@ -95,10 +95,7 @@ const literalHttpStatus = (resolver: Resolver, declaration: ts.Declaration): num
       const symbol = resolver.project.checker.getSymbolAtLocation(node.expression.name);
       const file = symbol === undefined ? undefined : origin(resolver, symbol)?.file;
 
-      if (
-        file?.includes("/effect/src/http-api/HttpApiSchema.ts") === true ||
-        file?.includes("/effect/src/unstable/httpapi/HttpApiSchema.ts") === true
-      ) {
+      if (file?.includes("/effect/src/http-api/HttpApiSchema.ts") === true) {
         const status = Number(node.arguments[0].text);
 
         return status >= 100 && status <= 599 ? status : undefined;
