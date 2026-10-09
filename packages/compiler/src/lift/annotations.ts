@@ -633,9 +633,13 @@ const annotateRecordOf = (scope: Scope, cursor: Cursor): Option.Option<Definitio
     return record === undefined ? Option.none() : Option.some(record);
   }
 
+  // Other lowered shapes are keys the current engine could never read, exactly as the blanket rejection
+  // reported them (a literal, a call): the 3001 reader handles them below ("spec 0019 §0.6").
+  if (key._tag !== "Member") return Option.none();
+
   // The writer's spelling: `.annotate(<Definition>.effect.key, value)`. A member chain of any other shape
   // cannot be resolved to a literal key identity: EFFX3012, never approximated (spec 0019 §0.6, S1).
-  if (key._tag !== "Member" || key.member !== "key") {
+  if (key.member !== "key") {
     fail(
       scope,
       rangeOf(cursor),
@@ -989,15 +993,9 @@ export const readAnnotate = (
   const record = annotateRecordOf(scope, rootOf(keySlot));
 
   if (Option.isNone(record)) {
-    // A resolvable reference no selected definition claims stays the faithful 3001 diagnostic: the key
-    // is spelled the way the term spells it (a `Member` key is already an EFFX3012 cause above).
-    const key = unwrap(keySlot.term);
-
-    return unknownKey(
-      scope,
-      at,
-      key._tag === "Ref" ? nameOfSymbol(key.ref) : annotationKeyOf(step),
-    );
+    // A resolvable reference no selected definition claims, a literal key or an unlowered key: the
+    // faithful 3001 the blanket rejection reported, with the key spelled the way the term spells it.
+    return unknownKey(scope, at, annotationKeyOf(step));
   }
 
   const entry = scope.ctx.registry.definitions.get(record.value.name);

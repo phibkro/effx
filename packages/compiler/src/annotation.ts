@@ -559,11 +559,14 @@ export const implement = <D extends DefinitionData>(
     generators: options.write === undefined ? [] : [options.write],
   };
 
-  // SAFETY boundary: the erased hook is only built in the same branch that `options.lift` narrows, and the
-  // recognizer uses one documented cast (see `recognize`) instead of narrowing a copy by alias.
+  const withEntries =
+    options.diagnosticEntries === undefined
+      ? implementation
+      : { ...implementation, diagnosticEntries: options.diagnosticEntries };
+
   return options.lift === undefined
-    ? implementation
-    : adjusted(implementation, { rules: options.lift.rules ?? [], recognize });
+    ? withEntries
+    : adjusted(withEntries, { rules: options.lift.rules ?? [], recognize });
 };
 
 /** Assigns `lift` onto an implementation while keeping the property's exact shape. */
@@ -603,11 +606,18 @@ export const extension = (
       ]),
     ),
     annotations: implementations.map((implementation) => implementation.definition),
-    lifts: implementations.flatMap((implementation) =>
-      implementation.lift === undefined
+    lifts: implementations.flatMap((implementation) => {
+      const lift = implementation.lift;
+
+      return lift === undefined && implementation.definition.effect === undefined
         ? []
-        : [{ definition: implementation.definition, lift: implementation.lift }],
-    ),
+        : [
+            {
+              definition: implementation.definition,
+              lift: lift ?? { rules: [], recognize: undefined },
+            },
+          ];
+    }),
     analyses: [
       ...implementations.flatMap((implementation) => implementation.analyses),
       ...effectful.map(effectAnalysis),

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
-import { ProjectResolution } from "../Collected.ts";
+import { ProjectResolution } from "../Project.ts";
 import { LiftRule } from "./rules.ts";
 
 // Shared struct fields of both the serialized `LiftInput` and the frozen `ProjectConfig.lift`: one
