@@ -39,7 +39,7 @@ export const lowered = (term: Term, start: number, end: number): TermSlot => ({
   spans: [],
 });
 
-export const rcHttpApi = "effect/unstable/httpapi";
+export const httpApi = "effect/http-api";
 
 const symbolOf = (module: string, name: string): SymbolRef => ({ module, export: name });
 
@@ -52,11 +52,11 @@ export const schemaOf = (module: string, name: string): SchemaRef => ({
 const claim = (kind: NativeKind, member: string): NativeCallee => ({
   kind,
   member,
-  target: "effect-4.0-rc",
-  ref: symbolOf(rcHttpApi, kind),
+  target: "effect-4.0",
+  ref: symbolOf(httpApi, kind),
 });
 
-/** The native claims the frontend makes under the rc.116 profile of the target table. */
+/** The native claims the frontend makes under the stable v4 target table. */
 export const nativeClaims: ReadonlyArray<NativeCallee> = [
   claim("HttpApiEndpoint", "get"),
   claim("HttpApiEndpoint", "patch"),
@@ -67,7 +67,7 @@ export const nativeClaims: ReadonlyArray<NativeCallee> = [
 ];
 
 export const native = (kind: NativeKind, member: string): Term =>
-  Terms.member(Terms.ref(symbolOf(rcHttpApi, kind)), member);
+  Terms.member(Terms.ref(symbolOf(httpApi, kind)), member);
 
 const app = (name: string): SymbolRef => symbolOf("./src/common", name);
 
@@ -214,7 +214,13 @@ export const profileRoot: EffectModel["roots"][number] = {
 
 /** The Profile group's model: two endpoints (one fully lowered, one unlowerable), its group and root. */
 export const profileModel: EffectModel = {
-  target: "effect-4.0-rc",
+  project: {
+    target: "effect-4.0",
+    emit: "contract",
+    allowImportingTsExtensions: false,
+    canonicalImportBase: "/app/src",
+    outputDir: "/app/.effx/generated",
+  },
   files: [
     {
       file: FILE,
@@ -228,8 +234,18 @@ export const profileModel: EffectModel = {
         "ProfileApi",
         "HttpApiEndpoint",
       ],
-      imports: [{ local: "HttpApiEndpoint", ref: symbolOf(rcHttpApi, "HttpApiEndpoint") }],
+      imports: [
+        {
+          _tag: "Resolved",
+          specifier: httpApi,
+          module: httpApi,
+          kind: "value",
+          range: range(0, 280),
+          bindings: [{ local: "HttpApiEndpoint", ref: symbolOf(httpApi, "HttpApiEndpoint") }],
+        },
+      ],
       importsEnd: position(280),
+      end: position(1500),
     },
   ],
   natives: nativeClaims,

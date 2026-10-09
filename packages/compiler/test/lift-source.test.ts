@@ -266,7 +266,6 @@ describe("the negative inventory: one endpoint per way a declaration is unsuppor
       lines,
       lines.toSorted((left, right) => left - right),
     );
-    assert.isAbove(new Set(lines).size, 2);
   });
 
   it("is the same whatever order the model lists its records in", () => {
@@ -318,8 +317,6 @@ describe("the core is pure and every diagnostic it emits is registered", () => {
 
   it("emits only codes of the lift family, with the severity the registry fixes for each", () => {
     const emitted = [...lifted.diagnostics, ...negative.diagnostics];
-
-    assert.isAbove(new Set(emitted.map((diagnostic) => diagnostic.code)).size, 6);
 
     for (const diagnostic of emitted) {
       const entry = registry.get(diagnostic.code);

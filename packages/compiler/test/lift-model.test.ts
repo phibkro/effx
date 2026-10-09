@@ -4,6 +4,7 @@ import {
   EffectModel,
   LocalValueCall,
   LocalValueRecord,
+  SourceImport,
   SourceRange,
   TermSchema,
   TermSlot,
@@ -17,7 +18,7 @@ import { profileModel, range, schemaOf } from "./lift-support.ts";
  * refuses to represent and what survives a trip through its document form; they use only the public API.
  */
 
-const httpApiSchema = { module: "effect/unstable/httpapi", export: "HttpApiSchema" };
+const httpApiSchema = { module: "effect/http-api", export: "HttpApiSchema" };
 
 const samples: ReadonlyArray<{ readonly name: string; readonly term: Term }> = [
   { name: "Lit", term: Terms.lit({ a: [1, "b", null, true] }) },
@@ -154,6 +155,23 @@ describe("source coordinates", () => {
   );
 });
 
+describe("source import identity", () => {
+  it.effect("keeps the literal specifier, resolved module, and declaration origin distinct", () =>
+    Effect.gen(function* () {
+      const sourceImport = {
+        _tag: "Resolved" as const,
+        specifier: "@effx/http-api",
+        module: "./src/http-api-barrel",
+        kind: "value" as const,
+        range: range(10, 20),
+        bindings: [{ local: "HttpApi", ref: { module: "./src/http-api", export: "HttpApi" } }],
+      };
+
+      assert.deepStrictEqual(yield* Schema.decodeEffect(SourceImport)(sourceImport), sourceImport);
+    }),
+  );
+});
+
 describe("TermSlot availability", () => {
   it.effect("makes a partial term unrepresentable", () =>
     Effect.gen(function* () {
@@ -200,11 +218,37 @@ describe("EffectModel", () => {
       }),
   );
 
-  it.effect("rejects a model whose target is not a known profile", () =>
+  it.effect("rejects a model whose project target is not recognized", () =>
     Effect.gen(function* () {
       const failure = yield* Effect.flip(
-        Schema.decodeUnknownEffect(EffectModel)({ ...profileModel, target: "effect-5.0" }),
+        Schema.decodeUnknownEffect(EffectModel)({
+          ...profileModel,
+          project: { ...profileModel.project, target: "effect-5.0" },
+        }),
       );
+
+      assert.strictEqual(failure._tag, "SchemaError");
+    }),
+  );
+
+  it.effect("requires the hashed source end to follow every import", () =>
+    Effect.gen(function* () {
+      const [file] = profileModel.files;
+
+      assert.isDefined(file);
+
+      if (file === undefined) return assert.fail("the Profile model needs its source file");
+
+      const invalid = {
+        ...profileModel,
+        files: profileModel.files.map((entry) =>
+          entry.file === file.file
+            ? { ...entry, end: { ...entry.end, offset: entry.importsEnd.offset - 1 } }
+            : entry,
+        ),
+      };
+
+      const failure = yield* Effect.flip(Schema.decodeEffect(EffectModel)(invalid));
 
       assert.strictEqual(failure._tag, "SchemaError");
     }),

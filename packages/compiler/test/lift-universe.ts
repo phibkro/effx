@@ -8,6 +8,7 @@ import type {
   LiftInput,
   LiftRule,
   MiddlewareFact,
+  ProjectResolution,
   SchemaFact,
 } from "@effx/compiler";
 import type { Universe } from "./lift-source.ts";
@@ -70,8 +71,16 @@ const schemaNames = [
   "ItemResponseHeaders",
 ];
 
+const project: ProjectResolution = {
+  target: "effect-4.0",
+  emit: "contract",
+  allowImportingTsExtensions: false,
+  canonicalImportBase: "/app",
+  outputDir: "/app/.effx/generated",
+};
+
 export const universe: Universe = {
-  target: "effect-4.0-rc",
+  project,
   schemas: schemaNames.map(schemaRef),
   facts,
   markers,
@@ -233,13 +242,7 @@ const declarationOf = (spec: EndpointSpec, index: number): Declaration => {
 /** The verbose `Collected` of a group spec: the group declaration first, then one operation per endpoint. */
 export const collectedOf = (spec: GroupSpec): Collected => ({
   diagnostics: [],
-  project: {
-    target: "effect-4.0-rc",
-    emit: "contract",
-    allowImportingTsExtensions: false,
-    canonicalImportBase: "/app",
-    outputDir: "/app/.effx/generated",
-  },
+  project,
   declarations: [
     {
       id: "ItemsGroup",
@@ -313,11 +316,4 @@ export const liftInput: LiftInput = {
   names: { "current-person": symbolRef("CurrentPerson") },
   emptyInput: schemaRef("EmptyInput"),
   output: { module: OUTPUT },
-  project: {
-    target: "effect-4.0-rc",
-    emit: "contract",
-    allowImportingTsExtensions: false,
-    canonicalImportBase: "/app",
-    outputDir: "/app/.effx/generated",
-  },
 };

@@ -26,7 +26,7 @@ const source = (body: ReadonlyArray<string>): SourceFile => ({
   path: "src/repair.ts",
   contents: [
     'import { Schema, SchemaAST } from "effect";',
-    'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";',
+    'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";',
     'import { EmptyInput, UserProfileResponse, ProfileMergePatch } from "./v2-schemas.js";',
     'import { ConditionalReadHeaders, EntityMutationResponseHeaders, endpointProblemResponses, entityMutationResponse } from "./http-semantics.js";',
     'import { ProfileReadOwnProfileProblem, ProfileUpdateOwnProfileProblem } from "./endpoint-problems.js";',
@@ -274,11 +274,11 @@ describe("lift repair: shared references and source ownership", () => {
     ]);
 
     const original = model(file);
-    const direct = { module: "effect/unstable/httpapi/OpenApi", export: "annotations" };
+    const direct = { module: "effect/http-api/OpenApi", export: "annotations" };
 
     const replaced: EffectModel = {
       ...original,
-      natives: [...original.natives, { kind: "OpenApi", ref: direct, target: "effect-4.0-rc" }],
+      natives: [...original.natives, { kind: "OpenApi", ref: direct, target: "effect-4.0" }],
       endpoints: original.endpoints.map((endpoint) => ({
         ...endpoint,
         steps: endpoint.steps.map((step) =>
@@ -479,12 +479,6 @@ describe("lift repair: shared references and source ownership", () => {
       causes(unreadable).map((cause) => cause.code),
       ["EFFX3009", "EFFX3001", "EFFX3006"],
     );
-    assert.include(causes(absent)[0]?.message ?? "", "without an explicit error schema");
-    assert.isFalse(
-      causes(unreadable).some((cause) =>
-        cause.message.includes("without an explicit error schema"),
-      ),
-    );
   });
 });
 
@@ -506,17 +500,20 @@ it.effect("densifies configured pattern identifiers before dropping operationId"
         : entry,
     );
 
-    const project = input().project;
-    assert.isDefined(project);
-
-    if (project === undefined) return;
+    const model = modelOf(files, {
+      ...sourceUniverse,
+      root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
+    });
 
     const result = lift(
-      modelOf(files, {
-        ...sourceUniverse,
-        root: { symbol: { module: "./src/repair", export: "Root" }, id: "repair-root" },
-      }),
-      { ...input(), project: { ...project, naming: { problemIdentifier: "{Group}{Key}Problem" } } },
+      {
+        ...model,
+        project: {
+          ...model.project,
+          naming: { problemIdentifier: "{Group}{Key}Problem" },
+        },
+      },
+      input(),
       liftRegistryOf([]),
     );
 

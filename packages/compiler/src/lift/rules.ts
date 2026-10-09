@@ -138,5 +138,5 @@ export const LiftRule = Schema.TaggedUnion({
 export type LiftRule = typeof LiftRule.Type;
 
 // `LiftInput` and the shared inert facts live in `./input.ts`: the one place the serializable lift
-// settings meet `ProjectResolution`, so `Collected.ts` can offer the same inert facts in
+// settings meet the resolved project, so `Collected.ts` can offer the same inert facts in
 // `ProjectConfig.lift` without importing this module's `LiftInput` (spec 0019 §5.2, no Schema cycle).

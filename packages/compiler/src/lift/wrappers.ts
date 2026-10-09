@@ -1,13 +1,19 @@
 import { Array as Arr, Option, Result } from "effect";
 import type { SymbolRef } from "@effx/ir";
-import type { Diagnostic } from "../Diagnostic.ts";
 import { LiftDiagnostics } from "../diagnostics/index.ts";
 import type { Term } from "../generate/term.ts";
-import { nameOfSymbol, unrecognized, type Context } from "./context.ts";
+import type { Cause } from "./causes.ts";
+import {
+  nameOfSymbol,
+  restoreTaken,
+  snapshotTaken,
+  unrecognized,
+  type Context,
+} from "./context.ts";
 import { exportRefactors, planExport, structTerm } from "./plan.ts";
 import { refIdentity } from "./refs.ts";
 import type { Refactor } from "./result.ts";
-import { locationOf } from "./source.ts";
+import type { SourceRange } from "./source.ts";
 import { isJsonObject, literalOf } from "./view.ts";
 
 /*
@@ -18,9 +24,14 @@ import { isJsonObject, literalOf } from "./view.ts";
  * helper use it. The suggestion already refers to that planned export by its real reference.
  */
 
+export interface WrapperFailure {
+  readonly wrapper: SymbolRef;
+  readonly cause: Cause;
+}
+
 export interface WrapperPlans {
   readonly refactors: ReadonlyArray<Refactor>;
-  readonly diagnostics: ReadonlyArray<Diagnostic>;
+  readonly failures: ReadonlyArray<WrapperFailure>;
 }
 
 const isFields = (term: Term): boolean => {
@@ -30,13 +41,12 @@ const isFields = (term: Term): boolean => {
 };
 
 const planOne = (ctx: Context, callee: SymbolRef): WrapperPlans => {
-  const none: WrapperPlans = { refactors: [], diagnostics: [] };
+  const none: WrapperPlans = { refactors: [], failures: [] };
   const rule = ctx.successRules.get(refIdentity(callee));
   const headers = rule?.responseHeaders;
   const fact = ctx.wrappers.get(refIdentity(callee));
   const target = headers === undefined ? undefined : ctx.filesByModule.get(headers.module);
 
-  // Nothing to plan: no headers named, no inline expression recorded, or the named export already exists.
   if (
     headers === undefined ||
     fact === undefined ||
@@ -51,46 +61,66 @@ const planOne = (ctx: Context, callee: SymbolRef): WrapperPlans => {
   const use = ctx.files.get(fact.range.file);
   const subject = nameOfSymbol(callee);
 
-  const cannot = (reason: string): WrapperPlans => {
-    const cause = unrecognized(subject, fact.range, reason);
+  const cannot = (reason: string, at: SourceRange = fact.range): WrapperPlans => ({
+    refactors: [],
+    failures: [{ wrapper: callee, cause: unrecognized(subject, at, reason) }],
+  });
 
-    return {
-      refactors: [],
-      diagnostics: [{ ...cause.diagnostic, location: locationOf(cause.at) }],
-    };
-  };
+  if (use === undefined) return cannot("source file record for " + fact.range.file);
 
-  if (use === undefined) return cannot(`source file record for ${fact.range.file}`);
-
-  const key = `${callee.module}#${callee.export}#headers`;
+  const key = callee.module + "#" + callee.export + "#headers";
+  const takenBefore = snapshotTaken(ctx);
   const plan = planExport(ctx, key, headers.export, target, "schema");
 
-  if (Result.isFailure(plan)) return cannot(plan.failure);
+  if (Result.isFailure(plan)) {
+    restoreTaken(ctx, takenBefore);
 
-  if (plan.success.ref.module !== headers.module || plan.success.name !== headers.export)
+    return cannot(plan.failure);
+  }
+
+  if (plan.success.ref.module !== headers.module || plan.success.name !== headers.export) {
+    restoreTaken(ctx, takenBefore);
+
     return cannot(
-      `the rule names ${headers.export} in ${headers.module} but the export is planned as ${plan.success.name} in ${plan.success.ref.module}`,
+      "the rule names " +
+        headers.export +
+        " in " +
+        headers.module +
+        " but the export is planned as " +
+        plan.success.name +
+        " in " +
+        plan.success.ref.module,
     );
+  }
 
-  return {
-    refactors: exportRefactors(ctx, {
-      code: "EFFX3003",
-      subject,
-      cause: {
-        ...LiftDiagnostics.EFFX3003.emit({ subject, wrapper: subject, planned: plan.success.name }),
-        location: locationOf(expression.range),
+  const refactors = exportRefactors(ctx, {
+    code: "EFFX3003",
+    subject,
+    cause: {
+      ...LiftDiagnostics.EFFX3003.emit({ subject, wrapper: subject, planned: plan.success.name }),
+      location: {
+        file: expression.range.file,
+        line: expression.range.start.line,
+        col: expression.range.start.col,
       },
-      key,
-      role: "responseHeaders",
-      use,
-      anchor: fact.range.start,
-      replace: expression.range,
-      plan: plan.success,
-      initializer: isFields(expression.term) ? structTerm(ctx, expression.term) : expression.term,
-      asConst: false,
-    }),
-    diagnostics: [],
-  };
+    },
+    key,
+    role: "responseHeaders",
+    use,
+    anchor: fact.range.start,
+    replace: expression.range,
+    plan: plan.success,
+    initializer: isFields(expression.term) ? structTerm(ctx, expression.term) : expression.term,
+    asConst: false,
+  });
+
+  if (Result.isFailure(refactors)) {
+    restoreTaken(ctx, takenBefore);
+
+    return cannot(refactors.failure.reason, refactors.failure.at);
+  }
+
+  return { refactors: refactors.success, failures: [] };
 };
 
 /** The header refactors of every distinct registered wrapper the lifted endpoints are written through. */
@@ -107,6 +137,6 @@ export const planWrapperHeaders = (
 
   return {
     refactors: plans.flatMap((plan) => plan.refactors),
-    diagnostics: plans.flatMap((plan) => plan.diagnostics),
+    failures: plans.flatMap((plan) => plan.failures),
   };
 };

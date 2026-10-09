@@ -62,24 +62,30 @@ export const exportInline = (scope: Scope, request: InlineExport): Option.Option
 
   if (!("symbolId" in ref)) return Option.none();
 
-  scope.refactors.push(
-    ...exportRefactors(scope.ctx, {
-      code: request.code,
-      subject: scope.subject,
-      cause: {
-        ...request.describe(planned.name),
-        location: { file: at.file, line: at.start.line, col: at.start.col },
-      },
-      key,
-      role: request.role,
-      use: scope.use,
-      anchor: scope.endpoint.range.start,
-      replace: at,
-      plan: planned,
-      initializer: request.initializer,
-      asConst: false,
-    }),
-  );
+  const plannedRefactors = exportRefactors(scope.ctx, {
+    code: request.code,
+    subject: scope.subject,
+    cause: {
+      ...request.describe(planned.name),
+      location: { file: at.file, line: at.start.line, col: at.start.col },
+    },
+    key,
+    role: request.role,
+    use: scope.use,
+    anchor: scope.endpoint.range.start,
+    replace: at,
+    plan: planned,
+    initializer: request.initializer,
+    asConst: false,
+  });
+
+  if (Result.isFailure(plannedRefactors)) {
+    failUnrecognized(scope, plannedRefactors.failure.at, plannedRefactors.failure.reason);
+
+    return Option.none();
+  }
+
+  scope.refactors.push(...plannedRefactors.success);
 
   return Option.some(ref);
 };

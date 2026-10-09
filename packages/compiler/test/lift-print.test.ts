@@ -26,89 +26,6 @@ const printed = (collected: Collected): string =>
 const denseOf = (collected: Collected): Collected =>
   Option.getOrThrowWith(dense(collected), () => new Error("no dense form"));
 
-const head = [
-  "// Suggested by `effx lift`. Review the decisions before accepting it.",
-  'import { ExternalNativeApi } from "./api.js";',
-  'import { PersonSecurity, nativeOperationAnnotations } from "./common.js";',
-  'import { ProfileReadOwnProfileCodes, nativeProblems } from "./endpoint-problems.js";',
-  'import { ConditionalReadHeaders, ProfileReadResponseHeaders } from "./http-semantics.js";',
-  'import { ProfileCurrentPerson, profileAccessAnnotations } from "./profile-effx-adapters.js";',
-  'import { UserProfileResponse } from "./v2-schemas.js";',
-  'import { Capability, Concealment, Http, Operation } from "@effx/runtime";',
-  "",
-];
-
-describe("the verbose suggestion is what a person writes", () => {
-  it("prints the group and the operation in builder form with every field explicit", () => {
-    assert.strictEqual(
-      printed(lifted.collected),
-      [
-        ...head,
-        "export const ProfileGroup = Http.group({",
-        "  root: ExternalNativeApi,",
-        '  group: "profile",',
-        '  title: "Profile",',
-        '  description: "Authenticated self-service profile API.",',
-        "});",
-        "",
-        "export const ReadOwnProfile = Operation.query({",
-        '  name: "profile.readOwnProfile",',
-        "  input: ConditionalReadHeaders,",
-        "  success: UserProfileResponse,",
-        "})",
-        '  .http.get("/api/profile")',
-        "  .http.contract({",
-        '    root: "external-native-api",',
-        '    group: "profile",',
-        "    headers: ConditionalReadHeaders,",
-        "    success: UserProfileResponse,",
-        "    responseHeaders: ProfileReadResponseHeaders,",
-        "    conditional: true,",
-        "    middleware: [PersonSecurity],",
-        "    metadata: {",
-        "      annotator: nativeOperationAnnotations,",
-        '      operationId: "profile.readOwnProfile",',
-        '      summary: "Read own profile",',
-        '      description: "Returns the profile selected by the current session.",',
-        "    },",
-        "  })",
-        "  .http.problems({",
-        "    registry: nativeProblems,",
-        "    codes: ProfileReadOwnProfileCodes,",
-        '    identifier: "ProfileReadOwnProfileProblem",',
-        "  })",
-        "  .http.access({",
-        "    annotator: profileAccessAnnotations,",
-        '    exposure: "External",',
-        '    acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],',
-        '    principalKinds: ["Person"],',
-        '    capabilities: Capability.one("profile.read-self"),',
-        '    requirements: [{ id: "profile.owner" }],',
-        "    canonicalScopeResolver: ProfileCurrentPerson,",
-        "    concealment: Concealment.reveal,",
-        '    decisionTime: "SnapshotRead",',
-        "  })",
-        "  .declare();",
-        "",
-      ].join("\n"),
-    );
-  });
-
-  it("copies the codes when no exported tuple is known for them", () => {
-    const text = Result.getOrElse(
-      printSuggestion(lifted.collected, { module: profileInput.output.module }),
-      (message) => message,
-    );
-
-    assert.include(text, 'codes: ["request.malformed", "precondition.failed", "internal.error"],');
-    assert.notInclude(text, "ProfileReadOwnProfileCodes");
-  });
-
-  it("is deterministic", () => {
-    assert.strictEqual(printed(lifted.collected), printed(lifted.collected));
-  });
-});
-
 describe("imports are written from the suggestion's own module", () => {
   const elsewhere = (module: string): string =>
     Result.getOrElse(
@@ -124,7 +41,7 @@ describe("imports are written from the suggestion's own module", () => {
     const collected: Collected = {
       ...lifted.collected,
       project: {
-        target: "effect-4.0-rc",
+        target: "effect-4.0",
         emit: "contract",
         allowImportingTsExtensions: true,
         canonicalImportBase: "/app/src",

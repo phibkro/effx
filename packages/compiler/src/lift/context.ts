@@ -170,7 +170,7 @@ export const nameOfSymbol = (ref: SymbolRef): string =>
 const boundNames = (file: SourceFileRecord): ReadonlyArray<string> => [
   ...file.exports,
   ...file.topLevel,
-  ...file.imports.map((binding) => binding.local),
+  ...file.imports.flatMap((sourceImport) => sourceImport.bindings.map((binding) => binding.local)),
 ];
 
 /** A collision-free, deterministic name: `preferred`, then `preferred2`, `preferred3`, … */

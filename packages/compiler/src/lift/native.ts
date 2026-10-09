@@ -8,10 +8,9 @@ import { sameRef } from "./refs.ts";
 
 /*
  * Native Effect identity (spec 0019 §3.4). The frontend resolves identity from declarations, never from
- * spelling: it follows import aliases and re-exports to the declaring namespace and accepts both the
- * `~effect/http-api/*` and `~effect/httpapi/*` type brands. The core never re-derives that; it validates the
- * frontend's typed claim against the ONE profile table the generator imports from (`generate/target.ts`), so
- * `effect/http-api` (stable) and `effect/unstable/httpapi` (rc.116) are never frozen as a literal here.
+ * spelling: it follows import aliases and re-exports to the declaring namespace and accepts the stable
+ * effect/http-api type brand. The core validates the frontend's typed claim against the generator's one
+ * profile table at generate/target.ts; module spelling alone does not establish native authority.
  */
 
 /** The native Effect namespaces the lift reads. Each is a namespace export whose members the core names. */
@@ -63,8 +62,8 @@ const within = (module: string, root: string): boolean =>
   module === root || module.startsWith(`${root}/`);
 
 /**
- * Is `module` inside the module family the target profile maps `kind` to? The family roots come from the
- * generator's own profile table, so the stable and rc.116 layouts are both answered by one source.
+ * Is a module inside the family that the target profile maps for this kind? Family roots come from the
+ * generator's stable profile table.
  */
 export const isNativeModule = (
   target: TargetProfile,

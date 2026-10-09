@@ -88,7 +88,7 @@ const lowered = (reader: Reader, slot: TermSlot): Option.Option<Term> => {
 };
 
 const nativeOf = (reader: Reader, term: Term): NativeCallee | undefined =>
-  nativeCalleeOf(reader.ctx.model.target, reader.ctx.model.natives, term);
+  nativeCalleeOf(reader.ctx.model.project.target, reader.ctx.model.natives, term);
 
 type MethodStep = Extract<StepRecord, { readonly _tag: "Method" }>;
 
@@ -191,10 +191,15 @@ const readOpenApi = (reader: Reader, step: MethodStep): GroupInfo => {
   for (const key of Object.keys(overrides ?? {}))
     if (key !== "x-displayName") unsupported(`override.${key}`);
 
+  const displayName = overrides?.["x-displayName"];
+
+  if (displayName !== undefined && !Predicate.isString(displayName))
+    unsupported("override.x-displayName");
+
   return {
     title: stringOption(object.value.title),
     description: stringOption(object.value.description),
-    displayName: stringOption(overrides?.["x-displayName"]),
+    displayName: Predicate.isString(displayName) ? displayName : undefined,
   };
 };
 

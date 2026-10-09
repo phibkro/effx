@@ -30,6 +30,7 @@ import type { LiftRegistry } from "../annotation.ts";
 import type { LiftInput } from "./input.ts";
 import { schemaUseOf } from "./schema-use.ts";
 import type { Outcome, Recognized } from "./types.ts";
+import { refIdentity } from "./refs.ts";
 import { stringOf } from "./view.ts";
 
 /*
@@ -45,11 +46,11 @@ const reservedNames: ReadonlyArray<string> = ["Operation", "Http", "Capability",
 const keyOf = (endpoint: EndpointRecord): Option.Option<string> =>
   endpoint.key._tag === "Lowered" ? stringOf(endpoint.key.term) : Option.none();
 
-const collectedOf = (input: LiftInput, declarations: ReadonlyArray<Declaration>): Collected => {
-  const base: Collected = { declarations, diagnostics: [] };
-
-  return input.project === undefined ? base : { ...base, project: input.project };
-};
+const collectedOf = (model: EffectModel, declarations: ReadonlyArray<Declaration>): Collected => ({
+  declarations,
+  diagnostics: [],
+  project: model.project,
+});
 
 /** One endpoint after recognition: every cause (recognizer causes and group-level ones), in one list. */
 interface Processed {
@@ -228,7 +229,7 @@ const missingResult = (
   unsupported: ReadonlyArray<UnsupportedSite>,
 ): LiftResult => ({
   group: ctx.input.group,
-  collected: collectedOf(ctx.input, []),
+  collected: collectedOf(ctx.model, []),
   refactors: [],
   decisions: [],
   unsupported,
@@ -241,29 +242,52 @@ const missingResult = (
 const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
   const processed = processEndpoints(ctx, facts);
   const ready = processed.flatMap(readyOf);
-  const built = build(ctx, facts, ready);
+  const initialBuild = build(ctx, facts, ready);
+  const initialRejected = new Set(initialBuild.causes.map((entry) => entry.processed));
+  const initialAccepted = ready.filter((entry) => !initialRejected.has(entry.processed));
+
+  const wrapperPlans = planWrapperHeaders(
+    ctx,
+    initialAccepted.flatMap((entry) =>
+      Option.toArray(Option.fromUndefinedOr(entry.recognized.wrapper)),
+    ),
+  );
+
+  const failedWrappers = new Map(
+    wrapperPlans.failures.map((failure) => [refIdentity(failure.wrapper), failure.cause] as const),
+  );
+
+  const runnable = initialAccepted.filter(
+    (entry) =>
+      entry.recognized.wrapper === undefined ||
+      !failedWrappers.has(refIdentity(entry.recognized.wrapper)),
+  );
+
+  const built =
+    runnable.length === initialAccepted.length ? initialBuild : build(ctx, facts, runnable);
 
   const rejected = new Set(built.causes.map((entry) => entry.processed));
-  const accepted = ready.filter((entry) => !rejected.has(entry.processed));
+  const accepted = runnable.filter((entry) => !rejected.has(entry.processed));
 
   const sites = [
-    ...processed.flatMap((entry) =>
-      Option.toArray(
-        unsupportedSite(entry.outcome.subject, entry.endpoint.range, [
-          ...entry.causes,
-          ...built.causes.flatMap((late) => (late.processed === entry ? [late.cause] : [])),
-        ]),
-      ),
-    ),
+    ...processed.flatMap((entry) => {
+      const wrapper = entry.outcome.recognized?.wrapper;
+
+      const wrapperCause =
+        wrapper === undefined ? undefined : failedWrappers.get(refIdentity(wrapper));
+
+      const causes = [
+        ...entry.causes,
+        ...built.causes.flatMap((late) => (late.processed === entry ? [late.cause] : [])),
+        ...(wrapperCause === undefined ? [] : [wrapperCause]),
+      ];
+
+      return Option.toArray(unsupportedSite(entry.outcome.subject, entry.endpoint.range, causes));
+    }),
     ...facts.missing.flatMap((member) =>
       Option.toArray(unsupportedSite(member.subject, facts.group.range, [member.cause])),
     ),
   ];
-
-  const wrapperPlans = planWrapperHeaders(
-    ctx,
-    accepted.flatMap((entry) => Option.toArray(Option.fromUndefinedOr(entry.recognized.wrapper))),
-  );
 
   const refactors: ReadonlyArray<Refactor> = Arr.dedupe([
     ...accepted.flatMap((entry) => entry.processed.outcome.refactors),
@@ -275,7 +299,7 @@ const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
 
   return {
     group: ctx.input.group,
-    collected: collectedOf(ctx.input, built.declarations),
+    collected: collectedOf(ctx.model, built.declarations),
     refactors,
     decisions: decisions.map((reviewed) => reviewed.decision),
     unsupported: sites,
@@ -289,7 +313,6 @@ const readyResult = (ctx: Context, facts: GroupFacts): LiftResult => {
     bindings: binding.reports,
     diagnostics: [
       ...sites.map((site) => site.primary),
-      ...wrapperPlans.diagnostics,
       ...refactors.map((refactor) => refactor.cause),
       ...decisions.map((reviewed) => reviewed.diagnostic),
       ...binding.diagnostics,

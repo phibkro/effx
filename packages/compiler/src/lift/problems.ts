@@ -105,7 +105,7 @@ const planCodes = (
   const at = rangeOf(descend(rootOf(init), codes, ...call.argPath(1)));
   const subject = source.label;
 
-  const refactors = exportRefactors(scope.ctx, {
+  const plannedRefactors = exportRefactors(scope.ctx, {
     code: "EFFX3004",
     subject,
     cause: {
@@ -126,6 +126,14 @@ const planCodes = (
     initializer: codes,
     asConst: true,
   });
+
+  if (Result.isFailure(plannedRefactors)) {
+    failUnrecognized(scope, plannedRefactors.failure.at, plannedRefactors.failure.reason);
+
+    return;
+  }
+
+  const refactors = plannedRefactors.success;
 
   const reference = {
     identifier,

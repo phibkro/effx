@@ -23,6 +23,7 @@ import {
   type SourceFileRecord,
   type SourceRange,
   type StepRecord,
+  type ProjectResolution,
   type TargetProfile,
   type Term,
   type TermSlot,
@@ -504,12 +505,12 @@ const isNativeKind = (name: string): name is NativeKind => nativeKinds.has(name)
 
 /** What the test frontend is told about the application beyond its source. */
 export interface Universe {
-  readonly target: TargetProfile;
+  readonly project: ProjectResolution;
   /** Schema exports of modules that are not part of the source text (bare package modules). */
   readonly schemas: ReadonlyArray<SchemaRef>;
   readonly facts: ReadonlyArray<SchemaFact>;
   readonly markers: ReadonlyArray<MiddlewareFact>;
-  /** The root added when the source declares none: every group is `.add`ed to it. */
+  /** The root added when the source declares none; every group is added to it. */
   readonly root: { readonly symbol: SymbolRef; readonly id: string };
 }
 
@@ -996,9 +997,9 @@ const keysOf = (node: Node | undefined): ReadonlyArray<string> | undefined =>
 
 /** The model of source files: records for every file, endpoint, group, root and exported value. */
 export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): EffectModel => {
-  const profile = Imports({ ...defaultGenerationContext, target: universe.target });
+  const profile = Imports({ ...defaultGenerationContext, target: universe.project.target });
   const claims = new Map<string, NativeCallee>();
-  const claimScope = { target: universe.target, claims };
+  const claimScope = { target: universe.project.target, claims };
 
   const parsed = files.map((file) => ({
     file,
@@ -1126,7 +1127,7 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
     const scope: Scope = {
       file: unit.file.path,
       module: unit.module,
-      target: universe.target,
+      target: universe.project.target,
       localIds,
       localCalls,
       position,
@@ -1165,13 +1166,19 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
           statement.tag === "const" && !statement.exported ? [statement.name] : [],
         ),
       ],
-      imports: importStatements.flatMap((statement) =>
-        statement.names.map(([imported, local]) => ({
+      imports: importStatements.map((statement) => ({
+        _tag: "Resolved" as const,
+        specifier: statement.module,
+        module: resolveSpecifier(unit.module, statement.module),
+        kind: "value" as const,
+        range: rangeOf(scope, statement),
+        bindings: statement.names.map(([imported, local]) => ({
           local,
           ref: { module: resolveSpecifier(unit.module, statement.module), export: imported },
         })),
-      ),
+      })),
       importsEnd: position(Math.max(0, ...importStatements.map((statement) => statement.end))),
+      end: position(text.length),
     });
 
     for (const statement of unit.statements) {
@@ -1326,7 +1333,7 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
         ];
 
   return {
-    target: universe.target,
+    project: universe.project,
     files: records,
     natives: [...claims.values()],
     schemas: [...facts.values()],

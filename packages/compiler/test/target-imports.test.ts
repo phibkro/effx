@@ -11,19 +11,17 @@ import {
   unsupportedModules,
 } from "../src/generate/target.ts";
 
-const rc = {
-  target: "effect-4.0-rc",
+const stable = {
+  target: "effect-4.0",
   emit: "contract",
   allowImportingTsExtensions: false,
   canonicalImportBase: "/work/app/.effx/generated",
   outputDir: "/work/app/apps/backend/.effx/generated",
 } satisfies GenerationContext;
 
-const stable: GenerationContext = { ...rc, target: "effect-4.0" };
-
 describe("target import resolution", () => {
-  it("uses one table for all stable and rc modules, including net", () => {
-    assert.deepStrictEqual(Imports(), {
+  it("uses one stable table for every generated Effect module", () => {
+    const expected = {
       core: "effect",
       http: "effect/http",
       httpApi: "effect/http-api",
@@ -31,33 +29,15 @@ describe("target import resolution", () => {
       rpc: "effect/rpc",
       cli: "effect/cli",
       sql: "effect/sql",
-    });
-    assert.deepStrictEqual(Imports(rc), {
-      core: "effect",
-      http: "effect/unstable/http",
-      httpApi: "effect/unstable/httpapi",
-      net: "effect/unstable/net",
-      rpc: "effect/unstable/rpc",
-      cli: "effect/unstable/cli",
-      sql: "effect/unstable/sql",
-    });
+    };
 
-    for (const [base, mapped] of [
-      ["effect/http", "effect/unstable/http"],
-      ["effect/http-api", "effect/unstable/httpapi"],
-      ["effect/net", "effect/unstable/net"],
-      ["effect/rpc", "effect/unstable/rpc"],
-      ["effect/cli", "effect/unstable/cli"],
-      ["effect/sql", "effect/unstable/sql"],
-    ] as const) {
-      assert.strictEqual(moduleSpecifier(stable, base), base);
-      assert.strictEqual(moduleSpecifier(rc, base), mapped);
-      assert.strictEqual(moduleSpecifier(rc, mapped), mapped);
-    }
+    assert.deepStrictEqual(Imports(), expected);
+    assert.deepStrictEqual(Imports(stable), expected);
 
-    assert.strictEqual(moduleSpecifier(rc, "effect"), "effect");
-    assert.strictEqual(moduleSpecifier(rc, "@effx/runtime"), "@effx/runtime");
-    assert.isFalse(isTargetModuleSupported(rc, "effect/unstable/http-api"));
+    for (const module of Object.values(expected))
+      assert.strictEqual(moduleSpecifier(stable, module), module);
+
+    assert.strictEqual(moduleSpecifier(stable, "@effx/runtime"), "@effx/runtime");
     assert.isFalse(isTargetModuleSupported(stable, "effect/not-a-module"));
 
     const unsupported = make(
@@ -75,31 +55,27 @@ describe("target import resolution", () => {
       [],
     );
 
-    assert.deepStrictEqual(unsupportedModules(unsupported, rc), ["effect/not-a-module"]);
+    assert.deepStrictEqual(unsupportedModules(unsupported, stable), ["effect/not-a-module"]);
     const defaults = new ImportCollector();
     defaults.add("./http.ts", "UsersHttp");
     assert.deepStrictEqual(defaults.render(), ['import { UsersHttp } from "./http.js";']);
   });
 
   it("maps resolvable source leaves with the project profile and rejects unknown leaves", () => {
-    const available = new Set(["effect/Schema", "effect/unstable/sql/SqlError"]);
+    const available = new Set(["effect/Schema", "effect/sql/SqlError"]);
 
     const project: GenerationContext = {
-      ...rc,
+      ...stable,
       resolveEffectModule: (specifier) => available.has(specifier),
     };
 
     assert.isTrue(isTargetModuleSupported(project, "effect/Schema"));
     assert.isTrue(isTargetModuleSupported(project, "effect/sql/SqlError"));
-    assert.isTrue(isTargetModuleSupported(project, "effect/unstable/sql/SqlError"));
     assert.strictEqual(moduleSpecifier(project, "effect/Schema"), "effect/Schema");
-    assert.strictEqual(
-      moduleSpecifier(project, "effect/sql/SqlError"),
-      "effect/unstable/sql/SqlError",
-    );
+    assert.strictEqual(moduleSpecifier(project, "effect/sql/SqlError"), "effect/sql/SqlError");
     assert.isFalse(isTargetModuleSupported(project, "effect/sql/NotReal"));
     assert.isFalse(isTargetModuleSupported(project, "effect/not-a-module"));
-    assert.isFalse(isTargetModuleSupported(project, "effect/unstable/http-api"));
+    assert.isFalse(isTargetModuleSupported(project, "effect/http-api/NotReal"));
 
     const ir = make(
       ["effect/Schema", "effect/sql/SqlError", "effect/sql/NotReal"].map((module) => ({
@@ -141,28 +117,28 @@ describe("target import resolution", () => {
 
   it("rebases frontend references but keeps generated siblings in the artifact directory", () => {
     assert.strictEqual(
-      moduleSpecifier(rc, "../../packages/http-api/src/profile"),
+      moduleSpecifier(stable, "../../packages/http-api/src/profile"),
       "../../../../packages/http-api/src/profile.js",
     );
     assert.strictEqual(
-      moduleSpecifier(rc, "../../packages/http-api/src/schema.v2"),
+      moduleSpecifier(stable, "../../packages/http-api/src/schema.v2"),
       "../../../../packages/http-api/src/schema.v2.js",
     );
-    assert.strictEqual(moduleSpecifier(rc, "./profile-contract.ts"), "./profile-contract.js");
+    assert.strictEqual(moduleSpecifier(stable, "./profile-contract.ts"), "./profile-contract.js");
     assert.strictEqual(
       moduleSpecifier(
-        { ...rc, allowImportingTsExtensions: true },
+        { ...stable, allowImportingTsExtensions: true },
         "../../packages/http-api/src/profile",
       ),
       "../../../../packages/http-api/src/profile.ts",
     );
     assert.strictEqual(
-      moduleSpecifier({ ...rc, allowImportingTsExtensions: true }, "./profile-contract.ts"),
+      moduleSpecifier({ ...stable, allowImportingTsExtensions: true }, "./profile-contract.ts"),
       "./profile-contract.ts",
     );
     assert.strictEqual(
       moduleSpecifier(
-        { ...rc, outputDir: rc.canonicalImportBase },
+        { ...stable, outputDir: stable.canonicalImportBase },
         "../../packages/http-api/src/profile",
       ),
       "../../packages/http-api/src/profile.js",
@@ -176,7 +152,7 @@ describe("target import resolution", () => {
       symbolId: StableId.make("schema", "packages/http-api/src/profile/Profile"),
     };
 
-    const imports = new ImportCollector(rc);
+    const imports = new ImportCollector(stable);
 
     assert.strictEqual(schemaExpr(imports, ref), "Profile");
     assert.strictEqual(
@@ -185,7 +161,7 @@ describe("target import resolution", () => {
     );
     imports.add("effect/http-api", "HttpApiGroup");
     assert.deepStrictEqual(imports.render(), [
-      'import { HttpApiGroup } from "effect/unstable/httpapi";',
+      'import { HttpApiGroup } from "effect/http-api";',
       'import { Profile, readProfile } from "../../../../packages/http-api/src/profile.js";',
     ]);
     assert.strictEqual(ref.symbolId, "schema:packages/http-api/src/profile/Profile");
@@ -206,7 +182,7 @@ describe("target import resolution", () => {
       };
 
       const collected: Collected = {
-        project: rc,
+        project: stable,
         resolveEffectModule: (specifier) => specifier === "effect/Schema",
         diagnostics: [],
         declarations: [

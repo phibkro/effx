@@ -12,7 +12,14 @@ import {
   lift,
   liftRegistryOf,
   printSuggestion,
+  applyRefactors,
   renderPatch,
+  type EffectModel,
+  type ImportBinding,
+  type LiftInput,
+  type SourceFileRecord,
+  type SourceImport,
+  type SourceRange,
   type ProjectConfig,
 } from "@effx/compiler";
 import { modelOf, type SourceFile } from "./lift-source.ts";
@@ -52,7 +59,6 @@ const types: SourceFile = {
     'export const ResponseExample = { id: "example" };',
     "export class Responses { static created(schema: Schema.Top) { return HttpApiSchema.WithHeaders(schema, ResponseHeaders).pipe(HttpApiSchema.status(201)); } }",
     "export class Schemas { static Response = Response; static Body = Body; }",
-    "",
   ].join("\n"),
 };
 
@@ -124,7 +130,13 @@ const staticSchema = (member: string) => ({
 const sourceFiles = [types, problems, original];
 
 const model = modelOf(sourceFiles, {
-  target: "effect-4.0",
+  project: {
+    target: "effect-4.0",
+    emit: "contract",
+    allowImportingTsExtensions: true,
+    canonicalImportBase: "/wire",
+    outputDir: "/wire/.effx/generated",
+  },
   schemas: [
     ...[
       "EmptyInput",
@@ -148,37 +160,205 @@ const model = modelOf(sourceFiles, {
   root: { symbol: { module: "./src/original", export: "Root" }, id: "wire-root" },
 });
 
-const result = lift(
-  model,
-  {
-    group: "wire",
-    rules: [
-      {
-        _tag: "ProblemRegistry",
-        response: { module: "./src/problems", export: "Problems", member: "responses" },
-        union: { module: "./src/problems", export: "Problems", member: "union" },
-        registry: { module: "./src/problems", export: "registry" },
-      },
-      {
-        _tag: "SuccessWrapper",
-        callee: { module: "./src/types", export: "Responses", member: "created" },
-        responseHeaders: schema("ResponseHeaders"),
-        status: 201,
-      },
-    ],
-    names: {},
-    emptyInput: schema("EmptyInput"),
-    output: { module: "./src/suggestion.effx" },
-    project: {
-      target: "effect-4.0",
-      emit: "contract",
-      allowImportingTsExtensions: true,
-      canonicalImportBase: "/wire",
-      outputDir: "/wire/.effx/generated",
+const input: LiftInput = {
+  group: "wire",
+  rules: [
+    {
+      _tag: "ProblemRegistry",
+      response: { module: "./src/problems", export: "Problems", member: "responses" },
+      union: { module: "./src/problems", export: "Problems", member: "union" },
+      registry: { module: "./src/problems", export: "registry" },
     },
-  },
-  liftRegistryOf([]),
-);
+    {
+      _tag: "SuccessWrapper",
+      callee: { module: "./src/types", export: "Responses", member: "created" },
+      responseHeaders: schema("ResponseHeaders"),
+      status: 201,
+    },
+  ],
+  names: { "wire.annotated#success": { module: "./src/types", export: "WireAnnotatedResponse" } },
+  emptyInput: schema("EmptyInput"),
+  output: { module: "./src/suggestion.effx" },
+};
+
+const result = lift(model, input, liftRegistryOf([]));
+
+const importRange = (file: SourceFileRecord): SourceRange => ({
+  file: file.file,
+  start: file.importsEnd,
+  end: { ...file.importsEnd, offset: file.importsEnd.offset + 1, col: file.importsEnd.col + 1 },
+});
+
+const resolvedImport = (
+  specifier: string,
+  module: string,
+  kind: "value" | "type",
+  range: SourceRange,
+  bindings: ReadonlyArray<ImportBinding> = [],
+): SourceImport => ({ _tag: "Resolved", specifier, module, kind, range, bindings });
+
+const typesRecord = model.files.find((file) => file.module === "./src/types");
+
+if (typesRecord === undefined) throw new Error("wire source model must record its types file");
+
+const withTargetImports = (
+  imports: ReadonlyArray<SourceImport>,
+  additions: ReadonlyArray<SourceFileRecord> = [],
+): EffectModel => ({
+  ...model,
+  files: [
+    ...model.files.map((file) => {
+      if (file.file !== typesRecord.file) return file;
+      const allImports = [...file.imports, ...imports];
+
+      const importsEnd = allImports.reduce(
+        (latest, sourceImport) =>
+          sourceImport.range.end.offset > latest.offset ? sourceImport.range.end : latest,
+        file.importsEnd,
+      );
+
+      return {
+        ...file,
+        imports: allImports,
+        importsEnd,
+        end: file.end.offset >= importsEnd.offset ? file.end : importsEnd,
+      };
+    }),
+    ...additions,
+  ],
+});
+
+describe("pinned cross-file exports follow runtime source dependencies", () => {
+  const rejected = (candidate: EffectModel) => {
+    const lifted = lift(candidate, input);
+    const site = lifted.unsupported.find((entry) => entry.subject === "wire.annotated");
+
+    assert.strictEqual(site?.primary.code, "EFFX3001");
+    assert.isFalse(
+      lifted.collected.declarations.some((declaration) => declaration.export === "Annotated"),
+    );
+    assert.isFalse(
+      lifted.refactors.some((refactor) =>
+        refactor.planned.some((planned) => planned.key === "wire.annotated#success"),
+      ),
+    );
+  };
+
+  it("rejects a direct runtime import cycle and preserves the type-only control", () => {
+    const range = importRange(typesRecord);
+    const rootBinding = [{ local: "Root", ref: { module: "./src/original", export: "Root" } }];
+
+    rejected(
+      withTargetImports([
+        resolvedImport("./src/original", "./src/original", "value", range, rootBinding),
+      ]),
+    );
+
+    const typeOnly = lift(
+      withTargetImports([
+        resolvedImport("./src/original", "./src/original", "type", range, rootBinding),
+      ]),
+      input,
+    );
+
+    assert.deepStrictEqual(typeOnly.unsupported, []);
+    assert.isTrue(
+      typeOnly.refactors.some((refactor) =>
+        refactor.planned.some((planned) => planned.key === "wire.annotated#success"),
+      ),
+    );
+  });
+
+  it("follows barrel re-exports and side-effect value imports", () => {
+    const typesRange = importRange(typesRecord);
+
+    const barrel: SourceFileRecord = {
+      file: "src/barrel.ts",
+      module: "./src/barrel",
+      idPath: "src/barrel",
+      sha256: "a".repeat(64),
+      exports: ["Root"],
+      topLevel: ["Root"],
+      imports: [
+        resolvedImport("./src/original", "./src/original", "value", {
+          file: "src/barrel.ts",
+          start: { offset: 0, line: 1, col: 1 },
+          end: { offset: 1, line: 1, col: 2 },
+        }),
+      ],
+      importsEnd: { offset: 1, line: 1, col: 2 },
+      end: { offset: 1, line: 1, col: 2 },
+    };
+
+    rejected(
+      withTargetImports(
+        [resolvedImport("./src/barrel", "./src/barrel", "value", typesRange)],
+        [barrel],
+      ),
+    );
+    rejected(
+      withTargetImports([resolvedImport("./src/original", "./src/original", "value", typesRange)]),
+    );
+  });
+
+  it("rejects unresolved runtime module edges instead of assuming they are leaves", () => {
+    rejected(
+      withTargetImports([
+        {
+          _tag: "Unresolved",
+          specifier: "./missing",
+          kind: "value",
+          range: importRange(typesRecord),
+          bindings: [],
+        },
+      ]),
+    );
+  });
+
+  it("keeps type-only edges out of the value-cycle graph", () => {
+    const result = lift(
+      withTargetImports([
+        {
+          _tag: "Unresolved",
+          specifier: "./type-only-missing",
+          kind: "type",
+          range: importRange(typesRecord),
+          bindings: [],
+        },
+      ]),
+      input,
+    );
+
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.isTrue(
+      result.refactors.some((refactor) =>
+        refactor.planned.some((planned) => planned.key === "wire.annotated#success"),
+      ),
+    );
+  });
+
+  it("rejects dynamic import edges without a static safety proof", () => {
+    rejected(
+      withTargetImports([
+        {
+          _tag: "Unresolved",
+          specifier: "import(dynamic)",
+          kind: "dynamic",
+          range: importRange(typesRecord),
+          bindings: [],
+        },
+      ]),
+    );
+  });
+
+  it("rejects an external value module without analyzed source closure", () => {
+    rejected(
+      withTargetImports([
+        resolvedImport("@opaque/untracked", "@opaque/untracked", "value", importRange(typesRecord)),
+      ]),
+    );
+  });
+});
 
 const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 
@@ -191,8 +371,8 @@ const workspace = `${repository}/.effx/acceptance/core/repair-r1/wire`;
 // The independently authored declarations describe the intended wire; they are not derived from lift's output.
 const authoritative = [
   'import { Operation, Http } from "@effx/runtime";',
-  'import { Root, WireCreateResponse, WireInner200Response, WireAnnotatedResponse, ReadCodes, CreateCodes } from "./original.ts";',
-  'import { RequestHeaders, Schemas, ResponseHeaders, CreatedResponse, NoContent } from "./types.ts";',
+  'import { Root, WireCreateResponse, WireInner200Response, ReadCodes, CreateCodes } from "./original.ts";',
+  'import { RequestHeaders, Schemas, ResponseHeaders, CreatedResponse, NoContent, WireAnnotatedResponse } from "./types.ts";',
   'import { registry } from "./problems.ts";',
   'export const WireGroup = Http.group({ root: Root, group: "wire" });',
   'export const Read = Operation.query({ name: "wire.read", input: RequestHeaders, success: Schemas.Response })',
@@ -258,14 +438,41 @@ describe("owned printed suggestion collector proof (not the future lift frontend
 
         if (Result.isFailure(verbose) || Result.isFailure(denseText)) return;
 
-        const patch = yield* renderPatch({
+        const patchInput = {
           refactors: result.refactors,
           files: model.files,
-          texts: new Map(sourceFiles.map((file) => [file.path, file.contents])),
+          texts: new Map(sourceFiles.map((file) => [file.path, file.contents] as const)),
           allowImportingTsExtensions: true,
-        });
+        };
 
+        const appliedFiles = yield* applyRefactors(patchInput);
+        const patch = yield* renderPatch(patchInput);
         const patched = applyPatch(sourceFiles, patch);
+        const patchedByPath = new Map(patched.map((file) => [file.path, file.contents] as const));
+
+        assert.isAbove(appliedFiles.length, 0);
+
+        for (const applied of appliedFiles)
+          assert.strictEqual(applied.contents, patchedByPath.get(applied.file));
+        const types = patched.find((file) => file.path === "src/types.ts");
+        assert.isDefined(types);
+
+        if (types === undefined)
+          return assert.fail("the pin target source file must remain present");
+
+        assert.include(
+          types.contents,
+          "export const WireAnnotatedResponse = Schemas.Response.annotate({ examples: [ResponseExample] });",
+        );
+        assert.isAbove(
+          types.contents.indexOf("export const WireAnnotatedResponse"),
+          types.contents.indexOf("export class Schemas"),
+        );
+        assert.isAbove(
+          types.contents.indexOf("export const WireAnnotatedResponse"),
+          types.contents.indexOf("export const ResponseExample"),
+        );
+        assert.isFalse(types.contents.endsWith("\n"));
         yield* fs.makeDirectory(path.join(workspace, "src"), { recursive: true });
 
         for (const file of patched)

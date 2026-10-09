@@ -9,21 +9,25 @@ import type { Refactor, SourceEdit } from "./result.ts";
 import type { SourceFileRecord } from "./source.ts";
 
 /*
- * Refactors as patches (spec 0019 §4.1, §4.3). A `Refactor` is typed data with offsets into the exact text
- * whose SHA-256 it records. This renderer is the only place those edits become text, and it never applies
- * them: it verifies the hash of every file it is given, resolves each reference against the file's own
- * imports and the imports the refactor adds, and prints a unified diff. A file that changed since analysis
- * is a fault, because applying offsets to different text would corrupt it.
+ * Refactors as patches (spec 0019 §4.1, §4.3). A Refactor is typed data with offsets into the exact text
+ * whose SHA-256 it records. This module validates each file and turns the same edits into either patched
+ * text for an isolated overlay or a unified diff; it never writes to source files.
  */
 
 export interface PatchInput {
   readonly refactors: ReadonlyArray<Refactor>;
   /** Every analyzed file the refactors touch, as the model recorded it. */
   readonly files: ReadonlyArray<SourceFileRecord>;
-  /** The exact analyzed text of each file, by `SourceFileRecord.file`. */
+  /** The exact analyzed text of each file, by SourceFileRecord.file. */
   readonly texts: ReadonlyMap<string, string>;
-  /** Whether new relative imports end in `.ts` (otherwise `.js`), as in the project's generated imports. */
+  /** Whether new relative imports end in .ts (otherwise .js), as in generated imports. */
   readonly allowImportingTsExtensions: boolean;
+}
+
+/** A verified source file after applying every refactor assigned to it in memory. */
+export interface AppliedSourceFile {
+  readonly file: string;
+  readonly contents: string;
 }
 
 type InsertImport = Extract<SourceEdit, { readonly _tag: "InsertImport" }>;
@@ -94,7 +98,11 @@ const splicesOf = (
   const inserts = edits.filter((edit): edit is InsertImport => edit._tag === "InsertImport");
 
   const locals = new Map<string, string>([
-    ...file.imports.map((binding) => [refKey(binding.ref), binding.local] as const),
+    ...file.imports.flatMap((sourceImport) =>
+      sourceImport._tag === "Resolved" && sourceImport.kind === "value"
+        ? sourceImport.bindings.map((binding) => [refKey(binding.ref), binding.local] as const)
+        : [],
+    ),
     ...inserts.map((edit) => [refKey(edit.ref), edit.local] as const),
   ]);
 
@@ -198,13 +206,17 @@ const verified = Effect.fn("verifyAnalyzedText")(function* (target: FileEdits) {
     );
 });
 
-/**
- * The unified diff of every refactor, or a `CompilerFault` when a file is missing, changed since analysis or
- * its edits cannot be placed. An empty refactor list is the empty patch.
- */
-export const renderPatch = Effect.fn("renderPatch")(function* (input: PatchInput) {
+interface AppliedSourceText {
+  readonly file: string;
+  readonly before: string;
+  readonly after: string;
+}
+
+const applySourceTexts = Effect.fnUntraced(function* (
+  input: PatchInput,
+): Effect.fn.Return<ReadonlyArray<AppliedSourceText>, CompilerFault, Crypto.Crypto> {
   const byFile = Arr.groupBy(input.refactors, (refactor) => refactor.file);
-  const diffs: Array<string> = [];
+  const patched: Array<AppliedSourceText> = [];
 
   for (const [path, refactors] of Object.entries(byFile).toSorted(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
@@ -213,7 +225,7 @@ export const renderPatch = Effect.fn("renderPatch")(function* (input: PatchInput
     const text = input.texts.get(path);
 
     if (file === undefined || text === undefined)
-      return yield* fault(`${path}: the analyzed file or its text is not available`);
+      return yield* fault(path + ": the analyzed file or its text is not available");
 
     const target: FileEdits = { file, text, refactors };
 
@@ -224,10 +236,25 @@ export const renderPatch = Effect.fn("renderPatch")(function* (input: PatchInput
 
     if (problems.length > 0) return yield* fault(Array.from(new Set(problems)).join("; "));
 
-    if (Result.isFailure(after)) return yield* fault(`${path}: ${after.failure}`);
+    if (Result.isFailure(after)) return yield* fault(path + ": " + after.failure);
 
-    diffs.push(unifiedDiff(path, text, after.success));
+    patched.push({ file: path, before: text, after: after.success });
   }
+
+  return patched;
+});
+
+/** Verified refactor results for an isolated overlay; this function never writes files. */
+export const applyRefactors = Effect.fn("applyRefactors")(function* (input: PatchInput) {
+  const patched = yield* applySourceTexts(input);
+
+  return patched.map(({ file, after }) => ({ file, contents: after }));
+});
+
+/** The unified diff of every refactor, or a CompilerFault when a file is missing, stale or edits cannot be placed. */
+export const renderPatch = Effect.fn("renderPatch")(function* (input: PatchInput) {
+  const patched = yield* applySourceTexts(input);
+  const diffs = patched.map(({ file, before, after }) => unifiedDiff(file, before, after));
 
   return diffs.filter((diff) => diff !== "").join("\n") + (diffs.length === 0 ? "" : "\n");
 });

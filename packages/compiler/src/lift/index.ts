@@ -14,7 +14,7 @@ export * from "./model.ts";
 
 export * from "./native.ts";
 
-export { renderPatch, type PatchInput } from "./patch.ts";
+export { applyRefactors, renderPatch, type AppliedSourceFile, type PatchInput } from "./patch.ts";
 
 export { printSuggestion, type PrintOptions } from "./print.ts";
 

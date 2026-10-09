@@ -107,11 +107,28 @@ export const ImportBinding = Schema.Struct({ local: Schema.String, ref: SymbolRe
 
 export type ImportBinding = typeof ImportBinding.Type;
 
+/** One import/re-export edge. Resolved specifier is the literal value passed to TS resolution; module is its canonical target. */
+export const SourceImport = Schema.TaggedUnion({
+  Resolved: {
+    specifier: Schema.String,
+    module: Schema.String,
+    kind: Schema.Literals(["value", "type"]),
+    range: SourceRange,
+    bindings: Schema.Array(ImportBinding),
+  },
+  Unresolved: {
+    specifier: Schema.String,
+    kind: Schema.Literals(["value", "type", "dynamic"]),
+    range: SourceRange,
+    bindings: Schema.Array(ImportBinding),
+  },
+});
+
+export type SourceImport = typeof SourceImport.Type;
+
 /**
- * What the core needs to know about one analyzed source file to plan and print edits without reading it:
- * its module and identity path (so planned exports get real `SchemaRef`s), the hash of the analyzed text
- * (provenance for every edit), every exported and top-level name (collision-free naming), its import
- * bindings (file-local names) and where new imports go.
+ * One analyzed source file without its text: identity, hash, exports, top-level names, import bindings,
+ * module edges, import insertion point and the exact UTF-16 end of the hashed source.
  */
 export const SourceFileRecord = Schema.Struct({
   file: Schema.String,
@@ -120,8 +137,20 @@ export const SourceFileRecord = Schema.Struct({
   sha256: Sha256,
   exports: Schema.Array(Schema.String),
   topLevel: Schema.Array(Schema.String),
-  imports: Schema.Array(ImportBinding),
+  imports: Schema.Array(SourceImport),
   importsEnd: SourcePosition,
-});
+  end: SourcePosition,
+}).check(
+  Schema.makeFilter((file) =>
+    file.end.offset >= file.importsEnd.offset &&
+    file.imports.every(
+      (sourceImport) =>
+        sourceImport.range.file === file.file &&
+        sourceImport.range.end.offset <= file.importsEnd.offset,
+    )
+      ? true
+      : "Expected import ranges in their source file before the file end",
+  ),
+);
 
 export type SourceFileRecord = typeof SourceFileRecord.Type;

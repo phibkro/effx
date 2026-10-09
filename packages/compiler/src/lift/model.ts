@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { SchemaRef, SymbolRef } from "@effx/ir";
-import { TargetProfile } from "../Collected.ts";
+import { ProjectResolution } from "../Collected.ts";
 import { NativeCallee } from "./native.ts";
 import { Finding, SourceFileRecord, SourcePosition, SourceRange, TermSlot } from "./source.ts";
 
@@ -258,9 +258,9 @@ export const DefinitionRecord = Schema.Struct({
 
 export type DefinitionRecord = typeof DefinitionRecord.Type;
 
-/** Everything the frontend knows of one project's Effect declarations. */
+/** Everything the frontend knows of one resolved project's Effect declarations. */
 export const EffectModel = Schema.Struct({
-  target: TargetProfile,
+  project: ProjectResolution,
   files: Schema.Array(SourceFileRecord),
   natives: Schema.Array(NativeCallee),
   schemas: Schema.Array(SchemaFact),

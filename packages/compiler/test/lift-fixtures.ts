@@ -18,7 +18,7 @@ const file = (path: string, lines: ReadonlyArray<string>): SourceFile => ({
 export const supportFiles: ReadonlyArray<SourceFile> = [
   file("src/http-semantics.ts", [
     'import { Schema } from "effect";',
-    'import { HttpApiSchema } from "effect/unstable/httpapi";',
+    'import { HttpApiSchema } from "effect/http-api";',
     "",
     'export const ConditionalReadHeaders = Schema.Struct({ "if-none-match": Schema.String });',
     "",
@@ -91,7 +91,7 @@ export const supportFiles: ReadonlyArray<SourceFile> = [
 ];
 
 const httpApiImports = [
-  'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";',
+  'import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";',
   'import { Schema } from "effect";',
 ];
 
@@ -164,7 +164,13 @@ const schemaRef = (module: string, name: string) => ({
 });
 
 export const sourceUniverse: Universe = {
-  target: "effect-4.0-rc",
+  project: {
+    target: "effect-4.0",
+    emit: "contract",
+    allowImportingTsExtensions: false,
+    canonicalImportBase: "/app",
+    outputDir: "/app/.effx/generated",
+  },
   schemas: [],
   facts: [],
   markers: [{ ref: { module: "./src/common", export: "PersonSecurity" }, security: true }],
@@ -193,13 +199,6 @@ export const sourceInput = (group: string): LiftInput => ({
   },
   emptyInput: schemaRef("./src/v2-schemas", "EmptyInput"),
   output: { module: "./src/lifted.effx" },
-  project: {
-    target: "effect-4.0-rc",
-    emit: "contract",
-    allowImportingTsExtensions: false,
-    canonicalImportBase: "/app",
-    outputDir: "/app/.effx/generated",
-  },
 });
 
 /** A negative endpoint: its source, and what lifting it must report (the primary code and the related ones). */

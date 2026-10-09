@@ -51,8 +51,18 @@ const problemsFile: SourceFileRecord = {
   sha256: "1".repeat(64),
   exports: ["ProfileReadOwnProfileProblem"],
   topLevel: ["ProfileReadOwnProfileProblem"],
-  imports: [{ local: "problemUnion", ref: problemUnion }],
+  imports: [
+    {
+      _tag: "Resolved",
+      specifier: "./src/http-semantics",
+      module: "./src/http-semantics",
+      kind: "value",
+      range: range(0, 60, PROBLEMS_FILE),
+      bindings: [{ local: "problemUnion", ref: problemUnion }],
+    },
+  ],
   importsEnd: { offset: 60, line: 1, col: 61 },
+  end: { offset: 260, line: 3, col: 61 },
 };
 
 /** The application modules the rules name; each exports the symbols its rules refer to. */
@@ -65,6 +75,7 @@ const moduleOf = (module: string, exports: ReadonlyArray<string>): SourceFileRec
   topLevel: exports,
   imports: [],
   importsEnd: { offset: 0, line: 1, col: 1 },
+  end: { offset: 0, line: 1, col: 1 },
 });
 
 const applicationFiles: ReadonlyArray<SourceFileRecord> = [
@@ -174,11 +185,4 @@ export const profileInput: LiftInput = {
     "profile.current-person": sym("./src/profile-effx-adapters", "ProfileCurrentPerson"),
   },
   output: { module: "./src/profile.effx" },
-  project: {
-    target: "effect-4.0-rc",
-    emit: "contract",
-    allowImportingTsExtensions: false,
-    canonicalImportBase: "/app/src",
-    outputDir: "/app/.effx/generated",
-  },
 };

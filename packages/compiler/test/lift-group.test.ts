@@ -17,7 +17,7 @@ import { modelOf, type SourceFile } from "./lift-source.ts";
  */
 
 const imports = [
-  'import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";',
+  'import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";',
   'import { Schema } from "effect";',
   'import { UserProfileResponse } from "./v2-schemas.js";',
 ];
@@ -79,6 +79,47 @@ describe("a group the core cannot represent is blocked as a whole", () => {
     );
     assert.include(site?.primary.message ?? "", "topLevel");
   });
+
+  it("preserves a literal x-displayName override", () => {
+    const result = liftOf("display", [
+      ...read("read"),
+      'export const Api = HttpApiGroup.make("display").add(Read)',
+      '  .annotateMerge(OpenApi.annotations({ override: { "x-displayName": "Display name" } }));',
+      'export const Root = HttpApi.make("display-root").add(Api);',
+    ]);
+
+    const group = result.collected.declarations[0]?.annotations.find(
+      (annotation) => annotation.name === "Http.Group",
+    );
+
+    assert.deepStrictEqual(result.unsupported, []);
+    assert.isDefined(group);
+    assert.deepStrictEqual(group?.args[0], {
+      root: {
+        _tag: "Symbol",
+        ref: { module: "./src/display", export: "Root" },
+        identifier: "display-root",
+      },
+      group: "display",
+      displayName: "Display name",
+    });
+  });
+
+  it.each(["false", "null", "0", "{}", "[]"])(
+    "rejects non-string x-displayName overrides: %s",
+    (value) => {
+      const result = liftOf("bad-display", [
+        ...read("read"),
+        'export const Api = HttpApiGroup.make("bad-display").add(Read)',
+        `  .annotateMerge(OpenApi.annotations({ override: { "x-displayName": ${value} } }));`,
+        'export const Root = HttpApi.make("bad-display-root").add(Api);',
+      ]);
+
+      assert.deepStrictEqual(result.collected.declarations, []);
+      assert.strictEqual(result.unsupported.length, 1);
+      assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
+    },
+  );
 
   it("preserves outer root composition without treating it as group behavior", () => {
     const result = liftOf("rooted", [

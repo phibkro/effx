@@ -112,7 +112,7 @@ export const open = (
 
 /** The validated native identity of a term, under the model's own target. */
 export const nativeOf = (scope: Scope, term: Term): NativeCallee | undefined =>
-  nativeCalleeOf(scope.ctx.model.target, scope.ctx.model.natives, term);
+  nativeCalleeOf(scope.ctx.model.project.target, scope.ctx.model.natives, term);
 
 /** The derived name of an inline export: the group, the endpoint and what the export is. */
 export const derivedName = (scope: Scope, suffix: string): string =>

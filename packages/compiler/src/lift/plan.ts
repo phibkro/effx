@@ -15,7 +15,7 @@ import {
 import { isNativeModule } from "./native.ts";
 import { refIdentity, sameRef } from "./refs.ts";
 import type { NameSource, PlannedExport, Refactor, SourceEdit } from "./result.ts";
-import type { SourceFileRecord, SourcePosition, SourceRange } from "./source.ts";
+import type { ImportBinding, SourceFileRecord, SourcePosition, SourceRange } from "./source.ts";
 
 /*
  * Planning of new exports (spec 0019 §2.3, §4.3). A name comes from `LiftInput.names` when pinned, else it is
@@ -122,7 +122,7 @@ export const refsOf = (term: Term): ReadonlyArray<RefLike> => {
 
 /** The `Schema` namespace reference new code is written against: the generator's own logical reference. */
 export const schemaNamespace = (ctx: Context): SymbolRef => ({
-  module: Imports({ ...defaultGenerationContext, target: ctx.model.target }).core,
+  module: Imports({ ...defaultGenerationContext, target: ctx.model.project.target }).core,
   export: "Schema",
 });
 
@@ -130,15 +130,20 @@ export const schemaNamespace = (ctx: Context): SymbolRef => ({
 export const structTerm = (ctx: Context, fields: Term): Term =>
   Terms.call(Terms.member(Terms.ref(schemaNamespace(ctx)), "Struct"), [fields]);
 
+const runtimeBindings = (file: SourceFileRecord): ReadonlyArray<ImportBinding> =>
+  file.imports.flatMap((sourceImport) =>
+    sourceImport._tag === "Resolved" && sourceImport.kind === "value" ? sourceImport.bindings : [],
+  );
+
 const resolvable = (ctx: Context, file: SourceFileRecord, reference: RefLike): boolean =>
   reference.module === file.module ||
-  file.imports.some(
+  runtimeBindings(file).some(
     (binding) =>
       sameRef(binding.ref, reference) ||
       (reference.export === "Schema" &&
         binding.ref.export === "Schema" &&
-        isNativeModule(ctx.model.target, "Schema", binding.ref.module) &&
-        isNativeModule(ctx.model.target, "Schema", reference.module)),
+        isNativeModule(ctx.model.project.target, "Schema", binding.ref.module) &&
+        isNativeModule(ctx.model.project.target, "Schema", reference.module)),
   );
 
 /** Import edits for every reference of `terms` that `file` cannot already name; each local is collision-free. */
@@ -177,6 +182,116 @@ export interface ExportRefactor {
   readonly asConst: boolean;
 }
 
+interface ExportPlacementFailure {
+  readonly at: SourceRange;
+  readonly reason: string;
+}
+
+/** Every edge in this walk is a recorded runtime value import. Type-only imports never enter it. */
+const crossFileExportAnchor = (
+  ctx: Context,
+  input: ExportRefactor,
+): Result.Result<SourcePosition, ExportPlacementFailure> => {
+  const target = input.plan.target;
+
+  if (target.file === input.use.file) return Result.succeed(input.anchor);
+
+  if (target.module === input.use.module)
+    return Result.fail({
+      at: input.replace,
+      reason:
+        "two source files share one module identity, so the cross-file refactor location is ambiguous",
+    });
+
+  if (target.end.offset < target.importsEnd.offset)
+    return Result.fail({
+      at: input.replace,
+      reason: "the target source end precedes its imports",
+    });
+
+  const modules = Imports({ ...defaultGenerationContext, target: ctx.model.project.target });
+
+  const isUnder = (module: string, root: string): boolean =>
+    module === root || (module.startsWith(root) && module.charAt(root.length) === "/");
+
+  const nativeModule = (module: string): boolean =>
+    isUnder(module, modules.core) ||
+    isUnder(module, modules.http) ||
+    isUnder(module, modules.httpApi) ||
+    isUnder(module, modules.net) ||
+    isUnder(module, modules.rpc) ||
+    isUnder(module, modules.cli) ||
+    isUnder(module, modules.sql);
+
+  const additional = refsOf(input.initializer)
+    .filter((reference) => !resolvable(ctx, target, reference))
+    .map((reference) => reference.module);
+
+  const visited = new Set<string>();
+
+  const reachesUse = (
+    module: string,
+    at: SourceRange,
+  ): Result.Result<boolean, ExportPlacementFailure> => {
+    if (module === input.use.module) return Result.succeed(true);
+
+    if (visited.has(module)) return Result.succeed(false);
+
+    visited.add(module);
+    const file = ctx.filesByModule.get(module);
+
+    if (file === undefined)
+      return nativeModule(module)
+        ? Result.succeed(false)
+        : Result.fail({
+            at,
+            reason:
+              "source module " + module + " is not available to prove the cross-file import path",
+          });
+
+    const edges: Array<{ readonly module: string; readonly at: SourceRange }> = [];
+
+    for (const sourceImport of file.imports) {
+      if (sourceImport._tag === "Unresolved") {
+        if (sourceImport.kind !== "type")
+          return Result.fail({
+            at: sourceImport.range,
+            reason: "an unresolved runtime import prevents proof of a safe cross-file refactor",
+          });
+
+        continue;
+      }
+
+      if (sourceImport.kind === "value")
+        edges.push({ module: sourceImport.module, at: sourceImport.range });
+    }
+
+    if (file.file === target.file)
+      edges.push(...additional.map((dependency) => ({ module: dependency, at: input.replace })));
+
+    for (const edge of edges) {
+      const reachable = reachesUse(edge.module, edge.at);
+
+      if (Result.isFailure(reachable)) return reachable;
+
+      if (reachable.success) return Result.succeed(true);
+    }
+
+    return Result.succeed(false);
+  };
+
+  const safe = reachesUse(target.module, input.replace);
+
+  if (Result.isFailure(safe)) return Result.fail(safe.failure);
+
+  return safe.success
+    ? Result.fail({
+        at: input.replace,
+        reason: "the planned use import would create a runtime module cycle",
+      })
+    : Result.succeed(target.end);
+};
+
 const refactorOf = (
   input: ExportRefactor,
   file: SourceFileRecord,
@@ -202,7 +317,10 @@ const refactorOf = (
  * one refactor inserts and replaces; otherwise the target file gets the export and the using file the import
  * and the replacement.
  */
-export const exportRefactors = (ctx: Context, input: ExportRefactor): ReadonlyArray<Refactor> => {
+export const exportRefactors = (
+  ctx: Context,
+  input: ExportRefactor,
+): Result.Result<ReadonlyArray<Refactor>, ExportPlacementFailure> => {
   const planned: PlannedExport = {
     key: input.key,
     role: input.role,
@@ -212,10 +330,13 @@ export const exportRefactors = (ctx: Context, input: ExportRefactor): ReadonlyAr
   };
 
   const sameFile = input.plan.target.file === input.use.file;
+  const at = sameFile ? Result.succeed(input.anchor) : crossFileExportAnchor(ctx, input);
+
+  if (Result.isFailure(at)) return Result.fail(at.failure);
 
   const exportEdit: SourceEdit = {
     _tag: "InsertExport",
-    at: sameFile ? input.anchor : input.plan.target.importsEnd,
+    at: at.success,
     name: input.plan.name,
     initializer: input.initializer,
     asConst: input.asConst,
@@ -228,26 +349,23 @@ export const exportRefactors = (ctx: Context, input: ExportRefactor): ReadonlyAr
   };
 
   const targetImports = importEdits(ctx, input.plan.target, [input.initializer], []);
-
   const useImports = sameFile ? [] : importEdits(ctx, input.use, [Terms.ref(input.plan.ref)], []);
-
   const targetEdits = [...targetImports, exportEdit, ...(sameFile ? [replaceEdit] : [])];
-
   const useEdits = sameFile ? [] : [...useImports, replaceEdit];
 
-  return [
+  return Result.succeed([
     ...Option.toArray(refactorOf(input, input.plan.target, targetEdits, [planned])),
     ...Option.toArray(refactorOf(input, input.use, useEdits, [])),
-  ];
+  ]);
 };
 
-/** Whether a reference is already named in a file; exported for the patch renderer's own resolution. */
-export const namedIn = (file: SourceFileRecord, reference: RefLike): Option.Option<string> =>
-  reference.module === file.module
-    ? Option.some(reference.export)
-    : Option.map(
-        Option.fromUndefinedOr(
-          file.imports.find((binding) => refIdentity(binding.ref) === refIdentity(reference)),
-        ),
-        (binding) => binding.local,
-      );
+/** Whether a reference is already named in a file by a runtime value binding. */
+export const namedIn = (file: SourceFileRecord, reference: RefLike): Option.Option<string> => {
+  if (reference.module === file.module) return Option.some(reference.export);
+
+  const binding = runtimeBindings(file).find(
+    (entry) => refIdentity(entry.ref) === refIdentity(reference),
+  );
+
+  return Option.fromUndefinedOr(binding?.local);
+};

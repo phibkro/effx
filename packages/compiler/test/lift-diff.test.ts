@@ -40,8 +40,8 @@ describe("relativeModule names the module the key names", () => {
     {
       name: "an Effect module",
       from: "./src/p.effx",
-      to: "effect/unstable/httpapi",
-      expected: "effect/unstable/httpapi",
+      to: "effect/http-api",
+      expected: "effect/http-api",
     },
   ])("resolves $name", ({ from, to, expected }) => {
     assert.strictEqual(specifier(from, to), expected);
