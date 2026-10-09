@@ -202,6 +202,47 @@ describe("spec 0015 config resolution", () => {
     >();
   });
 
+  it.effect("preserves explicitly selected lift data and leaves absent lift config absent", () =>
+    fixture((dir, project) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const configPath = path.join(dir, "effx.config.ts");
+        const liftConfigPath = path.join(dir, "lift.config.ts");
+
+        yield* fs.writeFileString(
+          configPath,
+          `${configImport}\nexport default defineConfig({ target: "effect-4.0" });`,
+        );
+
+        const absent = yield* resolveProject(project);
+
+        assert.isUndefined(absent.config.lift);
+
+        const lift = {
+          rules: [],
+          names: {},
+          output: { module: "src/lift.effx.ts" },
+        } as const;
+
+        yield* fs.writeFileString(
+          liftConfigPath,
+          `${configImport}\nexport default defineConfig({ target: "effect-4.0", lift: { rules: [], names: {}, output: { module: "src/lift.effx.ts" } } });`,
+        );
+
+        const explicit = yield* resolveProject(
+          project,
+          undefined,
+          undefined,
+          undefined,
+          liftConfigPath,
+        );
+
+        assert.deepStrictEqual(explicit.config.lift, lift);
+      }),
+    ),
+  );
+
   it.effect(
     "uses tsconfig fallbacks, config-relative paths, explicit project and CLI overrides",
     () =>

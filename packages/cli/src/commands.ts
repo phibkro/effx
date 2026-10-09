@@ -7,7 +7,7 @@ import {
   Naming,
   HttpDiagnostics,
   problemNamingIssue,
-  type ProjectConfig,
+  ProjectConfig,
   Extensions,
   type SourceFrontend,
   TargetProfile,
@@ -120,6 +120,7 @@ const ConfigFields = Schema.Struct({
       foldkit: Schema.optionalKey(Schema.Boolean),
     }),
   ),
+  lift: ProjectConfig.fields.lift,
 });
 
 const decodeConfigFields = Schema.decodeUnknownEffect(ConfigFields);
@@ -387,6 +388,8 @@ const resolveSavedProject = Effect.fnUntraced(function* (
   if (selectedTarget !== undefined) resolved.target = selectedTarget;
 
   if (problemIdentifier !== undefined) resolved.naming = { problemIdentifier };
+
+  if (config?.lift !== undefined) resolved.lift = config.lift;
 
   return {
     tsconfigPath,

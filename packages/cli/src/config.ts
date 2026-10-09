@@ -1,4 +1,4 @@
-import type { Extension, EmitMode, TargetProfile } from "@effx/compiler";
+import type { Extension, EmitMode, ProjectConfig, TargetProfile } from "@effx/compiler";
 
 /** An explicitly selected compiler project. Relative paths are based on the config file. */
 export interface EffxConfig {
@@ -26,6 +26,8 @@ export interface EffxConfig {
     readonly client?: boolean;
     readonly foldkit?: boolean;
   };
+  /** Explicit inert lift inputs and projection references; lift never invents a registry or symbol map. */
+  readonly lift?: ProjectConfig["lift"];
 }
 
 /** Preserve inference for an authored config without importing the CLI executable. */
