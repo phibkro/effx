@@ -32,7 +32,7 @@ describe("frontend target project", () => {
   it.effect.each([
     ["6.9.0", "info"],
     ["7.0.2", "warning"],
-  ] as const)("applies TypeScript skew severity for pin %s", ([pin, severity]) =>
+  ] as const)("preserves TypeScript skew message and severity for pin %s", ([pin, severity]) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -47,9 +47,16 @@ describe("frontend target project", () => {
         entry: ["src/operations.ts"],
       });
 
-      const findings = project.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX0001");
-      assert.strictEqual(findings.length, 1);
-      assert.strictEqual(findings[0]?.severity, severity);
+      assert.deepStrictEqual(
+        project.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX0001"),
+        [
+          {
+            code: "EFFX0001",
+            severity,
+            message: `effx analyses with TypeScript ${TsSourceFrontend.typescriptVersion} but the project pins typescript ${pin}; tsc/tsgo remains the authoritative type gate`,
+          },
+        ],
+      );
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   );
 
@@ -222,14 +229,24 @@ describe("frontend target project", () => {
 
       const missing = yield* loadProject({ tsconfigPath: absentConfig });
       assert.isUndefined(missing.resolution);
-      assert.isTrue(missing.diagnostics.some((diagnostic) => diagnostic.code === "EFFX2701"));
-
-      const missingRuntime = missing.diagnostics.filter(
-        (diagnostic) => diagnostic.code === "EFFX1106",
+      assert.isTrue(
+        missing.diagnostics.some(
+          (diagnostic) =>
+            diagnostic.code === "EFFX2701" &&
+            diagnostic.message.includes(absent) &&
+            !diagnostic.message.includes(source),
+        ),
       );
-
-      assert.strictEqual(missingRuntime.length, 1);
-      assert.strictEqual(missingRuntime[0]?.severity, "warning");
+      assert.deepStrictEqual(
+        missing.diagnostics.filter((diagnostic) => diagnostic.code === "EFFX1106"),
+        [
+          {
+            code: "EFFX1106",
+            severity: "warning",
+            message: `@effx/runtime is not resolvable from ${path.join(source, "src", "entry.ts")}; no effx declarations can be recognised`,
+          },
+        ],
+      );
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   );
 
@@ -265,6 +282,7 @@ describe("frontend target project", () => {
       );
 
       assert.deepStrictEqual(explicitAbsence?.location, { file: configFile, line: 1, col: 1 });
+      assert.isTrue(explicitAbsence?.message.includes("effect/package.json is not resolvable"));
       assert.isUndefined(Option.getOrThrow(explicitMissing.collected.value).project);
       assert.isTrue(Option.isNone(explicitMissing.files.value));
 
@@ -275,6 +293,11 @@ describe("frontend target project", () => {
         '{"name":"effect","version":"3.0.0","exports":{"./package.json":"./package.json"}}',
       );
       const unsupported = yield* loadProject({ tsconfigPath: configFile });
+      assert.isTrue(
+        unsupported.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EFFX2701" && diagnostic.message.includes("3.0.0"),
+        ),
+      );
       assert.isUndefined(unsupported.resolution);
 
       const override = yield* loadProject({ tsconfigPath: configFile, target: "effect-4.0" });
