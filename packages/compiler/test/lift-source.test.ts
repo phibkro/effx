@@ -368,6 +368,7 @@ describe("lifting is total over the file identity the frontend reports", () => {
               })),
             },
             input,
+            liftRegistryOf([]),
           );
 
           const identities = result.refactors

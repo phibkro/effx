@@ -737,7 +737,7 @@ describe("lift repair: planned schema identities", () => {
   };
 
   it("plans the real schema identity of an inline params export", () => {
-    const result = lift(withIdentity("src/repair"), input());
+    const result = lift(withIdentity("src/repair"), input(), liftRegistryOf([]));
 
     assert.deepStrictEqual(result.unsupported, []);
 
@@ -759,7 +759,7 @@ describe("lift repair: planned schema identities", () => {
     "src/with space/repair",
     "-leading/repair",
   ])("diagnoses an inline export in a file whose identity %s cannot be a StableId", (idPath) => {
-    const result = lift(withIdentity(idPath), input());
+    const result = lift(withIdentity(idPath), input(), liftRegistryOf([]));
     const [site] = result.unsupported;
 
     assert.strictEqual(result.unsupported.length, 1);
@@ -772,10 +772,17 @@ describe("lift repair: planned schema identities", () => {
   it.each(["Bad Name", "Ünï"])(
     "diagnoses a pinned export %s that cannot form a StableId",
     (name) => {
-      const result = lift(withIdentity("src/repair"), {
-        ...input(),
-        names: { ...input().names, "repair.read#params": { module: "./src/repair", export: name } },
-      });
+      const result = lift(
+        withIdentity("src/repair"),
+        {
+          ...input(),
+          names: {
+            ...input().names,
+            "repair.read#params": { module: "./src/repair", export: name },
+          },
+        },
+        liftRegistryOf([]),
+      );
 
       assert.strictEqual(result.unsupported.length, 1);
       assert.strictEqual(result.unsupported[0]?.primary.code, "EFFX3001");
@@ -792,10 +799,14 @@ describe("lift repair: planned schema identities", () => {
 
     const both = { ...file, contents: file.contents.replace(".add(Read)", ".add(Other, Read)") };
 
-    const result = lift(model(both), {
-      ...input(),
-      names: { "repair.other#query": { module: "./src/repair", export: "OtherPage" } },
-    });
+    const result = lift(
+      model(both),
+      {
+        ...input(),
+        names: { "repair.other#query": { module: "./src/repair", export: "OtherPage" } },
+      },
+      liftRegistryOf([]),
+    );
 
     assert.deepStrictEqual(result.unsupported, []);
     assert.deepStrictEqual(
