@@ -1,4 +1,5 @@
-import { Effect, FileSystem, Path, Schema } from "effect";
+import { Crypto, Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Hex } from "effect/encoding";
 
 const repoRoot = new URL("../../", import.meta.url).pathname;
 
@@ -13,6 +14,36 @@ export const testDirectory = Effect.fnUntraced(function* (
   yield* fs.makeDirectory(parent, { recursive: true });
 
   return yield* fs.makeTempDirectoryScoped({ directory: parent, prefix });
+});
+
+/**
+ * The SHA-256 of every regular file below a directory, keyed by sorted relative path, with each symlink
+ * recorded by its target: byte-exact tree identity that never follows or breaks on a link.
+ */
+export const digestTree = Effect.fnUntraced(function* (directory: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const crypto = yield* Crypto.Crypto;
+  const entries: Array<readonly [string, string]> = [];
+
+  for (const name of (yield* fs.readDirectory(directory, { recursive: true })).toSorted()) {
+    const file = path.join(directory, name);
+    const link = yield* Effect.option(fs.readLink(file));
+
+    if (Option.isSome(link)) {
+      entries.push([name, `link ${link.value}`]);
+
+      continue;
+    }
+
+    if ((yield* fs.stat(file)).type !== "File") continue;
+
+    const digest = yield* crypto.digest("SHA-256", yield* fs.readFile(file));
+
+    entries.push([name, Hex.encode(digest)]);
+  }
+
+  return entries;
 });
 
 const repositoryCopy = Effect.fnUntraced(function* (prefix: string) {
