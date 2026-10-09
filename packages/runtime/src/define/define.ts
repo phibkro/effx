@@ -19,6 +19,17 @@ export const AppliedTypeId = "~effx/Annotation/Applied" as const;
 
 export type AppliedTypeId = typeof AppliedTypeId;
 
+/** The type-id a lift frontend uses to identify a source `Definition` declaration without names or evaluation. */
+export const DefinitionTypeId = "~effx/Annotation/Definition" as const;
+
+export type DefinitionTypeId = typeof DefinitionTypeId;
+
+/** Minimal data-only identity carried by a definition; no callback, function or code enters runtime data. */
+export interface DefinitionBrand<Name extends string, T extends Target> {
+  readonly name: Name;
+  readonly target: T;
+}
+
 /** What the frontend reads off an applied annotation's static type. */
 export interface AppliedBrand<Name extends string, T extends Target> {
   readonly name: Name;
@@ -190,6 +201,7 @@ export interface Definition<
   E extends EffectClause | undefined = EffectClause | undefined,
 > extends DefinitionData<Name, T, Input> {
   readonly effect: E;
+  readonly [DefinitionTypeId]: DefinitionBrand<Name, T>;
   (...args: LiveParameters<Input>): Applied<Name, T>;
 }
 
@@ -262,12 +274,12 @@ const build = <
     });
   };
 
-  // `name` is a non-writable own property of every function, so it is defined, not assigned.
-  // SAFETY: `apply` already has the call signature of `Definition`; the properties defined here are
-  // exactly its `DefinitionData` members.
+  // The function name is non-writable and its public Definition type is the data-only descriptor below.
+  // SAFETY: apply has the Definition signature; these descriptors match its data fields and nominal identity brand.
   return Object.defineProperties(apply, {
     name: { value: options.name },
     target: { value: options.target },
+    [DefinitionTypeId]: { value: { name: options.name, target: options.target } },
     plan: { value: plan },
     diagnostics: { value: planDiagnostics(options.name, plan) },
     cardinality: { value: options.cardinality ?? "many" },

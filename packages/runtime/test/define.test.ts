@@ -1,6 +1,13 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { Context, Schema } from "effect";
-import { A, Annotation, Reflect, rest } from "@effx/runtime";
+import {
+  A,
+  Annotation,
+  DefinitionTypeId,
+  Reflect,
+  rest,
+  type DefinitionBrand,
+} from "@effx/runtime";
 
 const RateLimit = Annotation.define({
   name: "app.RateLimit",
@@ -60,6 +67,16 @@ describe("Annotation.define", () => {
     Path(1);
     // @ts-expect-error class targets are internal in v1
     Annotation.define({ name: "app.Bad", target: "class", args: [] });
+  });
+
+  it("brands Definition data with a stable type id and the literal name/target only", () => {
+    assert.deepStrictEqual(RateLimit[DefinitionTypeId], {
+      name: "app.RateLimit",
+      target: "operation",
+    });
+    expectTypeOf(RateLimit[DefinitionTypeId]).toEqualTypeOf<
+      DefinitionBrand<"app.RateLimit", "operation">
+    >();
   });
 
   it("keeps the exact Context.Key of an effect clause and rejects every target but the endpoint", () => {

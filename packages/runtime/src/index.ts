@@ -52,7 +52,7 @@ export {
 
 export * as Reflect from "./reflect.js";
 
-export { A, Annotation, rest } from "./define/index.js";
+export { A, Annotation, DefinitionTypeId, rest } from "./define/index.js";
 
 export * as Builtins from "./builtins.js";
 
@@ -64,6 +64,7 @@ export type {
   ArgsPlan,
   CapabilityMarker,
   Definition,
+  DefinitionBrand,
   DefinitionData,
   DefinitionDiagnostic,
   EffectClause,

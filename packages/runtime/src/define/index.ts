@@ -15,13 +15,14 @@ export type {
   SymbolMarker,
 } from "./arg.js";
 
-export { AppliedTypeId, rest } from "./define.js";
+export { AppliedTypeId, DefinitionTypeId, rest } from "./define.js";
 
 export type {
   Applied,
   AppliedBrand,
   ArgsInput,
   Definition,
+  DefinitionBrand,
   DefinitionData,
   DefinitionDiagnostic,
   DefineOptions,
