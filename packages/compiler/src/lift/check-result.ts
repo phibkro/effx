@@ -10,13 +10,12 @@ import { Delta, IdentifierWitness, ReflectionPair } from "./reflection.ts";
  * stays literal `UNVERIFIED`).
  */
 
-/** Why a form could not run (EFFX3103 data; the check reports it and never a pass). */
-export const CheckReason = Schema.Literals([
-  "overlay-compile",
-  "root-build",
-  "projection-hook",
-  "rule-exception",
-]);
+/**
+ * Why a form could not run: exactly the closed reasons EFFX3103 registers (spec 0019 §6). A lifter-rule
+ * exception is EFFX3011 in the core, never a check outcome. The check reports an impossible form and never
+ * a pass.
+ */
+export const CheckReason = Schema.Literals(["overlay-compile", "root-build", "projection-hook"]);
 
 export type CheckReason = typeof CheckReason.Type;
 

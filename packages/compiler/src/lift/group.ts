@@ -92,10 +92,10 @@ const nativeOf = (reader: Reader, term: Term): NativeCallee | undefined =>
 
 type MethodStep = Extract<StepRecord, { readonly _tag: "Method" }>;
 
-const idOf = (slot: TermSlot): Option.Option<string> =>
+export const idOf = (slot: TermSlot): Option.Option<string> =>
   slot._tag === "Lowered" ? stringOf(slot.term) : Option.none();
 
-const membersOf = (steps: ReadonlyArray<StepRecord>): ReadonlyArray<Term> =>
+export const membersOf = (steps: ReadonlyArray<StepRecord>): ReadonlyArray<Term> =>
   steps.flatMap((step) =>
     step._tag === "Method" && step.name === "add"
       ? step.args.flatMap((slot) => (slot._tag === "Lowered" ? [slot.term] : []))

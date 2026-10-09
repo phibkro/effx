@@ -35,3 +35,5 @@ export * from "./rules.ts";
 export * from "./source.ts";
 
 export { TermSchema } from "./term-schema.ts";
+
+export { checkFactsOf, groupKeysOf, type CheckFacts, type GroupKeys } from "./check-facts.ts";
