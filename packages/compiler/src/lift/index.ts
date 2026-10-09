@@ -2,9 +2,15 @@ export * from "./causes.ts";
 
 export { dense } from "./dense.ts";
 
+export { wireCompare, type CompareOutcome } from "./deltas.ts";
+
 export { unifiedDiff } from "./diff.ts";
 
 export { lift } from "./engine.ts";
+
+export * from "./check-result.ts";
+
+export * from "./reflection.ts";
 
 export * from "./frontend.ts";
 
