@@ -1,0 +1,30 @@
+{
+  "name": "@vektorprogrammet/http-api",
+  "version": "0.2.0",
+  "private": true,
+  "homepage": "https://github.com/vektorprogrammet/mono-web",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./http-semantics": "./src/http-semantics.ts"
+  },
+  "scripts": {
+    "generate": "bun x effx build --project tsconfig.effx.json --strict-access --emit=contract && bun run scripts/generate-openapi.ts",
+    "check-types": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz",
+    "@vektorprogrammet/domain": "workspace:*",
+    "effect": "catalog:effect-v4"
+  },
+  "devDependencies": {
+    "@effect/platform-bun": "catalog:effect-v4",
+    "@effect/vitest": "catalog:effect-v4",
+    "@types/node": "^22",
+    "typescript": "7.0.2",
+    "vitest": "catalog:effect-v4"
+  }
+}

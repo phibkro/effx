@@ -1,0 +1,1611 @@
+/**
+ * Frozen v0.2 HTTP primitives shared by every native endpoint.
+ *
+ * @since 0.2.0
+ */
+import { Data, ErrorReporter, Predicate, Struct, Schema, type Types } from "effect";
+import { HttpApiSchema } from "effect/unstable/httpapi";
+
+export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
+
+const idempotencyKeyPattern = /^[A-Za-z0-9_-]{22,128}$/u;
+
+const strongETagPattern = /^"vkr2\.[A-Za-z0-9_-]{43}"$/u;
+
+const sha256HexPattern = /^[a-f0-9]{64}$/u;
+
+/** A case-sensitive, unpadded base64url idempotency key. */
+export const IdempotencyKey = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => idempotencyKeyPattern.test(value), {
+      message: "22 through 128 unpadded base64url characters",
+    }),
+  ),
+  Schema.brand("IdempotencyKey"),
+);
+
+export type IdempotencyKey = typeof IdempotencyKey.Type;
+
+/** A strong opaque v0.2 entity tag in canonical quoted wire form. */
+export const StrongETag = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => strongETagPattern.test(value), {
+      message: "a quoted vkr2 strong entity tag",
+    }),
+  ),
+  Schema.brand("StrongETag"),
+);
+
+export type StrongETag = typeof StrongETag.Type;
+
+/** A lowercase SHA-256 digest. */
+export const Sha256Hex = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => sha256HexPattern.test(value), {
+      message: "64 lowercase hexadecimal characters",
+    }),
+  ),
+  Schema.brand("Sha256Hex"),
+);
+
+export type Sha256Hex = typeof Sha256Hex.Type;
+
+/** Headers accepted by every replayable external native mutation. */
+export const IdempotencyHeaders = Schema.Struct({
+  "idempotency-key": IdempotencyKey,
+}).annotate({ identifier: "IdempotencyHeaders" });
+
+export type IdempotencyHeaders = typeof IdempotencyHeaders.Type;
+
+/** Headers accepted by a replayable existing-resource native mutation. */
+export const IdempotencyIfMatchHeaders = Schema.Struct({
+  "idempotency-key": IdempotencyKey,
+  "if-match": StrongETag,
+}).annotate({ identifier: "IdempotencyIfMatchHeaders" });
+
+export type IdempotencyIfMatchHeaders = typeof IdempotencyIfMatchHeaders.Type;
+
+/** Headers accepted by an existing-resource mutation that stores no replayable receipt. */
+export const IfMatchHeaders = Schema.Struct({
+  "if-match": StrongETag,
+}).annotate({ identifier: "IfMatchHeaders" });
+
+export type IfMatchHeaders = typeof IfMatchHeaders.Type;
+
+const EntityTagConditionHeader = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0 && value.length <= 4096, {
+      message: "an entity-tag condition",
+    }),
+  ),
+);
+
+/** Optional validators accepted by each frozen conditional read. */
+export const ConditionalReadHeaders = Schema.Struct({
+  "if-match": Schema.optional(EntityTagConditionHeader),
+  "if-none-match": Schema.optional(EntityTagConditionHeader),
+}).annotate({ identifier: "ConditionalReadHeaders" });
+
+export type ConditionalReadHeaders = typeof ConditionalReadHeaders.Type;
+
+const OriginVary = Schema.Literal("Origin");
+
+const NoStore = Schema.Literal("no-store");
+
+const PrivateNoStore = Schema.Literal("private, no-store");
+
+const PublicCache = Schema.Literal("public, max-age=60, s-maxage=300, must-revalidate");
+
+const DynamicAdmissionCache = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const match =
+          /^public, max-age=([0-9]|[12][0-9]|30), s-maxage=([0-9]|[12][0-9]|30), must-revalidate$/u.exec(
+            value,
+          );
+
+        return match !== null && match[1] === match[2];
+      },
+      { message: "the frozen dynamic admission cache policy" },
+    ),
+  ),
+);
+
+const OriginRelativeLocation = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^\/api\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/u.test(value), {
+      message: "an origin-relative API resource location",
+    }),
+  ),
+);
+
+const RetryAfterSeconds = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const seconds = Number(value);
+
+        return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600;
+      },
+      { message: "a retry delay from 1 through 3600 seconds" },
+    ),
+  ),
+);
+
+const externalHeaders = <CacheControl extends Schema.Top>(cacheControl: CacheControl) => ({
+  "cache-control": cacheControl,
+  vary: OriginVary,
+});
+
+const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Schema.Top>(
+  success: S,
+  cacheControl: CacheControl,
+) => {
+  const headers = {
+    ...externalHeaders(cacheControl),
+    etag: StrongETag,
+  };
+
+  return [
+    HttpApiSchema.WithHeaders(success, headers),
+    HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), headers),
+  ] as const;
+};
+
+/** Public conditional response with the fixed five-minute shared cache policy. */
+export const publicConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, PublicCache);
+
+/** Public conditional response whose TTL is bounded by the next admission boundary. */
+export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, DynamicAdmissionCache);
+
+/** Credential-selected conditional response that is never stored. */
+export const privateConditionalResponses = <S extends Schema.Top>(success: S) =>
+  conditionalReadResponses(success, PrivateNoStore);
+
+/** Credential-selected non-conditional read response. */
+export const privateReadResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, externalHeaders(PrivateNoStore));
+
+/** Anonymous or health response that is not cacheable. */
+export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, externalHeaders(NoStore));
+
+/** Internal response with no browser CORS contract. */
+export const internalNoStoreResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, { "cache-control": NoStore });
+
+/** Successful resource creation response. */
+export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, {
+    ...externalHeaders(NoStore),
+    etag: StrongETag,
+    location: OriginRelativeLocation,
+  });
+
+/** Successful mutation response carrying a current mutable representation. */
+export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, {
+    ...externalHeaders(NoStore),
+    etag: StrongETag,
+  });
+
+/** Successful mutation response carrying the bytes of a generated document and its entity tag. */
+export const documentMutationResponse = (contentType: string) =>
+  HttpApiSchema.WithHeaders(Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array({ contentType })), {
+    ...externalHeaders(NoStore),
+    etag: StrongETag,
+  });
+
+/** Successful no-content mutation response, optionally with a new entity tag. */
+export const noContentMutationResponse = (options?: { readonly etag?: boolean }) => {
+  const headers = externalHeaders(NoStore);
+
+  if (options?.etag === true)
+    return HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, { ...headers, etag: StrongETag });
+
+  return HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, headers);
+};
+
+const ValidationPointer = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) =>
+        value.length <= 512 && /^(?:|\/(?:[^~/]|~[01])*(?:\/(?:[^~/]|~[01])*)*)$/u.test(value),
+      { message: "an RFC 6901 pointer of at most 512 characters" },
+    ),
+  ),
+);
+
+export const NativeValidationMessage = {
+  invalid: "The value is invalid.",
+  missing: "A required value is missing.",
+  unknown: "The property is not supported.",
+  duplicate: "The value occurs more than once.",
+  "out-of-range": "The value is outside the permitted range.",
+  "field-not-deletable": "The field cannot be deleted.",
+  "no-change": "The request does not change the resource.",
+} as const;
+
+export type NativeValidationCode = keyof typeof NativeValidationMessage;
+
+const validationError = <Code extends NativeValidationCode>(code: Code) =>
+  Schema.Struct({
+    pointer: ValidationPointer,
+    code: Schema.Literal(code),
+    message: Schema.Literal(NativeValidationMessage[code]),
+  });
+
+/** One safe validation failure in the public semantic request. */
+export const NativeValidationError = Schema.Union([
+  validationError("invalid"),
+  validationError("missing"),
+  validationError("unknown"),
+  validationError("duplicate"),
+  validationError("out-of-range"),
+  validationError("field-not-deletable"),
+  validationError("no-change"),
+]);
+
+export type NativeValidationError = typeof NativeValidationError.Type;
+
+export const makeNativeValidationError = <Code extends NativeValidationCode>(
+  pointer: string,
+  code: Code,
+) => ({
+  pointer,
+  code,
+  message: NativeValidationMessage[code],
+});
+
+const InstanceUrn = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) =>
+        /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+          value,
+        ),
+      { message: "a UUID URN" },
+    ),
+  ),
+);
+
+interface FrozenProblemDefinition {
+  readonly type: `urn:vektorprogrammet:problem:v0.2:${string}`;
+  readonly title: string;
+  readonly status: number;
+  readonly detail: string;
+}
+
+/** Exhaustive public registry. No title or detail is derived from a code. */
+export const NativeProblemRegistry = {
+  "affiliation.transition-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:affiliation.transition-invalid",
+    title: "Invalid affiliation transition",
+    status: 422,
+    detail: "The requested transition is not allowed from the current affiliation state.",
+  },
+  "affiliation.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:affiliation.inactive",
+    title: "Inactive volunteer affiliation",
+    status: 422,
+    detail: "An active volunteer affiliation is required to create or edit a placement.",
+  },
+  "onboarding.claim-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.claim-invalid",
+    title: "Invitation cannot be claimed",
+    detail: "The invitation is invalid, expired or already used.",
+    status: 400,
+  },
+  "onboarding.sign-in-required": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.sign-in-required",
+    title: "Sign in to the existing account",
+    detail: "Authenticate the existing account before linking this applicant.",
+    status: 409,
+  },
+  "onboarding.already-linked": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.already-linked",
+    title: "Applicant already linked",
+    detail: "This applicant already has an immutable account association.",
+    status: 409,
+  },
+  "placement.overlap": {
+    type: "urn:vektorprogrammet:problem:v0.2:placement.overlap",
+    title: "Duplicate placement",
+    status: 409,
+    detail: "An active placement already exists for this person, school, semester and block.",
+  },
+  "placement.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:placement.inactive",
+    title: "Removed placement",
+    status: 422,
+    detail: "The placement has already been removed.",
+  },
+  "school-service.proposal-empty": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-empty",
+    title: "Empty school-service proposal",
+    status: 422,
+    detail: "No school demand or active assignment is available for a proposal.",
+  },
+  "school-service.proposal-inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-inactive",
+    title: "Inactive school-service proposal",
+    status: 422,
+    detail: "The proposal is not available for this transition.",
+  },
+  "school-service.exception-review-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:school-service.exception-review-invalid",
+    title: "Incomplete proposal review",
+    status: 422,
+    detail: "Every proposal exception must be acknowledged exactly once.",
+  },
+  "commitment.target-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.target-invalid",
+    title: "Invalid service commitment",
+    status: 422,
+    detail: "Choose a confirmed roster slot with positive demand on a date in its semester.",
+  },
+  "commitment.duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.duplicate",
+    title: "Service commitment already exists",
+    status: 409,
+    detail: "This school already has a commitment for the selected date and teaching block.",
+  },
+  "commitment.closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.closed",
+    title: "Service outcome already recorded",
+    status: 409,
+    detail: "This commitment has an immutable outcome.",
+  },
+  "commitment.outcome-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.outcome-invalid",
+    title: "Service outcome does not match demand",
+    status: 422,
+    detail: "Completed service must meet demand. Unfulfilled service must record unmet demand.",
+  },
+  "commitment.interval-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:commitment.interval-invalid",
+    title: "Invalid service interval",
+    status: 422,
+    detail: "The start time must be before the end time on the service date.",
+  },
+  "absence.target-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.target-invalid",
+    title: "Invalid absence target",
+    status: 422,
+    detail: "The person is not scheduled for this open dated commitment.",
+  },
+  "absence.duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.duplicate",
+    title: "Duplicate absence report",
+    status: 409,
+    detail: "An absence has already been reported for this person, slot and service date.",
+  },
+  "absence.closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:absence.closed",
+    title: "Coverage already closed",
+    status: 409,
+    detail: "This absence already has an immutable service closure.",
+  },
+  "coverage.owner-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.owner-invalid",
+    title: "Absence belongs to another person",
+    status: 403,
+    detail: "A volunteer records or withdraws coverage only for their own absence.",
+  },
+  "coverage.coverer-ineligible": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.coverer-ineligible",
+    title: "Ineligible covering person",
+    status: 422,
+    detail:
+      "The covering person must be a placed assistant or a substitute on call in this department and semester, and not the absent person.",
+  },
+  "coverage.coverer-unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.coverer-unavailable",
+    title: "Covering person is already booked",
+    status: 409,
+    detail: "The covering person is scheduled or already covering during this service interval.",
+  },
+  "coverage.not-recorded": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.not-recorded",
+    title: "No coverage recorded",
+    status: 409,
+    detail: "This absence has no current coverage record to withdraw.",
+  },
+
+  "scope.invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:scope.invalid",
+    title: "Invalid scope",
+    status: 422,
+    detail: "The selected department, semester or school is not available in this scope.",
+  },
+  "team-application.intake-closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:team-application.intake-closed",
+    title: "Team application intake closed",
+    status: 409,
+    detail: "The team is not accepting applications now.",
+  },
+  "certificate.empty": {
+    type: "urn:vektorprogrammet:problem:v0.2:certificate.empty",
+    title: "Nothing to certify",
+    status: 409,
+    detail: "No semester of the department has a confirmed total of days served above zero.",
+  },
+  "certificate.unprintable": {
+    type: "urn:vektorprogrammet:problem:v0.2:certificate.unprintable",
+    title: "Certificate cannot be printed",
+    status: 422,
+    detail: "A name on the certificate has characters that the certificate font cannot print.",
+  },
+  "transaction.conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:transaction.conflict",
+    title: "Concurrent transaction conflict",
+    status: 409,
+    detail: "Another transaction changed the selected state. Refresh before retrying.",
+  },
+
+  "admission-period.already-exists": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-period.already-exists",
+    title: "Admission period already exists",
+    status: 409,
+    detail: "An admission period already exists for this department and semester.",
+  },
+  "admission-period.invalid-window": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-period.invalid-window",
+    title: "Invalid admission period window",
+    status: 422,
+    detail: "The admission period window is invalid.",
+  },
+  "admission-period.not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-period.not-found",
+    title: "Admission period not found",
+    status: 404,
+    detail: "The admission period was not found.",
+  },
+  "admissions.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:admissions.unavailable",
+    title: "Admissions unavailable",
+    status: 503,
+    detail: "The admissions service is temporarily unavailable.",
+  },
+  "application.ambiguous-period": {
+    type: "urn:vektorprogrammet:problem:v0.2:application.ambiguous-period",
+    title: "Ambiguous admission period",
+    status: 409,
+    detail: "More than one admission period matches this application.",
+  },
+  "application.duplicate": {
+    type: "urn:vektorprogrammet:problem:v0.2:application.duplicate",
+    title: "Duplicate application",
+    status: 409,
+    detail: "An application already exists for this applicant and admission period.",
+  },
+  "application.invalid-field-of-study": {
+    type: "urn:vektorprogrammet:problem:v0.2:application.invalid-field-of-study",
+    title: "Invalid field of study",
+    status: 422,
+    detail: "The selected field of study is not valid for this application.",
+  },
+  "application.no-eligible-period": {
+    type: "urn:vektorprogrammet:problem:v0.2:application.no-eligible-period",
+    title: "No eligible admission period",
+    status: 409,
+    detail: "No eligible admission period is open for this application.",
+  },
+  "application.not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:application.not-found",
+    title: "Application not found",
+    status: 404,
+    detail: "The application was not found.",
+  },
+  "authority.denied": {
+    type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+    title: "Authority denied",
+    status: 403,
+    detail: "The authenticated principal is not permitted to perform this operation.",
+  },
+  "content.article-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.article-not-found",
+    title: "Article not found",
+    status: 404,
+    detail: "The article was not found.",
+  },
+  "content.department-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.department-not-found",
+    title: "Content department not found",
+    status: 422,
+    detail: "A selected content department was not found.",
+  },
+  "content.integrity-error": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.integrity-error",
+    title: "Content integrity error",
+    status: 500,
+    detail: "The content representation failed an integrity check.",
+  },
+  "content.lifecycle-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.lifecycle-conflict",
+    title: "Content lifecycle conflict",
+    status: 409,
+    detail: "The article cannot make the requested lifecycle transition.",
+  },
+  "content.slug-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.slug-conflict",
+    title: "Article slug conflict",
+    status: 422,
+    detail: "The article slug conflicts with an existing article.",
+  },
+  "content.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:content.unavailable",
+    title: "Content unavailable",
+    status: 503,
+    detail: "The content service is temporarily unavailable.",
+  },
+  "credential.invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
+    title: "Invalid credential",
+    status: 401,
+    detail: "The supplied credential is invalid.",
+  },
+  "credential.missing": {
+    type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+    title: "Credential required",
+    status: 401,
+    detail: "A credential is required for this operation.",
+  },
+  "dependency.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:dependency.unavailable",
+    title: "Dependency unavailable",
+    status: 503,
+    detail: "A required dependency is temporarily unavailable.",
+  },
+  "directory.cursor-malformed": {
+    type: "urn:vektorprogrammet:problem:v0.2:directory.cursor-malformed",
+    title: "Malformed directory cursor",
+    status: 422,
+    detail: "The directory cursor is malformed.",
+  },
+  "directory.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:directory.unavailable",
+    title: "Directory unavailable",
+    status: 503,
+    detail: "The directory service is temporarily unavailable.",
+  },
+  "header.malformed": {
+    type: "urn:vektorprogrammet:problem:v0.2:header.malformed",
+    title: "Malformed header",
+    status: 400,
+    detail: "A request header is malformed.",
+  },
+  "health.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:health.unavailable",
+    title: "Health check unavailable",
+    status: 503,
+    detail: "The service health check is temporarily unavailable.",
+  },
+  "idempotency-key.invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid",
+    title: "Invalid idempotency key",
+    status: 400,
+    detail: "The Idempotency-Key header is invalid.",
+  },
+  "idempotency.digest-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict",
+    title: "Idempotency conflict",
+    status: 409,
+    detail: "This idempotency key identifies a different semantic request.",
+  },
+  "idempotency.in-flight": {
+    type: "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight",
+    title: "Idempotent request in progress",
+    status: 409,
+    detail: "A request with this idempotency identity is still in progress.",
+  },
+  "idempotency.response-expired": {
+    type: "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired",
+    title: "Idempotent response expired",
+    status: 409,
+    detail: "The stored response for this idempotency identity has expired.",
+  },
+  "idempotency.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:idempotency.unavailable",
+    title: "Idempotency unavailable",
+    status: 503,
+    detail: "The idempotency receipt store is temporarily unavailable.",
+  },
+  "identity.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:identity.unavailable",
+    title: "Identity unavailable",
+    status: 503,
+    detail: "The identity service is temporarily unavailable.",
+  },
+  "internal.error": {
+    type: "urn:vektorprogrammet:problem:v0.2:internal.error",
+    title: "Internal error",
+    status: 500,
+    detail: "The server encountered an unexpected error.",
+  },
+  "invitation.already-responded": {
+    type: "urn:vektorprogrammet:problem:v0.2:invitation.already-responded",
+    title: "Invitation already answered",
+    status: 409,
+    detail: "The invitation already has a response.",
+  },
+  "media-type.unsupported": {
+    type: "urn:vektorprogrammet:problem:v0.2:media-type.unsupported",
+    title: "Unsupported media type",
+    status: 415,
+    detail: "The request media type is not supported for this operation.",
+  },
+  "method.not-allowed": {
+    type: "urn:vektorprogrammet:problem:v0.2:method.not-allowed",
+    title: "Method not allowed",
+    status: 405,
+    detail: "The requested method is not allowed for this resource.",
+  },
+  "organization.invalid-reference": {
+    type: "urn:vektorprogrammet:problem:v0.2:organization.invalid-reference",
+    title: "Invalid organization reference",
+    status: 422,
+    detail: "An organization reference is invalid.",
+  },
+  "organization.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:organization.unavailable",
+    title: "Organization unavailable",
+    status: 503,
+    detail: "The organization service is temporarily unavailable.",
+  },
+  "origin.denied": {
+    type: "urn:vektorprogrammet:problem:v0.2:origin.denied",
+    title: "Origin denied",
+    status: 403,
+    detail: "The browser origin is not trusted for this operation.",
+  },
+  "precondition.failed": {
+    type: "urn:vektorprogrammet:problem:v0.2:precondition.failed",
+    title: "Precondition failed",
+    status: 412,
+    detail: "The selected representation changed.",
+  },
+  "precondition.invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:precondition.invalid",
+    title: "Invalid precondition",
+    status: 400,
+    detail: "A conditional request header is malformed.",
+  },
+  "precondition.required": {
+    type: "urn:vektorprogrammet:problem:v0.2:precondition.required",
+    title: "Precondition required",
+    status: 428,
+    detail: "This operation requires an If-Match header.",
+  },
+  "profile.not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:profile.not-found",
+    title: "Profile not found",
+    status: 404,
+    detail: "The profile was not found.",
+  },
+  "profile.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:profile.unavailable",
+    title: "Profile unavailable",
+    status: 503,
+    detail: "The profile service is temporarily unavailable.",
+  },
+  "rate-limit.exceeded": {
+    type: "urn:vektorprogrammet:problem:v0.2:rate-limit.exceeded",
+    title: "Rate limit exceeded",
+    status: 429,
+    detail: "The request rate limit was exceeded.",
+  },
+  "receipt.already-settled": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.already-settled",
+    title: "Receipt already settled",
+    status: 409,
+    detail: "Settlement evidence already exists for this receipt.",
+  },
+  "receipt.already-exists": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.already-exists",
+    title: "Receipt already exists",
+    status: 409,
+    detail: "A receipt already exists for this submission.",
+  },
+  "receipt.file-not-staged": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.file-not-staged",
+    title: "Receipt file not staged",
+    status: 422,
+    detail: "The receipt file was not staged for this request.",
+  },
+  "receipt.invalid-transition": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.invalid-transition",
+    title: "Invalid receipt transition",
+    status: 409,
+    detail: "The receipt cannot make the requested lifecycle transition.",
+  },
+  "receipt.not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipt.not-found",
+    title: "Receipt not found",
+    status: 404,
+    detail: "The receipt was not found.",
+  },
+  "receipts.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:receipts.unavailable",
+    title: "Receipts unavailable",
+    status: 503,
+    detail: "The receipt service is temporarily unavailable.",
+  },
+  "settlement.after-recorded-at": {
+    type: "urn:vektorprogrammet:problem:v0.2:settlement.after-recorded-at",
+    title: "Settlement occurs after recording",
+    status: 422,
+    detail: "The external settlement instant cannot be after the recording instant.",
+  },
+  "settlement.external-reference-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:settlement.external-reference-conflict",
+    title: "External settlement reference conflict",
+    status: 409,
+    detail: "The external authority and reference already identify another settlement.",
+  },
+  "recruitment.admission-period-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.admission-period-not-found",
+    title: "Recruitment admission period not found",
+    status: 404,
+    detail: "The recruitment admission period was not found.",
+  },
+  "recruitment.already-cancelled": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.already-cancelled",
+    title: "Interview already cancelled",
+    status: 409,
+    detail: "The interview is already cancelled.",
+  },
+  "recruitment.already-finalized": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.already-finalized",
+    title: "Interview already finalized",
+    status: 409,
+    detail: "The interview is already finalized.",
+  },
+  "recruitment.already-scheduled": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.already-scheduled",
+    title: "Interview already scheduled",
+    status: 409,
+    detail: "The interview is already scheduled.",
+  },
+  "recruitment.application-already-assigned": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.application-already-assigned",
+    title: "Application already assigned",
+    status: 409,
+    detail: "The application is already assigned to an interview.",
+  },
+  "recruitment.application-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.application-not-found",
+    title: "Recruitment application not found",
+    status: 404,
+    detail: "The recruitment application was not found.",
+  },
+  "recruitment.conduct-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.conduct-invalid",
+    title: "Invalid interview conduct",
+    status: 422,
+    detail: "The interview conduct data is invalid.",
+  },
+  "recruitment.interview-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.interview-not-found",
+    title: "Interview not found",
+    status: 404,
+    detail: "The interview was not found.",
+  },
+  "recruitment.interview-not-scheduled": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.interview-not-scheduled",
+    title: "Interview not scheduled",
+    status: 409,
+    detail: "The interview is not scheduled.",
+  },
+  "recruitment.interview-schema-inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.interview-schema-inactive",
+    title: "Interview schema inactive",
+    status: 422,
+    detail: "The selected interview schema is inactive.",
+  },
+  "recruitment.interview-schema-not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.interview-schema-not-found",
+    title: "Interview schema not found",
+    status: 404,
+    detail: "The selected interview schema was not found.",
+  },
+  "recruitment.invitation-not-accepted": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.invitation-not-accepted",
+    title: "Invitation not accepted",
+    status: 409,
+    detail: "The recruitment invitation has not been accepted.",
+  },
+  "recruitment.schedule-in-past": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.schedule-in-past",
+    title: "Interview schedule is in the past",
+    status: 422,
+    detail: "The interview cannot be scheduled in the past.",
+  },
+  "recruitment.invalid-command": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.invalid-command",
+    title: "Invalid recruitment command",
+    status: 422,
+    detail: "The recruitment command contains invalid values.",
+  },
+  "recruitment.ineligible": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.ineligible",
+    title: "Ineligible interviewer",
+    status: 422,
+    detail: "Select distinct current department members who are not the applicant.",
+  },
+  "recruitment.terminal": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.terminal",
+    title: "Interview is terminal",
+    status: 409,
+    detail: "Completed or cancelled interviews cannot change staffing.",
+  },
+  "recruitment.empty-active-questionnaire": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.empty-active-questionnaire",
+    title: "Questionnaire has no questions",
+    status: 422,
+    detail: "An active questionnaire must have at least one valid question.",
+  },
+  "recruitment.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable",
+    title: "Recruitment unavailable",
+    status: 503,
+    detail: "The recruitment service is temporarily unavailable.",
+  },
+  "returning.identity-missing": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.identity-missing",
+    title: "Returning assistant identity missing",
+    status: 404,
+    detail: "No canonical applicant identity is linked to this account.",
+  },
+  "returning.identity-ambiguous": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.identity-ambiguous",
+    title: "Returning assistant identity is ambiguous",
+    status: 409,
+    detail: "The account resolves to more than one applicant identity.",
+  },
+  "returning.history-missing": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.history-missing",
+    title: "Assistant history missing",
+    status: 404,
+    detail: "Authoritative assistant placement history is required.",
+  },
+  "returning.study-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.study-invalid",
+    title: "Current study mapping invalid",
+    status: 409,
+    detail: "The linked applicant does not have one active canonical study mapping.",
+  },
+  "returning.period-unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.period-unavailable",
+    title: "Admission period unavailable",
+    status: 409,
+    detail: "The selected admission period is not available for this returning assistant.",
+  },
+  "returning.team-scope-denied": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.team-scope-denied",
+    title: "Team scope denied",
+    status: 403,
+    detail: "One or more selected teams are outside the current department.",
+  },
+  "returning.revision-conflict": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.revision-conflict",
+    title: "Returning registration changed",
+    status: 412,
+    detail: "The registration changed. Refresh before retrying.",
+  },
+  "returning.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:returning.unavailable",
+    title: "Returning registration unavailable",
+    status: 503,
+    detail: "The returning-assistant registration service is temporarily unavailable.",
+  },
+  "request.malformed": {
+    type: "urn:vektorprogrammet:problem:v0.2:request.malformed",
+    title: "Malformed request",
+    status: 400,
+    detail: "The request is malformed.",
+  },
+  "request.too-large": {
+    type: "urn:vektorprogrammet:problem:v0.2:request.too-large",
+    title: "Request too large",
+    status: 413,
+    detail: "The request body exceeds the permitted size.",
+  },
+  "contact.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:contact.unavailable",
+    title: "Contact unavailable",
+    status: 503,
+    detail: "The contact message could not be accepted.",
+  },
+  "resource.not-found": {
+    type: "urn:vektorprogrammet:problem:v0.2:resource.not-found",
+    title: "Resource not found",
+    status: 404,
+    detail: "The requested resource was not found.",
+  },
+  "schools.invalid-department": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.invalid-department",
+    title: "Invalid school department",
+    status: 422,
+    detail: "The selected department is not valid for the school directory.",
+  },
+  "schools.invalid-command": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.invalid-command",
+    title: "Invalid school command",
+    status: 422,
+    detail: "The school command contains invalid values or references.",
+  },
+  "schools.association-in-use": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.association-in-use",
+    title: "School association in use",
+    status: 409,
+    detail: "Dependent records still reference this school association.",
+  },
+  "schools.inactive": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.inactive",
+    title: "Inactive school",
+    status: 409,
+    detail: "Activate the school before you change capacity.",
+  },
+  "schools.capacity-exists": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.capacity-exists",
+    title: "Capacity plan exists",
+    status: 409,
+    detail: "A capacity plan already exists for this school, department, and semester.",
+  },
+  "schools.unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:schools.unavailable",
+    title: "Schools unavailable",
+    status: 503,
+    detail: "The school directory is temporarily unavailable.",
+  },
+  "validation.failed": {
+    type: "urn:vektorprogrammet:problem:v0.2:validation.failed",
+    title: "Validation failed",
+    status: 422,
+    detail: "The request contains invalid semantic values.",
+  },
+  "validation.field-not-deletable": {
+    type: "urn:vektorprogrammet:problem:v0.2:validation.field-not-deletable",
+    title: "Field cannot be deleted",
+    status: 422,
+    detail: "The merge patch tries to delete a field that cannot be deleted.",
+  },
+  "validation.no-change": {
+    type: "urn:vektorprogrammet:problem:v0.2:validation.no-change",
+    title: "No changes requested",
+    status: 422,
+    detail: "The merge patch does not change the resource.",
+  },
+} as const satisfies Record<string, FrozenProblemDefinition>;
+
+export type NativeProblemCode = keyof typeof NativeProblemRegistry;
+
+export type ValidationProblemCode =
+  | "validation.failed"
+  | "validation.no-change"
+  | "validation.field-not-deletable";
+
+type CodesAtStatus<Status extends number> = {
+  readonly [Code in NativeProblemCode]: (typeof NativeProblemRegistry)[Code]["status"] extends Status
+    ? Code
+    : never;
+}[NativeProblemCode];
+
+/** Codes answered with a `WWW-Authenticate` challenge, derived from the registry. */
+export type CredentialProblemCode = CodesAtStatus<401>;
+
+/** Codes whose problem carries nothing beyond its frozen registry entry. */
+export type PlainProblemCode = Exclude<
+  NativeProblemCode,
+  CredentialProblemCode | ValidationProblemCode | CodesAtStatus<429>
+>;
+
+const trailingProblemMembers = ["code", "instance", "validation"] as const;
+
+/**
+ * Orders body members as the frozen wire does: the registry entry's own member
+ * order, then `code`, `instance`, and `validation`. A Struct encoder emits its
+ * members in declaration order, so this order is the encoded order.
+ */
+const inWireOrder = <Fields extends Schema.Struct.Fields>(
+  code: NativeProblemCode,
+  fields: Fields,
+): Fields => {
+  const source: Readonly<Record<string, Schema.Constraint>> = fields;
+  const ordered: Record<string, Schema.Constraint> = {};
+
+  for (const member of [...Object.keys(NativeProblemRegistry[code]), ...trailingProblemMembers]) {
+    const field = source[member];
+
+    if (field !== undefined) ordered[member] = field;
+  }
+
+  // SAFETY: `ordered` holds exactly the members and schemas of `fields`; only their order differs.
+  return ordered as Fields;
+};
+
+const nativeProblemCoreSchema = <Code extends NativeProblemCode>(code: Code) => {
+  const definition = NativeProblemRegistry[code];
+
+  return Schema.Struct(
+    inWireOrder(code, {
+      type: Schema.Literal(definition.type),
+      title: Schema.Literal(definition.title),
+      status: Schema.Literal(definition.status),
+      code: Schema.Literal(code),
+      detail: Schema.Literal(definition.detail),
+      instance: Schema.optional(InstanceUrn),
+    }),
+  ).pipe(HttpApiSchema.status(definition.status));
+};
+
+const problemCodes = Struct.keys(NativeProblemRegistry);
+
+/** The closed RFC 9457 core representation used by native API failures. */
+export const NativeProblem = Schema.Union(
+  problemCodes.map((code) => nativeProblemCoreSchema(code)),
+).annotate({ identifier: "NativeProblem" });
+
+export type NativeProblem = typeof NativeProblem.Type;
+
+const validationBody = Schema.Struct({
+  errors: Schema.Array(NativeValidationError).pipe(
+    Schema.check(
+      Schema.makeFilter((errors) => errors.length <= 32, {
+        message: "at most 32 safe validation errors",
+      }),
+    ),
+  ),
+  truncated: Schema.Boolean,
+});
+
+/** Creates one correlated validation problem variant. */
+export const validationProblemSchema = <Code extends ValidationProblemCode>(code: Code) => {
+  const definition = NativeProblemRegistry[code];
+
+  return Schema.Struct(
+    inWireOrder(code, {
+      type: Schema.Literal(definition.type),
+      title: Schema.Literal(definition.title),
+      status: Schema.Literal(definition.status),
+      code: Schema.Literal(code),
+      detail: Schema.Literal(definition.detail),
+      instance: Schema.optional(InstanceUrn),
+      validation: validationBody,
+    }),
+  ).pipe(HttpApiSchema.status(definition.status));
+};
+
+/** The only public extension for semantic validation failures. */
+export const ValidationProblem = Schema.Union([
+  validationProblemSchema("validation.failed"),
+  validationProblemSchema("validation.no-change"),
+  validationProblemSchema("validation.field-not-deletable"),
+]).annotate({ identifier: "ValidationProblem" });
+
+export type ValidationProblem = typeof ValidationProblem.Type;
+
+/** Creates one fixed RFC 9457 core variant from the frozen registry. */
+export const nativeProblemSchema = <Code extends NativeProblemCode>(
+  code: Code,
+  expectedStatus?: number,
+) => {
+  const definition = NativeProblemRegistry[code];
+
+  if (expectedStatus !== undefined && definition.status !== expectedStatus) {
+    throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
+  }
+
+  return nativeProblemCoreSchema(code);
+};
+
+const isValidationProblemCode = (code: NativeProblemCode): code is ValidationProblemCode =>
+  code === "validation.failed" ||
+  code === "validation.no-change" ||
+  code === "validation.field-not-deletable";
+
+type ProblemBodySchema<Code extends NativeProblemCode> = Code extends ValidationProblemCode
+  ? ReturnType<typeof validationProblemSchema<Code>>
+  : ReturnType<typeof nativeProblemCoreSchema<Code>>;
+
+/** One wire-ordered variant; a validation code carries its mandatory extension. */
+function problemVariant<Code extends NativeProblemCode>(code: Code): ProblemBodySchema<Code>;
+function problemVariant(code: NativeProblemCode) {
+  return isValidationProblemCode(code)
+    ? validationProblemSchema(code)
+    : nativeProblemCoreSchema(code);
+}
+
+/**
+ * Creates a closed endpoint-specific Problem Details union.
+ *
+ * @remarks
+ * It builds one wire-ordered variant per distinct code of `codes`, whose status, type, title, and
+ * detail come from `NativeProblemRegistry`, and a validation code carries its validation
+ * extension. The union keeps each declared code as a literal, and `identifier` names it in the
+ * OpenAPI document. `endpointProblemResponses` splits it into one response per status.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * export const SessionUnauthorizedProblem = problemUnion("SessionUnauthorizedProblem", ["credential.missing", "credential.invalid"]);
+ * ```
+ *
+ * @avoid Writing a problem schema by hand, or giving a code its own status: the answer then
+ * differs from the registry that clients decode. Declare an endpoint's problems with this.
+ *
+ * @construct http-problem
+ */
+export const problemUnion = <
+  const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>],
+>(
+  identifier: string,
+  codes: Codes,
+): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> => {
+  // Array methods on `Codes` resolve through its constraint; the element view keeps the literals.
+  const declared: ReadonlyArray<Codes[number]> = codes;
+
+  return Schema.Union([...new Set(declared)].map(problemVariant)).annotate({
+    identifier,
+    title: identifier,
+    description: `Closed RFC 9457 error union for ${identifier}.`,
+  });
+};
+
+export type NativeValidationDetails = typeof validationBody.Type;
+
+/** Sorts and bounds safe validation diagnostics in the frozen order. */
+export const normalizeValidationErrors = (
+  errors: ReadonlyArray<NativeValidationError>,
+): NativeValidationDetails => {
+  const sorted = [...errors].sort((left, right) => {
+    if (left.pointer !== right.pointer) return left.pointer < right.pointer ? -1 : 1;
+
+    return left.code < right.code ? -1 : left.code > right.code ? 1 : 0;
+  });
+
+  return { errors: sorted.slice(0, 32), truncated: sorted.length > 32 };
+};
+
+const CredentialPresentationTypeId = "~@vektorprogrammet/http-api/CredentialPresentation";
+
+/** Ingress found no credential on the request. */
+export interface CredentialAbsent {
+  readonly [CredentialPresentationTypeId]: "Absent";
+  readonly challenge: string;
+}
+
+/** Ingress found a credential on the request, whatever its validity. */
+export interface CredentialPresented {
+  readonly [CredentialPresentationTypeId]: "Presented";
+  readonly challenge: string;
+}
+
+export type CredentialPresentation = CredentialAbsent | CredentialPresented;
+
+/**
+ * Records, once at ingress, whether the request carried credential material.
+ * Only this evidence can produce a credential problem. Evidence of a presented
+ * credential keeps that type, so it can only produce `credential.invalid`.
+ */
+export function credentialPresentation(input: {
+  readonly presented: true;
+  readonly challenge: string;
+}): CredentialPresented;
+export function credentialPresentation(input: {
+  readonly presented: boolean;
+  readonly challenge: string;
+}): CredentialPresentation;
+export function credentialPresentation(input: {
+  readonly presented: boolean;
+  readonly challenge: string;
+}): CredentialPresentation {
+  return input.presented
+    ? { [CredentialPresentationTypeId]: "Presented", challenge: input.challenge }
+    : { [CredentialPresentationTypeId]: "Absent", challenge: input.challenge };
+}
+
+const ProblemTypeId = "~@vektorprogrammet/http-api/Problem";
+
+interface ProblemMembers<Code extends NativeProblemCode> {
+  readonly code: Code;
+  readonly instance?: string;
+  /** The `WWW-Authenticate` challenge of a credential problem. */
+  readonly challenge?: string;
+  /** The `Retry-After` delay of a rate-limit problem. */
+  readonly retryAfter?: string;
+  readonly validation?: NativeValidationDetails;
+}
+
+/** The body members a client needs to rebuild a problem it decoded. */
+export interface WireProblemBody<Code extends NativeProblemCode> {
+  readonly code: Code;
+  readonly instance?: string | undefined;
+  readonly validation?: NativeValidationDetails;
+}
+
+/** The response headers that carry problem members. */
+export interface WireProblemHeaders {
+  readonly "www-authenticate"?: string;
+  readonly "retry-after"?: string;
+}
+
+/**
+ * One RFC 9457 failure in an Effect error channel.
+ *
+ * @remarks
+ * The registry owns its type, title, status, and detail, so a problem carries only its code and
+ * the members that the code needs: an instance, the challenge of a credential problem, the delay
+ * of a rate limit, or validation diagnostics. The static constructors require exactly those
+ * members: `make` for a plain code, `validation` for a validation code, `rateLimited`,
+ * `credentialMissing` and `credentialInvalid` for the ingress evidence of each, and
+ * `unauthenticated`, which answers from that evidence. A problem below status 500 is an answered
+ * client failure, which `ErrorReporter` ignores.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * return yield* Problem.make("precondition.failed");
+ * ```
+ *
+ * @avoid Failing with a status, a plain `Error`, or a body built by hand: the registry then no
+ * longer decides the answer, and an endpoint cannot declare the failure. Fail with a `Problem`
+ * that one of its constructors built.
+ *
+ * @construct http-problem
+ */
+export class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends Data.Error<
+  ProblemMembers<Code>
+> {
+  readonly _tag = "Problem";
+
+  readonly [ProblemTypeId] = ProblemTypeId;
+
+  private constructor(members: ProblemMembers<Code>) {
+    super(members);
+  }
+
+  get status(): (typeof NativeProblemRegistry)[Code]["status"] {
+    return NativeProblemRegistry[this.code].status;
+  }
+
+  /** Expected client failures are answered, not reported as server faults. */
+  override get [ErrorReporter.ignore](): boolean {
+    return this.status < 500;
+  }
+
+  static make<const C extends PlainProblemCode>(
+    code: C,
+    options?: { readonly instance?: string },
+  ): Problem<C> {
+    return new Problem<C>(
+      options?.instance === undefined ? { code } : { code, instance: options.instance },
+    );
+  }
+
+  static validation<const C extends ValidationProblemCode>(
+    code: C,
+    errors: ReadonlyArray<NativeValidationError>,
+  ): Problem<C> {
+    return new Problem<C>({ code, validation: normalizeValidationErrors(errors) });
+  }
+
+  static rateLimited(retryAfterSeconds: number): Problem<CodesAtStatus<429>> {
+    if (!Number.isInteger(retryAfterSeconds) || retryAfterSeconds < 1 || retryAfterSeconds > 3600) {
+      throw new RangeError("Retry-After must be 1 through 3600 seconds");
+    }
+
+    return new Problem({ code: "rate-limit.exceeded", retryAfter: String(retryAfterSeconds) });
+  }
+
+  static credentialMissing(evidence: CredentialAbsent): Problem<"credential.missing"> {
+    return new Problem({ code: "credential.missing", challenge: evidence.challenge });
+  }
+
+  static credentialInvalid(evidence: CredentialPresented): Problem<"credential.invalid"> {
+    return new Problem({ code: "credential.invalid", challenge: evidence.challenge });
+  }
+
+  /** Answers a failed authentication from the ingress evidence alone. */
+  static unauthenticated(
+    presentation: CredentialPresentation,
+  ): Problem<"credential.missing"> | Problem<"credential.invalid"> {
+    return presentation[CredentialPresentationTypeId] === "Absent"
+      ? Problem.credentialMissing(presentation)
+      : Problem.credentialInvalid(presentation);
+  }
+
+  /** Rebuilds a problem decoded from the wire by a generated client. */
+  static fromWire<const C extends NativeProblemCode>(
+    body: WireProblemBody<C>,
+    headers: WireProblemHeaders,
+  ): Problem<C> {
+    const members: Types.Mutable<ProblemMembers<C>> = { code: body.code };
+    const status: number = NativeProblemRegistry[body.code].status;
+
+    if (body.instance !== undefined) members.instance = body.instance;
+
+    if (body.validation !== undefined) members.validation = body.validation;
+
+    if (status === 401 && headers["www-authenticate"] !== undefined)
+      members.challenge = headers["www-authenticate"];
+
+    if (status === 429 && headers["retry-after"] !== undefined)
+      members.retryAfter = headers["retry-after"];
+
+    return new Problem<C>(members);
+  }
+}
+
+/**
+ * Narrows a caught value to a `Problem`, also one that another copy of this module created.
+ *
+ * @remarks
+ * It checks for the `Problem` type identifier property, not the class, so a problem that a
+ * second copy of the module constructed, as a bundle or a test runner can load one, still
+ * matches.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const code = isProblem(cause) ? codes.find((declared) => declared === cause.code) : undefined;
+ * ```
+ *
+ * @avoid `cause instanceof Problem`: a problem from another copy of the module fails it and is
+ * treated as a defect. Narrow with this.
+ *
+ * @construct http-problem
+ */
+export const isProblem = (u: unknown): u is Problem => Predicate.hasProperty(u, ProblemTypeId);
+
+/** The frozen RFC 9457 body of one problem. */
+export interface ProblemWireRecord extends FrozenProblemDefinition {
+  readonly code: NativeProblemCode;
+  readonly instance?: string;
+  readonly validation?: NativeValidationDetails;
+}
+
+/**
+ * The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+ *
+ * @remarks
+ * The body starts with the registry entry of the problem's code, its type, title, status, and
+ * detail, then adds the code, and the instance and validation diagnostics when the problem has
+ * them. Its members keep that order, so the JSON text is the same for every rendering.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * new Response(JSON.stringify(problemBody(problem)), { status: problem.status });
+ * ```
+ *
+ * @avoid Spreading a problem into a body: its constructor members, such as the challenge, then
+ * leak into the body, and the registry members go missing. Render the body with this.
+ *
+ * @construct http-problem
+ */
+export const problemBody = (problem: Problem): ProblemWireRecord => {
+  const body: Types.Mutable<ProblemWireRecord> = {
+    ...NativeProblemRegistry[problem.code],
+    code: problem.code,
+  };
+
+  if (problem.instance !== undefined) body.instance = problem.instance;
+
+  if (problem.validation !== undefined) body.validation = problem.validation;
+
+  return body;
+};
+
+/** The headers every rendering of a problem carries. CORS `Vary` belongs to the ingress. */
+export type ProblemHeaderValues = {
+  readonly "cache-control": "no-store";
+  readonly "www-authenticate"?: string;
+  readonly "retry-after"?: string;
+};
+
+/**
+ * The response headers of one problem: `no-store`, its challenge, and its retry delay.
+ */
+export const problemHeaders = (problem: Problem): ProblemHeaderValues => {
+  const headers: Types.Mutable<ProblemHeaderValues> = { "cache-control": "no-store" };
+
+  const retryAfter =
+    problem.code === "idempotency.in-flight"
+      ? "1"
+      : problem.status === 503
+        ? "5"
+        : problem.retryAfter;
+
+  if (problem.challenge !== undefined) headers["www-authenticate"] = problem.challenge;
+
+  if (retryAfter !== undefined) headers["retry-after"] = retryAfter;
+
+  return headers;
+};
+
+/** Problem bodies and headers are built from service-free codecs. */
+type ProblemWireSchema = Schema.Codec<unknown, unknown>;
+
+interface ProblemHeaderFields {
+  readonly [header: PropertyKey]: ProblemWireSchema;
+}
+
+/** The declared response for every problem of one status, typed by its codes. */
+export interface ProblemResponse<
+  Code extends NativeProblemCode,
+> extends HttpApiSchema.encodeToWithHeaders<
+  Schema.declare<Problem<Code>>,
+  ProblemWireSchema,
+  ProblemHeaderFields
+> {}
+
+interface ProblemVariant extends ProblemWireSchema {
+  readonly fields: {
+    readonly status: { readonly literal: number };
+    readonly code: { readonly literal: NativeProblemCode };
+  };
+}
+
+interface ProblemUnionSchema extends ProblemWireSchema {
+  readonly members: ReadonlyArray<ProblemVariant>;
+  readonly Type: { readonly code: NativeProblemCode };
+}
+
+/** Folds every problem of one status and its response headers into one encoder. */
+const problemResponse = <Code extends NativeProblemCode>(
+  status: number,
+  body: ProblemWireSchema,
+  codes: ReadonlySet<NativeProblemCode>,
+  cors: boolean,
+): ProblemResponse<Code> => {
+  const headers: Array<readonly [string, ProblemWireSchema]> = [["cache-control", NoStore]];
+
+  if (cors) headers.push(["vary", OriginVary]);
+
+  if (status === 401) headers.push(["www-authenticate", Schema.String]);
+
+  if (codes.has("idempotency.in-flight"))
+    headers.push(["retry-after", Schema.optional(Schema.Literal("1"))]);
+
+  if (status === 429) headers.push(["retry-after", RetryAfterSeconds]);
+
+  if (status === 503) headers.push(["retry-after", Schema.Literal("5")]);
+
+  const wireBody: ProblemWireSchema = body.pipe(
+    HttpApiSchema.status(status),
+    HttpApiSchema.asJson({ contentType: "application/problem+json" }),
+  );
+
+  const wireHeaders: ProblemHeaderFields = Object.fromEntries(headers);
+
+  return Schema.declare((u): u is Problem<Code> => isProblem(u) && codes.has(u.code)).pipe(
+    HttpApiSchema.encodeToWithHeaders(
+      { body: wireBody, headers: wireHeaders },
+      {
+        decode: ({ body: decoded, headers: received }) => {
+          // SAFETY: the body schema above decoded one declared problem variant of this status.
+          const wire = decoded as WireProblemBody<Code>;
+          // SAFETY: the header schemas above decoded this status's problem headers.
+          const receivedHeaders = received as WireProblemHeaders;
+
+          return Problem.fromWire(wire, receivedHeaders);
+        },
+        encode: (problem) => ({
+          body: problemBody(problem),
+          headers: cors ? { ...problemHeaders(problem), vary: "Origin" } : problemHeaders(problem),
+        }),
+      },
+    ),
+  );
+};
+
+/**
+ * Splits an endpoint-specific Problem union into status-bearing response
+ * schemas. Effect resolves an HTTP status only from the outer schema, and
+ * permits one header-carrying response per status, so each status folds its
+ * problems and their headers into one encoder.
+ */
+export const endpointProblemResponses = <const Union extends ProblemUnionSchema>(
+  problem: Union,
+  options?: { readonly cors?: boolean },
+): ReadonlyArray<ProblemResponse<Union["Type"]["code"]>> => {
+  const grouped = new Map<number, Array<ProblemVariant>>();
+
+  for (const member of problem.members) {
+    const status = member.fields.status.literal;
+    const bucket = grouped.get(status);
+
+    if (bucket === undefined) grouped.set(status, [member]);
+    else bucket.push(member);
+  }
+
+  return [...grouped].map(([status, variants]) =>
+    problemResponse(
+      status,
+      Schema.Union(variants),
+      new Set(variants.map((variant) => variant.fields.code.literal)),
+      options?.cors !== false,
+    ),
+  );
+};
+
+/** One response for a union whose problems share a status; the union keeps its identity. */
+export const problemStatusResponse = <const Union extends ProblemUnionSchema>(
+  problem: Union,
+  options?: { readonly cors?: boolean },
+): ProblemResponse<Union["Type"]["code"]> => {
+  const statuses = new Set(problem.members.map((member) => member.fields.status.literal));
+  const [status] = statuses;
+
+  if (status === undefined || statuses.size !== 1) {
+    throw new Error("problemStatusResponse requires problems of exactly one status");
+  }
+
+  return problemResponse(
+    status,
+    problem,
+    new Set(problem.members.map((member) => member.fields.code.literal)),
+    options?.cors !== false,
+  );
+};
+
+/**
+ * Builds one safe fixed public problem value.
+ *
+ * @remarks
+ * It answers the registry entry of `code`, with `code` and, when given, `instance`: the body that
+ * a server answers. When `expectedStatus` is given and differs from the registry status of the
+ * code, it throws, so a fixture cannot pair a code with another status.
+ *
+ * @throws An `Error` when `expectedStatus` differs from the status that the registry freezes for
+ * `code`.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * return Response.json(makeNativeProblem("content.article-not-found", 404), { status: 404 });
+ * ```
+ *
+ * @avoid Writing a problem body by hand in a test or a fixture: its title or status then drifts
+ * from the registry that clients decode. Build it with this.
+ *
+ * @construct http-problem
+ */
+export const makeNativeProblem = <Code extends NativeProblemCode>(
+  code: Code,
+  expectedStatus?: number,
+  instance?: string,
+): (typeof NativeProblemRegistry)[Code] & { readonly code: Code; readonly instance?: string } => {
+  const definition = NativeProblemRegistry[code];
+
+  if (expectedStatus !== undefined && definition.status !== expectedStatus) {
+    throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
+  }
+
+  return instance === undefined ? { ...definition, code } : { ...definition, code, instance };
+};
+
+/** Path-level error for a method outside a resource's frozen method set. */
+export const NativeMethodNotAllowedProblem = nativeProblemSchema("method.not-allowed").annotate({
+  identifier: "NativeMethodNotAllowedProblem",
+});
+
+/** Standard credentials accepted by a native user endpoint. */
+export const nativeUserChallenges = (invalidBearer = false): string =>
+  `VektorSession realm="native-api", Bearer realm="native-api"${invalidBearer ? ', error="invalid_token"' : ""}`;
+
+/** Standard credential accepted by a cookie-only native endpoint. */
+export const nativeCookieChallenge = 'VektorSession realm="native-api"';
+
+/** The one credential an invitation-capability endpoint accepts: its capability header. */
+export const invitationCapabilityChallenge = 'RecruitmentInvitationCapability realm="native-api"';

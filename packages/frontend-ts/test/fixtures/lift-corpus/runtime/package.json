@@ -1,0 +1,11 @@
+{
+  "name": "@effx/lift-corpus-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@noble/hashes": "2.3.0",
+    "effect": "4.0.0",
+    "ip-address": "10.7.0",
+    "parse5": "8.0.1"
+  }
+}

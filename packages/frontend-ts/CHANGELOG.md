@@ -22,3 +22,9 @@ Compiler API invariant failures and I/O failures remain `CompilerFault`. Interru
 
 Binding reports remain `UNVERIFIED`. Inline handler ranges are evidence for manual adaptation, not authorization or handler-behavior proof.
 The frontend does not guess application authorization functions from their names.
+
+The immutable test corpus keeps two historical snapshots, the original application source and its committed oracle, as untouched `.source` provenance files.
+Two stable Effect 4.0.0 snapshots derive from them by the recorded `effect-4.0.0-v1` migration: module entry points that left the unstable namespace, the `Encoding` namespace that became `effect/encoding`, and the literal brand name `Schema.brand` requires.
+The manifest records the original and migrated hash of every file and a digest of each snapshot. Tests copy only the stable snapshots into owned scratch projects. They never write into the authored corpus.
+
+Install the corpus runtime once before running its tests: `bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/lift-corpus/runtime`. The tests read those installed packages and never install or change them.
