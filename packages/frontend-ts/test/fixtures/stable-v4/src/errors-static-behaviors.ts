@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApi, HttpApiBuilder } from "effect/http-api";
 import { ErrorsStaticApi } from "../project/errors-static/.effx/generated/errors-static-contract.js";
 import { UserErrors } from "../project/errors-static/src/errors-support.js";
 

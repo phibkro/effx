@@ -5,10 +5,10 @@ import { compile, Extensions } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
 import { ts, tryTs } from "../src/ts.ts";
-import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
+import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
+import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependencies.ts";
 
-requireRc116FixtureDependencies(new URL("./fixtures/rc116/", import.meta.url).pathname);
+requireStableV4FixtureDependencies(new URL("./fixtures/stable-v4/", import.meta.url).pathname);
 
 const Services = Layer.mergeAll(
   BunServices.layer,
@@ -68,7 +68,7 @@ const typeDiagnostics = Effect.fnUntraced(function* (directory: string) {
   const configPath = path.join(directory, "tsconfig.bound.target.json");
   const text = yield* fs.readFileString(configPath);
 
-  return yield* tryTs("bound-rc116-typecheck", () => {
+  return yield* tryTs("bound-stable-v4-typecheck", () => {
     const json = ts.parseConfigFileTextToJson(configPath, text);
     const parsed = ts.parseJsonConfigFileContent(json.config, ts.sys, directory);
     const program = ts.createProgram(parsed.fileNames, parsed.options);
@@ -81,7 +81,7 @@ const typeDiagnostics = Effect.fnUntraced(function* (directory: string) {
 });
 
 const generatedFixture = Effect.fnUntraced(function* () {
-  const directory = yield* copyRc116Fixture();
+  const directory = yield* copyStableV4Fixture();
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -134,7 +134,7 @@ const generatedFixture = Effect.fnUntraced(function* () {
   return directory;
 });
 
-describe("bound Profile and Content against installed rc.116", () => {
+describe("bound Profile and Content against installed stable Effect 4", () => {
   it.effect(
     "typechecks real generated factories, type-only cycles, negative witnesses and both With injection styles",
     () =>
@@ -165,7 +165,7 @@ describe("bound Profile and Content against installed rc.116", () => {
           : observed.moduleOrigin;
 
         const effectRoot = yield* fs.realPath(path.join(directory, "node_modules", "effect"));
-        assert.strictEqual(observed.packageVersion, "4.0.0-rc.116");
+        assert.strictEqual(observed.packageVersion, "4.0.0");
         assert.strictEqual(observed.runtimeIdentityMatches, true);
         assert.strictEqual(
           yield* fs.realPath(actualOrigin),

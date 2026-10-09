@@ -4,10 +4,10 @@ import { Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from "effe
 import { compile, Extensions } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { ts, tryTs } from "../src/ts.ts";
-import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
+import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
+import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependencies.ts";
 
-requireRc116FixtureDependencies(new URL("./fixtures/rc116/", import.meta.url).pathname);
+requireStableV4FixtureDependencies(new URL("./fixtures/stable-v4/", import.meta.url).pathname);
 
 const Services = Layer.mergeAll(
   BunServices.layer,
@@ -47,7 +47,7 @@ const typeDiagnostics = Effect.fnUntraced(function* (directory: string) {
 describe("a class-static error Schema in a generated endpoint", () => {
   it.effect("keeps the member schema in `error:` so the real failure decodes back to it", () =>
     Effect.gen(function* () {
-      const directory = yield* copyRc116Fixture();
+      const directory = yield* copyStableV4Fixture();
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const project = path.join(directory, "project", "errors-static");

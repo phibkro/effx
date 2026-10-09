@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import { HttpServerResponse, type HttpServerRequest } from "effect/unstable/http";
+import { HttpServerResponse, type HttpServerRequest } from "effect/http";
 import type {
   ProfileEndpoints,
   ProfileGuards,
@@ -16,7 +16,7 @@ export class BoundProfileBackend extends Context.Service<
   {
     readonly read: Effect.Effect<string>;
   }
->()("fixture/rc116/BoundProfileBackend") {}
+>()("fixture/stable-v4/BoundProfileBackend") {}
 
 export const makeProfileGuards = (context: ProfileContext) => {
   const guard = Effect.fn("boundProfileGuard")(function* (

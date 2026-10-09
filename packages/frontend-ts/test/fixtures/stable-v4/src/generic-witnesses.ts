@@ -1,5 +1,5 @@
 import { Effect, type Layer } from "effect";
-import type { HttpRouter } from "effect/unstable/http";
+import type { HttpRouter } from "effect/http";
 import {
   ContentApiHandlers,
   ContentApiHandlersWith,

@@ -1,15 +1,15 @@
-import { copyRc116Fixture } from "../../../tools/testing/projects.ts";
+import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash, type Node } from "@effx/ir";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
+import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependencies.ts";
 
-const fixtureRoot = new URL("./fixtures/rc116/", import.meta.url).pathname;
+const fixtureRoot = new URL("./fixtures/stable-v4/", import.meta.url).pathname;
 
-requireRc116FixtureDependencies(fixtureRoot);
+requireStableV4FixtureDependencies(fixtureRoot);
 
 const Services = Layer.mergeAll(
   BunServices.layer,
@@ -59,12 +59,12 @@ const ReflectionComparison = Schema.Struct({
 
 describe("0024 item 2 dense consumer status spelling", () => {
   it.effect(
-    "changes only status IR and status expressions while preserving the real rc116 OpenAPI/SDK",
+    "changes only status IR and status expressions while preserving the real stable OpenAPI/SDK",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const copied = yield* copyRc116Fixture();
+        const copied = yield* copyStableV4Fixture();
 
         const explicit = yield* compile(
           {
@@ -201,12 +201,12 @@ describe("0024 item 2 dense consumer status spelling", () => {
 
         const rawReflection = yield* Effect.sync(() => comparison.compareDenseStatus());
         const reflected = yield* Schema.decodeEffect(ReflectionComparison)(rawReflection);
-        assert.strictEqual(reflected.effect.version, "4.0.0-rc.116");
+        assert.strictEqual(reflected.effect.version, "4.0.0");
         const modulePath = yield* path.fromFileUrl(new URL(reflected.effect.moduleOrigin));
         const actualModule = yield* fs.realPath(modulePath);
 
         const expectedModule = yield* fs.realPath(
-          path.join(copied, "node_modules/effect/dist/unstable/httpapi/index.js"),
+          path.join(copied, "node_modules/effect/dist/http-api/index.js"),
         );
 
         assert.strictEqual(actualModule, expectedModule);

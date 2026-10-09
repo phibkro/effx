@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpServerResponse } from "effect/http";
 import type { ContentRaw } from "../project/bound-generic-nested/.effx/generated/content-handlers.js";
 import type { Contexts } from "./contexts-namespace.js";
 

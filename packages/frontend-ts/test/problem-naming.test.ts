@@ -1,4 +1,4 @@
-import { copyRc116Fixture, copyUsersFixture } from "../../../tools/testing/projects.ts";
+import { copyStableV4Fixture, copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -6,9 +6,9 @@ import { ManifestJson, build, resolveProject } from "@effx/cli";
 import { Extensions, HttpDiagnostics, compile, type CompileResult } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
+import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependencies.ts";
 
-requireRc116FixtureDependencies(new URL("./fixtures/rc116/", import.meta.url).pathname);
+requireStableV4FixtureDependencies(new URL("./fixtures/stable-v4/", import.meta.url).pathname);
 
 const Services = Layer.mergeAll(
   TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
@@ -30,15 +30,15 @@ const same = Effect.fnUntraced(function* (explicit: CompileResult, dense: Compil
   );
 });
 
-// This suite is the repository rc116 fixture oracle, not the actual mono-web four-group corpus.
+// This suite is the repository stable-v4 fixture oracle, not the actual mono-web four-group corpus.
 describe("problem naming on real source fixtures", () => {
   it.effect(
-    "rc116 Profile and Directory preserve exact IR, hash and files in both passes",
+    "stable-v4 Profile and Directory preserve exact IR, hash and files in both passes",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const copied = yield* copyRc116Fixture();
+        const copied = yield* copyStableV4Fixture();
         const tsconfigPath = path.join(copied, "project/contract/tsconfig.effx.json");
 
         for (const [entry, prefix] of [
@@ -139,7 +139,7 @@ describe("problem naming on real source fixtures", () => {
           undefined,
           undefined,
           false,
-          "{Group}{Key}Problem",
+          { namingProblemIdentifier: "{Group}{Key}Problem" },
         );
 
         const selected = {
