@@ -29,6 +29,7 @@
       "@effx/persistence/compiler": ["./packages/persistence/src/compiler.ts"],
       "@effx/persistence": ["./packages/persistence/src/index.ts"],
       "@effx/cli/config": ["./packages/cli/src/config.ts"],
+      "@effx/cli/lift-boundaries": ["./packages/cli/src/lift-boundaries.ts"],
       "@effx/cli": ["./packages/cli/src/index.ts"]
     },
     "plugins": [

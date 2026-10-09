@@ -28,6 +28,11 @@
       "types": "./dist/config.d.ts",
       "source": "./src/config.ts",
       "default": "./dist/config.js"
+    },
+    "./lift-boundaries": {
+      "types": "./src/lift-boundaries.ts",
+      "source": "./src/lift-boundaries.ts",
+      "default": "./src/lift-boundaries.ts"
     }
   },
   "publishConfig": {
