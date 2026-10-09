@@ -582,6 +582,6 @@ describe("owned printed suggestion collector proof (not the future lift frontend
           ].join("\n"),
         );
       }).pipe(Effect.provide(Services)),
-    30_000,
+    15_000,
   );
 });
