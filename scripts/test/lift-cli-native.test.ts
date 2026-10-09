@@ -95,8 +95,11 @@ describe("effx lift through the installed-style process root (spec 0019 §4)", (
         const before = yield* digestTree(fixture.directory);
         const patch = yield* lift(fixture.directory, "--form", "verbose", "--emit-patch");
 
-        assert.strictEqual(patch.code, 0, `${patch.stdout}\n${patch.stderr}`);
+        // A refactor-required lift prints its suggestion and the patch, then exits 1: EFFX3002 is an error
+        // diagnostic (spec 0019 §6) because the source needs the edit that nothing here applies.
+        assert.strictEqual(patch.code, 1, `${patch.stdout}\n${patch.stderr}`);
         assert.include(patch.stdout, "REFACTOR PATCH");
+        assert.include(patch.stdout, "EFFX3002");
         assert.include(patch.stdout, "@@");
         assert.include(patch.stdout, "src/api.ts");
         assert.deepStrictEqual(yield* digestTree(fixture.directory), before);

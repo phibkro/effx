@@ -5,6 +5,8 @@ import {
   Extensions,
   SourceFrontend,
   compileCollected,
+  type BindingConclusion,
+  type Diagnostic,
   type FormOutcome,
   type ProjectConfig,
 } from "@effx/compiler";
@@ -155,6 +157,21 @@ const check = Effect.fnUntraced(function* ({ project, run }: Lifted) {
   return Option.getOrThrow(checked.value);
 });
 
+/** Diagnostics with their related causes, bounded, for assertion messages only. */
+const describeDiagnostics = (diagnostics: ReadonlyArray<Diagnostic>): string =>
+  diagnostics
+    .slice(0, 8)
+    .flatMap((diagnostic) => [
+      `${diagnostic.code} ${diagnostic.message}`,
+      ...(diagnostic.related ?? [])
+        .slice(0, 12)
+        .map(
+          (cause) =>
+            `  - ${cause.code} ${cause.message}${cause.location === undefined ? "" : ` (${cause.location.file}:${cause.location.line})`}`,
+        ),
+    ])
+    .join("\n");
+
 /** A bounded view of one outcome for assertion messages: never the two complete OpenAPI documents. */
 const describeOutcome = (outcome: FormOutcome | undefined): string => {
   if (outcome === undefined) return "not requested";
@@ -164,10 +181,16 @@ const describeOutcome = (outcome: FormOutcome | undefined): string => {
   if (outcome._tag === "Mismatch")
     return `Mismatch\n${outcome.differences.slice(0, 12).join("\n")}`;
 
-  return `Impossible ${outcome.reason}: ${outcome.detail}\n${outcome.diagnostics
-    .slice(0, 8)
-    .map((diagnostic) => `${diagnostic.code} ${diagnostic.message}`)
-    .join("\n")}`;
+  return `Impossible ${outcome.reason}: ${outcome.detail}\n${describeDiagnostics(outcome.diagnostics)}`;
+};
+
+/** The same bounded view of the binding gate. */
+const describeBinding = (binding: BindingConclusion | undefined): string => {
+  if (binding === undefined) return "no check";
+
+  if (binding._tag === "Passed") return `Passed keys=${binding.keyProof.declared.join(",")}`;
+
+  return `${binding._tag}\n${describeDiagnostics(binding.diagnostics)}`;
 };
 
 /** A real wire difference: the differing path is named in the report. */
@@ -257,7 +280,8 @@ const journey = Effect.fnUntraced(function* (group: CorpusGroup) {
     "--json",
   ]);
 
-  assert.strictEqual(cli.code, 0, tail(cli));
+  // The report is decoded and its parts asserted before the exit code, so a red run names its cause.
+  assert.isTrue(cli.stdout.startsWith("{"), tail(cli));
 
   const report = yield* decodeReport(cli.stdout.trimEnd());
   const verbose = report.check?.verbose;
@@ -267,7 +291,8 @@ const journey = Effect.fnUntraced(function* (group: CorpusGroup) {
   assert.strictEqual(report.check?.group, group);
   assert.strictEqual(verbose?._tag, "Pass", describeOutcome(verbose));
   assert.strictEqual(dense?._tag, "Pass", describeOutcome(dense));
-  assert.strictEqual(binding?._tag, "Passed", JSON.stringify(binding));
+  assert.strictEqual(binding?._tag, "Passed", describeBinding(binding));
+  assert.strictEqual(cli.code, 0, tail(cli));
 
   // The mechanical comparison saw every endpoint of the group on both sides.
   for (const outcome of [verbose, dense])
