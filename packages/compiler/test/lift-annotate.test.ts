@@ -1,9 +1,10 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { Context, Result } from "effect";
+import { Context, Option, Result, Schema } from "effect";
 import type { SymbolRef } from "@effx/ir";
 import { A, Annotation } from "@effx/runtime";
 import {
   LiftDiagnostics,
+  LiftRecognitionErrorSchema,
   Terms,
   extension,
   implement,
@@ -237,6 +238,43 @@ describe("the definition-owned `.annotate` lift", () => {
         construct: "a rejected recognize site",
       }).message,
     );
+  });
+
+  it("validates schema-defined failures and rejects non-Result hook returns", () => {
+    const decodedFailure = Schema.decodeOption(LiftRecognitionErrorSchema)({
+      _tag: "Unsupported",
+      construct: "a literal RateLimit site",
+    });
+
+    assert.isTrue(Option.isSome(decodedFailure));
+
+    // SAFETY: This deliberately violates the hook's failure schema to exercise runtime boundary validation.
+    const recognizeMalformed: DefinitionLift<typeof RateLimit>["recognize"] = () =>
+      Result.fail({ _tag: "Unsupported", construct: 42 } as never);
+
+    // SAFETY: This deliberately returns no Result to verify the erased callback boundary is total.
+    const recognizeNonResult: DefinitionLift<typeof RateLimit>["recognize"] = () =>
+      undefined as never;
+
+    const model = annotateModel(Terms.ref(RateLimitPolicyRef), { perMinute: 60 });
+
+    const malformedResult = liftWith(model, [
+      implement(RateLimit, { lift: { recognize: recognizeMalformed } }),
+    ]);
+
+    const nonResult = liftWith(model, [
+      implement(RateLimit, { lift: { recognize: recognizeNonResult } }),
+    ]);
+
+    const expected = LiftDiagnostics.EFFX3011.emit({
+      subject: "profile.readOwnProfile",
+      reason: "invalid-return",
+    }).message;
+
+    assert.deepStrictEqual(annotationsOf(malformedResult), []);
+    assert.deepStrictEqual(annotationsOf(nonResult), []);
+    assert.include(messagesOf(malformedResult), expected);
+    assert.include(messagesOf(nonResult), expected);
   });
 
   it("rejects custom outputs that do not decode with the cached definition codec", () => {

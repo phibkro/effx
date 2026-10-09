@@ -165,10 +165,11 @@ export interface ReadContext {
  * construct that names the site's neutral form. Schema-derived data only: never a thrown value, never
  * application payload.
  */
-export interface LiftRecognitionError {
-  readonly _tag: "Unsupported";
-  readonly construct: string;
-}
+export const LiftRecognitionErrorSchema = Schema.TaggedStruct("Unsupported", {
+  construct: Schema.String,
+});
+
+export type LiftRecognitionError = typeof LiftRecognitionErrorSchema.Type;
 
 /**
  * The neutral data the core hands a recognizer (spec 0019 §5, S1). Pure and synchronous; built per

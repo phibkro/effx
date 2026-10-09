@@ -5,7 +5,12 @@ import type { ArgsPlan } from "@effx/runtime";
 import { RuntimeDiagnostics } from "@effx/runtime/diagnostics";
 import { LiftDiagnostics, HttpDiagnostics } from "../diagnostics/index.ts";
 import { AccessContractData } from "../extensions/access-contract.ts";
-import type { LiftDefinitionEntry, LiftRecognitionError, LiftSite } from "../annotation.ts";
+import {
+  LiftRecognitionErrorSchema,
+  type LiftDefinitionEntry,
+  type LiftRecognitionError,
+  type LiftSite,
+} from "../annotation.ts";
 import { AnnotationArg, type Annotation } from "../Collected.ts";
 import { nameOfSymbol, type AccessRule, type MetadataRule } from "./context.ts";
 import type { Cause } from "./causes.ts";
@@ -898,6 +903,20 @@ const recognizedArgsOf = (
     return Option.none();
   }
 
+  const invalidReturn = (): Option.Option<ReadonlyArray<AnnotationArg>> => {
+    scope.causes.push({
+      at,
+      diagnostic: LiftDiagnostics.EFFX3011.emit({
+        subject: scope.subject,
+        reason: "invalid-return",
+      }),
+    });
+
+    return Option.none();
+  };
+
+  if (!Result.isResult(outcome)) return invalidReturn();
+
   if (Result.isSuccess(outcome)) {
     const decoded = Schema.decodeUnknownResult(site.schema)(outcome.success);
 
@@ -955,26 +974,18 @@ const recognizedArgsOf = (
     return Option.some(lowered.success);
   }
 
-  const construct = outcome.failure.construct;
+  if (!Result.isFailure(outcome)) return invalidReturn();
 
-  if (Predicate.isString(construct) !== true) {
-    scope.causes.push({
-      at,
-      diagnostic: LiftDiagnostics.EFFX3011.emit({
-        subject: scope.subject,
-        reason: "invalid-return",
-      }),
-    });
+  const failure = Schema.decodeOption(LiftRecognitionErrorSchema)(outcome.failure);
 
-    return Option.none();
-  }
+  if (Option.isNone(failure)) return invalidReturn();
 
   scope.causes.push({
     at,
     diagnostic: LiftDiagnostics.EFFX3011.emit({
       subject: scope.subject,
       reason: "hook-failed",
-      construct,
+      construct: failure.value.construct,
     }),
   });
 
