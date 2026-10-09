@@ -1,8 +1,9 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Array as Arr, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
+import { Array as Arr, Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from "effect";
 import {
   Extensions,
+  type AnnotationArg,
   SourceFrontend,
   compileCollected,
   type BindingConclusion,
@@ -34,7 +35,13 @@ import {
   type CorpusSnapshot,
 } from "../../packages/frontend-ts/test/lift-corpus.ts";
 import { liftCheckExecutionLayer, liftToolchainLayer } from "../lift-execution.ts";
-import { metadataOf, runCli, withAnnotation, withoutAnnotation } from "./lift-fixtures.ts";
+import {
+  metadataOf,
+  runCli,
+  withAnnotation,
+  withoutAnnotation,
+  type Options,
+} from "./lift-fixtures.ts";
 
 /*
  * The real stable corpus through the native check (spec 0019 §10 items 1 and 3). The application is the
@@ -70,6 +77,9 @@ const endpointCounts = {
   "social-events": 3,
 } satisfies Record<CorpusGroup, number>;
 
+/** The refactors a lift can require (spec 0019 §4.3, §6): errors that stay until the source edit is applied. */
+const refactorCodes: ReadonlyArray<string> = ["EFFX3002", "EFFX3003", "EFFX3004"];
+
 const deadline = 900_000;
 
 /**
@@ -104,14 +114,27 @@ const snapshotNamed = <A extends { readonly name: string }>(
     Option.getOrThrowWith(() => new Error(`the corpus has no snapshot ${name}`)),
   );
 
-/** The pinned adaptation's support modules: each only adds exports to the original's (§5.5). */
-const adaptedModules = ["common", "http-semantics", "endpoint-problems"] as const;
+/**
+ * The pinned adaptation's support modules taken whole: the oracle's `common` and `http-semantics` only add
+ * exports (the operation annotator, the response-header schemas the success wrappers are registered with)
+ * and rewrite the original helpers to use them (§5.5). Nothing in them is a refactor the lift plans.
+ */
+const adaptedModules = ["common", "http-semantics"] as const;
 
-/** The pinned adaptation's one-line `emptyInput` declarations (§2.3, seam S3), per original group module. */
+/**
+ * The pinned adaptation's one-line `emptyInput` declarations (§2.3, seam S3), per original group module.
+ * The declaration is the oracle's own line; a module that does not bind `Schema` yet gets the oracle's own
+ * `Schema` import with it, so the group module the application runs still evaluates.
+ */
 const emptyInputs = [
   { module: "directory", name: "EmptyDirectoryInput" },
   { module: "social-events", name: "EmptySocialEventInput" },
 ] as const;
+
+const schemaImport = 'import { Schema } from "effect";';
+
+const bindsSchema = (text: string): boolean =>
+  /^import\s*\{[^}]*\bSchema\b[^}]*\}\s*from\s*"effect";$/m.test(text);
 
 const sourceOf = (module: string): string => `packages/http-api/src/${module}.ts`;
 
@@ -124,10 +147,42 @@ const pinnedFile = Effect.fnUntraced(function* (pinned: CorpusSnapshot, logical:
   return yield* readVerifiedBlob(pinned, file);
 });
 
+/** The text of one verified oracle file. */
+const pinnedText = Effect.fnUntraced(function* (pinned: CorpusSnapshot, logical: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const { source } = yield* pinnedFile(pinned, logical);
+
+  return yield* fs.readFileString(source);
+});
+
+/** The exact lines of `text` from the first one starting `from` through the first later one ending `through`. */
+const linesBetween = (text: string, from: string, through: string): string => {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line.startsWith(from));
+  const end = lines.findIndex((line, index) => index >= start && line.endsWith(through));
+
+  assert.isAtLeast(start, 0, `the pinned oracle has a line starting ${from}`);
+  assert.isAtLeast(end, start, `the pinned oracle has a line ending ${through}`);
+
+  return lines.slice(start, end + 1).join("\n");
+};
+
+/** `text` with its one occurrence of `part` replaced by `by`. */
+const replacedOnce = (text: string, part: string, by: string): string => {
+  const pieces = text.split(part);
+
+  assert.strictEqual(pieces.length, 2, `${part} occurs once`);
+
+  return pieces.join(by);
+};
+
 /**
  * One fresh copy of both stable snapshots. With `adapted`, the pinned human adaptation the rules name is
- * applied to the ORIGINAL application: the oracle's support modules and adapters replace or join the
- * original's, and each group module gains the oracle's one-line `emptyInput` declaration.
+ * applied to the ORIGINAL application, and only its adapter exports: the oracle's `common` and
+ * `http-semantics` and its three adapters join the original's, `endpoint-problems` gains the oracle's
+ * `nativeProblems` registry with the imports it needs, and each group module gains the oracle's one-line
+ * `emptyInput` declaration. The oracle's extracted code tuples stay out: the lift plans those exports itself
+ * (spec 0019 §4.3), under the pinned names, and the check compiles them against the original problem unions.
  */
 const stage = Effect.fnUntraced(function* (adapted: boolean) {
   const fs = yield* FileSystem.FileSystem;
@@ -138,6 +193,7 @@ const stage = Effect.fnUntraced(function* (adapted: boolean) {
 
   if (adapted) {
     const pinned = snapshotNamed(copied.manifest.snapshots, "stable-oracle");
+    const targetOf = (module: string): string => path.join(original.directory, sourceOf(module));
 
     for (const module of [
       ...adaptedModules,
@@ -145,23 +201,52 @@ const stage = Effect.fnUntraced(function* (adapted: boolean) {
     ]) {
       const { bytes } = yield* pinnedFile(pinned, sourceOf(module));
 
-      yield* fs.writeFile(path.join(original.directory, sourceOf(module)), bytes);
+      yield* fs.writeFile(targetOf(module), bytes);
     }
 
-    for (const { module, name } of emptyInputs) {
-      const { source } = yield* pinnedFile(pinned, sourceOf(module));
+    const problems = yield* pinnedText(pinned, sourceOf("endpoint-problems"));
 
-      const declarations = (yield* fs.readFileString(source))
+    const registryImports = linesBetween(
+      problems,
+      'import { Schema, Struct } from "effect";',
+      '} from "./http-semantics.js";',
+    );
+
+    const registry = linesBetween(
+      problems,
+      "const nativeProblemCode = ",
+      "export const nativeProblems = deriveNativeProblems;",
+    );
+
+    const originalProblems = yield* fs.readFileString(targetOf("endpoint-problems"));
+
+    yield* fs.writeFileString(
+      targetOf("endpoint-problems"),
+      `${replacedOnce(originalProblems, 'import { problemUnion } from "./http-semantics.js";', registryImports)}\n${registry}\n`,
+    );
+
+    for (const { module, name } of emptyInputs) {
+      const text = yield* pinnedText(pinned, sourceOf(module));
+
+      const declarations = text
         .split("\n")
         .filter((line) => line.startsWith(`export const ${name} =`));
 
       assert.strictEqual(declarations.length, 1, `the pinned oracle declares ${name} once`);
 
-      const target = path.join(original.directory, sourceOf(module));
+      const current = yield* fs.readFileString(targetOf(module));
+
+      if (!bindsSchema(current)) {
+        assert.strictEqual(
+          text.split("\n").filter((line) => line === schemaImport).length,
+          1,
+          "the pinned oracle imports Schema once",
+        );
+      }
 
       yield* fs.writeFileString(
-        target,
-        `${yield* fs.readFileString(target)}\n${declarations.join("")}\n`,
+        targetOf(module),
+        `${bindsSchema(current) ? "" : `${schemaImport}\n`}${current}\n${declarations.join("")}\n`,
       );
     }
   }
@@ -230,6 +315,34 @@ const describeBinding = (binding: BindingConclusion | undefined): string => {
   if (binding._tag === "Passed") return `Passed keys=${binding.keyProof.declared.join(",")}`;
 
   return `${binding._tag}\n${describeDiagnostics(binding.diagnostics)}`;
+};
+
+/** An annotation argument that names a symbol: the shape the printer resolves to an import. */
+const isSymbolArg = (
+  arg: AnnotationArg | undefined,
+): arg is Extract<AnnotationArg, { readonly _tag: "Symbol" }> =>
+  Predicate.isObject(arg) && Predicate.hasProperty(arg, "_tag") && arg["_tag"] === "Symbol";
+
+/**
+ * Re-points the management query's access declaration (the only read-snapshot management operation) at the
+ * other read-only directory capability, with that capability's own resolver (§5.5): a different AccessSpec
+ * that the human decoder and the decision-time rules both accept. Every other declaration is unchanged.
+ */
+const repointed = (options: Options): Options => {
+  const resolver = options["canonicalScopeResolver"];
+
+  return JSON.stringify(options).includes("schools.manage") &&
+    options["decisionTime"] === "SnapshotRead" &&
+    isSymbolArg(resolver)
+    ? {
+        ...options,
+        capabilities: { _tag: "One", capability: "schools.read-directory" },
+        canonicalScopeResolver: {
+          ...resolver,
+          ref: { ...resolver.ref, export: "SchoolsDirectoryResolver" },
+        },
+      }
+    : options;
 };
 
 /** A real wire difference: the differing path is named in the report. */
@@ -331,7 +444,20 @@ const journey = Effect.fnUntraced(function* (group: CorpusGroup) {
   assert.strictEqual(verbose?._tag, "Pass", describeOutcome(verbose));
   assert.strictEqual(dense?._tag, "Pass", describeOutcome(dense));
   assert.strictEqual(binding?._tag, "Passed", describeBinding(binding));
-  assert.strictEqual(cli.code, 0, tail(cli));
+
+  // Every group of this corpus needs source refactors (EFFX3002 to EFFX3004): the printed suggestion is not
+  // adoptable until the patch is applied, and that alone raises the exit code (spec 0019 §6). The check
+  // itself passed above, so nothing else is an error.
+  const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+
+  assert.isAbove(errors.length, 0, tail(cli));
+
+  assert.isTrue(
+    errors.every((diagnostic) => refactorCodes.includes(diagnostic.code)),
+    JSON.stringify(errors.map((diagnostic) => diagnostic.code)),
+  );
+
+  assert.strictEqual(cli.code, 1, tail(cli));
 
   // The mechanical comparison saw every endpoint of the group on both sides.
   for (const outcome of [verbose, dense])
@@ -463,19 +589,13 @@ describe("effx lift --check on the real stable corpus (spec 0019 §10 items 1 an
         const { original } = yield* stage(true);
         const directory = yield* lifted(original.tsconfigPath, "directory", liftOf("directory"));
 
-        // Flipping the decision time of the management operations still decodes in the human adapter,
-        // so both sides build and only the application's own projection of the AccessSpec differs.
+        // The management query re-pointed at the other read-only directory capability, with that capability's
+        // own resolver and its snapshot decision time: valid for the human adapter's decoder and for the
+        // compiler's decision-time rules, so both sides build and only the application's own projection of the
+        // AccessSpec differs. The command keeps its declaration.
         const changed = yield* check({
           project: directory.project,
-          run: withAnnotation(directory.run, "Http.Access", (options) =>
-            JSON.stringify(options).includes("schools.manage")
-              ? {
-                  ...options,
-                  decisionTime:
-                    options["decisionTime"] === "Transaction" ? "SnapshotRead" : "Transaction",
-                }
-              : options,
-          ),
+          run: withAnnotation(directory.run, "Http.Access", repointed),
         });
 
         expectMismatch(changed.verbose, (difference) => difference.includes("projections"));
