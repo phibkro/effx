@@ -579,7 +579,7 @@ describe("private const problem-union source facts", () => {
 
         assert.deepStrictEqual(result.unsupported, []);
         assert.strictEqual(
-          inputModel.localConsts.find((record) => record.id.name === "PrivateProblem")?.kind,
+          inputModel.localValues.find((record) => record.id.name === "PrivateProblem")?.kind,
           "const",
         );
         assert.isFalse(inputModel.values.some((value) => value.symbol.export === "PrivateProblem"));
@@ -635,7 +635,7 @@ describe("private const problem-union source facts", () => {
     const result = lift(
       {
         ...original,
-        localConstCalls: original.localConstCalls.map((call) => ({
+        localCalls: original.localCalls.map((call) => ({
           ...call,
           argument: { ...call.argument, name: "AnotherPrivateProblem" },
         })),

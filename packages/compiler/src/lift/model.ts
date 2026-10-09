@@ -180,7 +180,7 @@ export const LocalDeclarationId = Schema.Struct({
 export type LocalDeclarationId = typeof LocalDeclarationId.Type;
 
 /** One immutable const declaration and its exact source initializer, without inventing an export. */
-export const LocalConstRecord = Schema.Struct({
+export const LocalValueRecord = Schema.Struct({
   kind: Schema.Literal("const"),
   id: LocalDeclarationId,
   range: SourceRange,
@@ -198,14 +198,14 @@ export const LocalConstRecord = Schema.Struct({
   ),
 );
 
-export type LocalConstRecord = typeof LocalConstRecord.Type;
+export type LocalValueRecord = typeof LocalValueRecord.Type;
 
 /**
  * Atomic source fact for exactly one unary exported-callee call whose only argument directly names a
  * top-level const in the same file. The ordinary slot remains Unlowered; this is not a partial Term.
  * Only the registered problem-response reader consumes this fact. Other private references stay unsupported.
  */
-export const LocalConstCall = Schema.Struct({
+export const LocalValueCall = Schema.Struct({
   range: SourceRange,
   callee: SymbolRef,
   argument: LocalDeclarationId,
@@ -217,7 +217,7 @@ export const LocalConstCall = Schema.Struct({
   ),
 );
 
-export type LocalConstCall = typeof LocalConstCall.Type;
+export type LocalValueCall = typeof LocalValueCall.Type;
 
 /** How an application success wrapper obtains its response headers. */
 export const WrapperHeaders = Schema.TaggedUnion({
@@ -266,8 +266,8 @@ export const EffectModel = Schema.Struct({
   schemas: Schema.Array(SchemaFact),
   markers: Schema.Array(MiddlewareFact),
   values: Schema.Array(ValueRecord),
-  localConsts: Schema.Array(LocalConstRecord),
-  localConstCalls: Schema.Array(LocalConstCall),
+  localValues: Schema.Array(LocalValueRecord),
+  localCalls: Schema.Array(LocalValueCall),
   wrappers: Schema.Array(WrapperFact),
   roots: Schema.Array(RootRecord),
   groups: Schema.Array(GroupRecord),

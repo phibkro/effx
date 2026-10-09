@@ -2,8 +2,8 @@ import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
   EffectModel,
-  LocalConstCall,
-  LocalConstRecord,
+  LocalValueCall,
+  LocalValueRecord,
   SourceRange,
   TermSchema,
   TermSlot,
@@ -226,9 +226,9 @@ describe("EffectModel", () => {
           },
         };
 
-        const decode = Schema.decodeUnknownEffect(LocalConstRecord);
+        const decode = Schema.decodeUnknownEffect(LocalValueRecord);
 
-        expectTypeOf<LocalConstRecord>().not.toHaveProperty("symbol");
+        expectTypeOf<LocalValueRecord>().not.toHaveProperty("symbol");
         assert.deepStrictEqual(yield* decode(value), value);
 
         for (const invalid of [
@@ -246,10 +246,10 @@ describe("EffectModel", () => {
           argument: value.id,
         };
 
-        assert.deepStrictEqual(yield* Schema.decodeEffect(LocalConstCall)(call), call);
+        assert.deepStrictEqual(yield* Schema.decodeEffect(LocalValueCall)(call), call);
         assert.strictEqual(
           (yield* Effect.flip(
-            Schema.decodeEffect(LocalConstCall)({
+            Schema.decodeEffect(LocalValueCall)({
               ...call,
               argument: { ...call.argument, file: "elsewhere.ts" },
             }),

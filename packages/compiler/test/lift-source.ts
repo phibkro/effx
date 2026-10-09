@@ -10,8 +10,8 @@ import {
   type Finding,
   type FindingKind,
   type GroupRecord,
-  type LocalConstCall,
-  type LocalConstRecord,
+  type LocalValueCall,
+  type LocalValueRecord,
   type LocalDeclarationId,
   type MiddlewareFact,
   type NativeCallee,
@@ -564,7 +564,7 @@ interface Scope {
   readonly schemas: ReadonlyMap<string, SchemaRef>;
   readonly staticHolders: ReadonlySet<string>;
   readonly localIds: ReadonlyMap<string, LocalDeclarationId>;
-  readonly localConstCalls: Array<LocalConstCall>;
+  readonly localCalls: Array<LocalValueCall>;
   readonly position: (offset: number) => { offset: number; line: number; col: number };
 }
 
@@ -831,7 +831,7 @@ const slot = (scope: Scope, node: Node): TermSlot => {
       error.construct === local.name &&
       error.enclosing !== undefined
     )
-      scope.localConstCalls.push({
+      scope.localCalls.push({
         range: rangeOf(scope, node),
         callee: error.enclosing,
         argument: local,
@@ -1085,8 +1085,8 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
   const groups: Array<GroupRecord> = [];
   const roots: Array<RootRecord> = [];
   const values: Array<ValueRecord> = [];
-  const localConsts: Array<LocalConstRecord> = [];
-  const localConstCalls: Array<LocalConstCall> = [];
+  const localValues: Array<LocalValueRecord> = [];
+  const localCalls: Array<LocalValueCall> = [];
   const wrappers: Array<WrapperFact> = [];
 
   for (const unit of parsed) {
@@ -1128,7 +1128,7 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
       module: unit.module,
       target: universe.target,
       localIds,
-      localConstCalls,
+      localCalls,
       position,
       claims,
       schemas: schemaRefs,
@@ -1183,7 +1183,7 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
         const id = localIds.get(statement.name);
 
         if (id !== undefined)
-          localConsts.push({
+          localValues.push({
             kind: "const",
             id,
             range: rangeOf(scope, statement),
@@ -1328,8 +1328,8 @@ export const modelOf = (files: ReadonlyArray<SourceFile>, universe: Universe): E
     schemas: [...facts.values()],
     markers: universe.markers,
     values,
-    localConsts,
-    localConstCalls,
+    localValues,
+    localCalls,
     wrappers,
     roots: allRoots,
     groups,

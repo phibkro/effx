@@ -9,7 +9,7 @@ import {
   stripSuffix,
   type ProblemRule,
 } from "./context.ts";
-import type { LocalConstCall, LocalConstRecord, OptionEntry, ValueRecord } from "./model.ts";
+import type { LocalValueCall, LocalValueRecord, OptionEntry, ValueRecord } from "./model.ts";
 import { exportRefactors, planExport } from "./plan.ts";
 import { refIdentity, sameRef } from "./refs.ts";
 import { nativeName } from "./native.ts";
@@ -267,8 +267,8 @@ const readUnion = (
 const exactLocalCall = (
   scope: Scope,
   slot: TermSlot,
-  call: LocalConstCall,
-  value: LocalConstRecord,
+  call: LocalValueCall,
+  value: LocalValueRecord,
 ): boolean => {
   const [finding] = slot._tag === "Unlowered" ? slot.findings : [];
   const home = scope.ctx.files.get(value.range.file);
@@ -294,8 +294,8 @@ const exactLocalCall = (
 
 const readLocalUnion = (
   scope: Scope,
-  call: LocalConstCall,
-  value: LocalConstRecord,
+  call: LocalValueCall,
+  value: LocalValueRecord,
 ): Option.Option<ProblemsUse> => {
   const rule = scope.ctx.problemRules.find((candidate) => sameRef(candidate.response, call.callee));
 
@@ -336,12 +336,12 @@ export const readProblems = (
   entry: Extract<OptionEntry, { readonly _tag: "Property" }>,
 ): Option.Option<ProblemsUse> => {
   if (entry.value._tag === "Unlowered") {
-    const call = scope.ctx.localConstCalls.get(sourceRangeIdentity(entry.value.range));
+    const call = scope.ctx.localCalls.get(sourceRangeIdentity(entry.value.range));
 
     const value =
       call === undefined
         ? undefined
-        : scope.ctx.localConsts.get(localDeclarationIdentity(call.argument));
+        : scope.ctx.localValues.get(localDeclarationIdentity(call.argument));
 
     if (
       call !== undefined &&

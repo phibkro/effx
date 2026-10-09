@@ -6,8 +6,8 @@ import type { Cause } from "./causes.ts";
 import type {
   DefinitionRecord,
   EffectModel,
-  LocalConstCall,
-  LocalConstRecord,
+  LocalValueCall,
+  LocalValueRecord,
   LocalDeclarationId,
   MiddlewareFact,
   SchemaFact,
@@ -51,8 +51,8 @@ export interface Context {
   readonly schemaFacts: ReadonlyMap<string, SchemaFact>;
   readonly markers: ReadonlyMap<string, MiddlewareFact>;
   readonly values: ReadonlyMap<string, ValueRecord>;
-  readonly localConsts: ReadonlyMap<string, LocalConstRecord>;
-  readonly localConstCalls: ReadonlyMap<string, LocalConstCall>;
+  readonly localValues: ReadonlyMap<string, LocalValueRecord>;
+  readonly localCalls: ReadonlyMap<string, LocalValueCall>;
   readonly wrappers: ReadonlyMap<string, WrapperFact>;
   readonly successRules: ReadonlyMap<string, SuccessRule>;
   readonly noSchemaRules: ReadonlyMap<string, NoSchemaRule>;
@@ -107,8 +107,8 @@ export const makeContext = (
   schemaFacts: indexBy(model.schemas, (fact) => refIdentity(fact.ref)),
   markers: indexBy(model.markers, (fact) => refIdentity(fact.ref)),
   values: indexBy(model.values, (value) => refIdentity(value.symbol)),
-  localConsts: indexBy(model.localConsts, (record) => localDeclarationIdentity(record.id)),
-  localConstCalls: indexBy(model.localConstCalls, (call) => sourceRangeIdentity(call.range)),
+  localValues: indexBy(model.localValues, (record) => localDeclarationIdentity(record.id)),
+  localCalls: indexBy(model.localCalls, (call) => sourceRangeIdentity(call.range)),
   wrappers: indexBy(model.wrappers, (wrapper) => refIdentity(wrapper.helper)),
   successRules: indexBy(rulesOf(aggregateRules(input, registry), "SuccessWrapper"), (rule) =>
     refIdentity(rule.callee),
