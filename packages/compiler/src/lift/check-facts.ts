@@ -72,12 +72,19 @@ export const checkFactsOf = (
 };
 
 /**
- * The one group of this id a model declares, without needing a root: the generated contract declares its
- * group alone. Several or none is none; a member without an endpoint declaration counts as unreadable.
+ * The one group of this id that `module` declares, without needing a root: the generated contract declares
+ * its group alone, but the program it is analyzed in also holds the ORIGINAL group (the contract imports
+ * its schemas from the original modules), so the declaring module selects the group. Several or none is
+ * none; a member without an endpoint declaration counts as unreadable.
  */
-export const groupKeysOf = (model: EffectModel, groupId: string): Option.Option<GroupKeys> => {
-  const groups = model.groups.filter((group) =>
-    Option.exists(idOf(group.id), (id) => id === groupId),
+export const groupKeysOf = (
+  model: EffectModel,
+  groupId: string,
+  module: string,
+): Option.Option<GroupKeys> => {
+  const groups = model.groups.filter(
+    (group) =>
+      group.symbol.module === module && Option.exists(idOf(group.id), (id) => id === groupId),
   );
 
   const [group] = groups;

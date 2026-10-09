@@ -561,15 +561,10 @@ const checkForm = Effect.fnUntraced(function* (
 
   // The ACTUAL generated group export, read by the same frontend that reads every other group.
   const frontend = yield* LiftFrontend;
+  const contractFile = path.join(overlay.outDir, onlyContract.path);
 
   const analyzed = yield* frontend.analyze(
-    overlayProject(
-      path,
-      run.project,
-      overlay,
-      "contract",
-      path.join(overlay.outDir, onlyContract.path),
-    ),
+    overlayProject(path, run.project, overlay, "contract", contractFile),
   );
 
   const generatedModel = Option.getOrUndefined(analyzed.value);
@@ -582,7 +577,18 @@ const checkForm = Effect.fnUntraced(function* (
     );
   }
 
-  const generated = groupKeysOf(generatedModel, facts.groupId);
+  // The analyzed program also holds the original group the contract imports its schemas from, so the
+  // contract's own module, not the group id alone, selects the generated group.
+  const contractModule = Arr.findFirst(generatedModel.files, (file) => file.file === contractFile);
+
+  if (Option.isNone(contractModule)) {
+    return yield* unavailable(
+      "overlay-compile",
+      "the generated contract is not part of its own analysis",
+    );
+  }
+
+  const generated = groupKeysOf(generatedModel, facts.groupId, contractModule.value.module);
 
   if (Option.isNone(generated)) {
     return yield* unavailable(
