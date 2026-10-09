@@ -610,7 +610,7 @@ describe("maintained scoped LSP transport (EX-0030)", () => {
         Effect.gen(function* () {
           const peer = yield* acquirePeer(false);
           yield* peer.write(
-            yield* frames([{ jsonrpc: "2.0", id: 0, method: "burst", params: variant }]),
+            yield* frames([{ jsonrpc: "2.0", id: 0, method: "burst", params: { mode: variant } }]),
           );
           assert.strictEqual((yield* peer.exit).code, 0);
           assert.include(yield* peer.stderr, "terminal:Capacity");

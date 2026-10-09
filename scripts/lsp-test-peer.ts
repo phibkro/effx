@@ -1,6 +1,7 @@
 // EX-0030: real subprocess/client composition root; no vendor or native handles
 // escape into the behavior suite. Microsoft maintained client is the wire oracle.
 // EX-0030: the real subprocess/client composition root is outside packages.
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { Cause, Deferred, Effect, Exit, Fiber, Predicate, Schema } from "effect";
@@ -58,6 +59,10 @@ const decodeClient = Schema.decodeUnknownEffect(
   Schema.Struct({ processId: Schema.Union([Schema.Int, Schema.Null]) }),
 );
 
+const decodeBurst = Schema.decodeUnknownEffect(
+  Schema.Struct({ mode: Schema.Union([Schema.Null, Schema.Literal("count")]) }),
+);
+
 export interface PeerLaunch {
   readonly cwd: string;
   readonly main?: string;
@@ -69,15 +74,26 @@ export const maintainedBufferLaw = Effect.sync(() => {
   const buffer = RAL().messageBuffer.create("utf-8");
 
   if (!(buffer instanceof AbstractMessageBuffer)) return false;
-  buffer.append(new TextEncoder().encode("Content-Length: 2\r\n\r\n{}"));
+  // The native RAL requires Buffer for its prefix slice ABI. Two coalesced
+  // bodies catch a header read that accidentally includes the remaining chunk.
+  const second = 'Content-Length: 4\r\n\r\n"é"';
+  buffer.append(Buffer.from(`Content-Length: 2\r\n\r\n{}${second}`, "utf8"));
   const before = buffer.numberOfBytes;
   const headers = buffer.tryReadHeaders(true);
   const body = buffer.tryReadBody(2);
+  const remaining = buffer.numberOfBytes;
+  const nextHeaders = buffer.tryReadHeaders(true);
+  const nextBody = buffer.tryReadBody(4);
 
   return (
-    before > 2 &&
+    before > remaining &&
     headers?.get("content-length") === "2" &&
     body?.byteLength === 2 &&
+    new TextDecoder().decode(body) === "{}" &&
+    remaining === Buffer.byteLength(second, "utf8") &&
+    nextHeaders?.get("content-length") === "4" &&
+    nextBody?.byteLength === 4 &&
+    new TextDecoder().decode(nextBody) === '"é"' &&
     buffer.numberOfBytes === 0
   );
 });
@@ -442,6 +458,8 @@ if (process.argv[2] === "serve") {
       let probeCalls = 0;
       let demandFiberId: number | undefined;
       let failCheckpointRead = false;
+      const nativeBodyStarted = yield* Deferred.make<void>();
+      let nativeBodyInFlight = false;
 
       const read = Effect.fnUntraced(function* (max: number) {
         const caller = yield* Effect.withFiber((fiber) => Effect.succeed(fiber.id));
@@ -470,7 +488,20 @@ if (process.argv[2] === "serve") {
         read,
         write: Effect.fnUntraced(function* (data: Uint8Array | string) {
           writeCalls++;
-          yield* native.write(data);
+          const body = data instanceof Uint8Array && data.byteLength > 1024 * 1024;
+
+          if (body) {
+            nativeBodyInFlight = true;
+            yield* Deferred.succeed(nativeBodyStarted, undefined);
+          }
+
+          yield* native.write(data).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (body) nativeBodyInFlight = false;
+              }),
+            ),
+          );
         }),
         probePid: Effect.fnUntraced(function* (pid: number) {
           probeCalls++;
@@ -531,26 +562,13 @@ if (process.argv[2] === "serve") {
                 .pipe(Effect.orDie),
             );
 
-            // EX-0030: observe actual native buffered bytes, not elapsed time.
-            yield* Effect.callback<void>((resume) => {
-              let turn: { dispose: () => void } | undefined;
+            // Observe the actual native body writer, not the unused Node stdout
+            // stream. A real IO turn leaves this 2 MiB frame pending on the unread pipe.
+            yield* Deferred.await(nativeBodyStarted);
+            yield* native.turn;
 
-              const check = () => {
-                if (process.stdout.writableLength > 64 * 1024) {
-                  resume(Effect.void);
-
-                  return;
-                }
-
-                turn = RAL().timer.setImmediate(check);
-              };
-
-              check();
-
-              return Effect.sync(() => {
-                turn?.dispose();
-              });
-            });
+            if (!nativeBodyInFlight)
+              return yield* new RpcFailure({ code: -32603, message: "Native frame did not block" });
 
             const publication = yield* Effect.forkChild(
               transport.sendNotification("cancelled-publication", { revision: 1 }),
@@ -624,12 +642,18 @@ if (process.argv[2] === "serve") {
           if (message.method === "large") return "é".repeat(5 * 1024 * 1024);
 
           if (message.method === "burst") {
+            const { mode } = yield* decodeBurst(message.params).pipe(
+              Effect.mapError(
+                () => new RpcFailure({ code: -32602, message: "Invalid burst mode" }),
+              ),
+            );
+
             yield* Effect.forEach(
-              Array.from({ length: message.params === "count" ? 129 : 33 }, (_, index) => index),
+              Array.from({ length: 33 }, (_, index) => index),
               (index) =>
                 transport.sendNotification("large-output", {
                   index,
-                  text: "x".repeat(message.params === "count" ? 16 : 1024 * 1024),
+                  text: "x".repeat(mode === "count" ? 16 : 1024 * 1024),
                 }),
               { concurrency: "unbounded" },
             ).pipe(Effect.orDie);
