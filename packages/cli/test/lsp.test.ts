@@ -498,7 +498,8 @@ describe("maintained LSP client project journeys", () => {
           assert.strictEqual((yield* peer.exit).code, 0);
         }),
       ),
-    30000,
+    // Measured 14.6 s alone: several analyses (each a real compile plus a baseline watch pass), no fixed wait; 60 s is ~3x.
+    60_000,
   );
 
   it.live(
@@ -1110,7 +1111,8 @@ describe("maintained LSP client project journeys", () => {
           }
         }),
       ),
-    30000,
+    // Measured 18-20 s alone: 4 analyses x (compile + baseline pass) plus 3 builds, no fixed wait; 60 s is ~3x.
+    60_000,
   );
 
   it.live(
