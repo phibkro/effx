@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/public-install
       - name: Lint pull request commit messages
         if: github.event_name == 'pull_request'
         env:

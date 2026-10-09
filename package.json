@@ -27,7 +27,7 @@
     "ai-docs:check": "bun scripts/ai-docs.ts --check",
     "pack": "bun run ai-docs && bun run --cwd packages/diagnostics build && bun run --cwd packages/runtime build && bun run --cwd packages/ir build && bun run --cwd packages/compiler build && bun run --cwd packages/persistence build && bun run --cwd packages/cli build && bun scripts/pack.ts",
     "check": "bun run docs:check && bun run typecheck && bun run lint && bun run fmt:check && bun run ai-docs:check && bun run test",
-    "gate": "bun run --cwd examples/users effx:build && bun run --cwd examples/persistence build && bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/stable-v4 && bun run check && bun run effect:diagnostics && bun run --cwd packages/frontend-ts/test/fixtures/stable-v4 typecheck && bun run docs:build && bun run pack && bun scripts/stable-v4-smoke.ts && bunx changeset status",
+    "gate": "bun run --cwd examples/users effx:build && bun run --cwd examples/persistence build && bash scripts/install-public.sh packages/frontend-ts/test/fixtures/stable-v4 --frozen-lockfile --ignore-scripts && bun run check && bun run effect:diagnostics && bun run --cwd packages/frontend-ts/test/fixtures/stable-v4 typecheck && bun run docs:build && bun run pack && bun scripts/stable-v4-smoke.ts && bunx changeset status",
     "prepare": "effect-tsgo patch --typescript --oxlint && bun scripts/install-git-hooks.ts"
   },
   "dependencies": {

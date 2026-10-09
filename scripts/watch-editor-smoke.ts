@@ -5,6 +5,7 @@ import { acquirePeer } from "./lsp-test-peer.ts";
 import type { PackedCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import type { PeerError } from "./lsp-test-peer.ts";
 import { PackedStdoutReceipt, regularStdoutSentinel } from "./packed-lsp-stdout.ts";
+import { publicInstall } from "./install-public.ts";
 
 /**
  * After the committed-reference gate and pack: bun scripts/watch-editor-smoke.ts <final-SHA>
@@ -185,17 +186,14 @@ const smoke = Effect.gen(function* () {
     ).pipe(Effect.timeout("120 seconds"));
   });
 
-  yield* requireThat((yield* run("bun", ["install"])).code === 0, "ordinary consumer install");
+  yield* publicInstall(consumer, false, true);
   const lock = yield* fs.readFile(path.join(consumer, "bun.lock"));
 
   const lockHash = Array.from(yield* crypto.digest("SHA-256", lock), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
 
-  yield* requireThat(
-    (yield* run("bun", ["install", "--frozen-lockfile"])).code === 0,
-    "repeat frozen consumer resolution",
-  );
+  yield* publicInstall(consumer, true, true);
   yield* requireThat(
     (yield* digest(path.join(consumer, "bun.lock"))) === lockHash,
     "consumer lockfile unchanged",

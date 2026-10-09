@@ -1,7 +1,8 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Config, Crypto, Effect, FileSystem, Path, Schema } from "effect";
+import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
+import { publicInstall } from "./install-public.ts";
 
 // EX-0023: reuse the scoped, bounded native child adapter. No child output is logged.
 // This root owns the disposable consumer, all children, and its socket server until scope close.
@@ -133,30 +134,7 @@ const smoke = Effect.gen(function* () {
     }),
   );
   yield* fs.writeFileString(path.join(consumer, "smoke.spec.ts"), protocolTest);
-  // Read only PATH. The installer receives no inherited credential or package-manager settings.
-  const searchPath = yield* Config.String("PATH");
-  const home = path.join(consumer, "installer-home");
-
-  yield* fs.makeDirectory(home);
-  yield* fs.writeFileString(path.join(home, ".npmrc"), "");
-  yield* fs.writeFileString(path.join(consumer, ".npmrc"), "registry=https://registry.npmjs.org\n");
-
-  const installer = yield* acquireCommand(
-    consumer,
-    "bun",
-    ["install", "--ignore-scripts", "--registry=https://registry.npmjs.org"],
-    {
-      PATH: searchPath,
-      HOME: home,
-      NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
-      BUN_INSTALL_CACHE_DIR: path.join(home, "cache"),
-    },
-  );
-
-  yield* installer.eof;
-  const installed = yield* installer.finish;
-
-  yield* requireThat(installed.code === 0, "credential-free installed consumer dependencies");
+  yield* publicInstall(consumer, false, true);
   const cli = path.join(consumer, "node_modules/.bin/effx");
 
   yield* run(consumer, [cli, "check"], "installed stable check");

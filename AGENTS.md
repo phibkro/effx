@@ -88,7 +88,7 @@ Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd
 | API reference      | `bun run docs:api` (`@effect/docgen`; fails on a broken `@example`)                                                                                                           |
 | AI docs            | `bun run ai-docs` regenerates `LLMS.md`; `bun run ai-docs:check` fails on drift                                                                                               |
 
-Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on the merged tree. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
+Before any fast-forward merge to `main`, install the merged tree frozen through `bash scripts/install-public.sh . --frozen-lockfile` (CI: `.github/actions/public-install`). That boundary replaces the child environment, uses a private home, cache and empty user config, the public registry and `--no-env-file`, and refuses project-owned `.npmrc`/`bunfig.toml`; it never logs resolver output. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
 
 Run `bun run gate` on the committed tree before landing. Check calls that same script.
 The stable Effect 4 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
