@@ -1,5 +1,5 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
+import { Config, Crypto, Effect, FileSystem, Path, Schema } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
 
@@ -31,6 +31,7 @@ const decodeUser = Schema.decodeEffect(
 
 const run = Effect.fnUntraced(function* (cwd: string, args: ReadonlyArray<string>, step: string) {
   const child = yield* acquireCommand(cwd, "bun", args);
+  yield* child.eof;
   const result = yield* child.finish;
 
   yield* requireThat(result.code === 0, step);
@@ -132,7 +133,30 @@ const smoke = Effect.gen(function* () {
     }),
   );
   yield* fs.writeFileString(path.join(consumer, "smoke.spec.ts"), protocolTest);
-  yield* run(consumer, ["install"], "installed consumer dependencies");
+  // Read only PATH. The installer receives no inherited credential or package-manager settings.
+  const searchPath = yield* Config.String("PATH");
+  const home = path.join(consumer, "installer-home");
+
+  yield* fs.makeDirectory(home);
+  yield* fs.writeFileString(path.join(home, ".npmrc"), "");
+  yield* fs.writeFileString(path.join(consumer, ".npmrc"), "registry=https://registry.npmjs.org\n");
+
+  const installer = yield* acquireCommand(
+    consumer,
+    "bun",
+    ["install", "--ignore-scripts", "--registry=https://registry.npmjs.org"],
+    {
+      PATH: searchPath,
+      HOME: home,
+      NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
+      BUN_INSTALL_CACHE_DIR: path.join(home, "cache"),
+    },
+  );
+
+  yield* installer.eof;
+  const installed = yield* installer.finish;
+
+  yield* requireThat(installed.code === 0, "credential-free installed consumer dependencies");
   const cli = path.join(consumer, "node_modules/.bin/effx");
 
   yield* run(consumer, [cli, "check"], "installed stable check");

@@ -27,11 +27,13 @@ export class PackedCommandError extends Schema.TaggedError<PackedCommandError>()
  * The caller's scope owns the process, stdin, and serial output reader. One reader
  * backpressures at 128 lines; one workflow waits for receipts. Scope closure kills
  * and joins the child before consumer files disappear. No output payload is logged.
+ * An explicit environment replaces inheritance; callers own its allowlist and never log it.
  */
 export const acquireCommand = Effect.fnUntraced(function* (
   cwd: string,
   executable: string,
   args: ReadonlyArray<string>,
+  environment?: Record<string, string>,
 ): Effect.fn.Return<PackedCommand, PlatformError, ChildProcessSpawner.ChildProcessSpawner | Scope> {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const eof = yield* Deferred.make<void>();
@@ -41,6 +43,8 @@ export const acquireCommand = Effect.fnUntraced(function* (
   const child = yield* spawner.spawn(
     ChildProcess.make(executable, args, {
       cwd,
+      env: environment,
+      extendEnv: false,
       stdin: Stream.fromEffect(Deferred.await(eof)).pipe(Stream.drain),
       stdout: "pipe",
       stderr: "pipe",
