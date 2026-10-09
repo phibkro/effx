@@ -48,6 +48,12 @@ It fails on any difference, on a file that changed without a migration, on a tri
 
 The migration does not carry the application's lint-only edits (diagnostic headers, exception comments, synchronous decoders turned into `Result`) or its later feature changes.
 The stable snapshots are therefore not byte-identical to the application's current sources.
+
+Observed 2026-10-09 against the application's migrated sources at `c4172e24` (branch `feat/effect-stable-v4`): `stable-original` migrates 32 files.
+Fifteen of them had the same bytes as the application's pre-migration source. Three of those fifteen are byte-identical to the application's migrated file.
+The other twelve differ only by its lint-only diagnostic headers, exception comments, and one formatter line join.
+The remaining seventeen files carry later feature changes in the application and are not comparable.
+
 The application owner's own acceptance of the lifted output is separate and unverified here.
 
 The corpus test type-checks both stable snapshots with TypeScript 6.0.3 against the installed Effect runtime, with `strict`, `noEmit`, `skipLibCheck`, and the paths the test generates.
