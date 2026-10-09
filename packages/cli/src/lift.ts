@@ -10,9 +10,10 @@ import {
   type LiftInput,
   type LiftResult,
   type ProjectConfig,
+  type Refactor,
   type SourceFileRecord,
 } from "@effx/compiler";
-import { denseSuggestion, printedSuggestion } from "./lift-suggest.ts";
+import { printedSuggestion } from "./lift-suggest.ts";
 import { count, report, summary } from "./report.ts";
 
 /*
@@ -61,13 +62,18 @@ export interface LiftParams {
   readonly json: boolean;
 }
 
-/** One canonical request from the actual project/model/input/result and selected form. */
+/**
+ * One canonical request from the actual project, model, input, result and selected form. `dense` is the
+ * rewrite whose canonical IR equality with the verbose lift was proven (none when it was not): the one
+ * place that decides whether a dense suggestion exists, for every surface.
+ */
 export interface LiftRunParams {
   readonly project: ProjectConfig;
   readonly model: EffectModel;
   readonly input: LiftInput;
   readonly result: LiftResult;
   readonly form: LiftForm;
+  readonly dense: Option.Option<Collected>;
 }
 
 /** The analyzed files plus exact texts the refactors were planned against. */
@@ -77,29 +83,22 @@ export interface PatchContext {
   readonly allowImportingTsExtensions: boolean;
 }
 
-/** One truthful output receipt; JSON is derived from its schema-backed report. */
-export interface LiftRunReceipt {
-  readonly exitCode: 0 | 1 | 2;
-  readonly rendering: LiftReportRendering;
-  readonly report: LiftJsonReport;
-}
-
-/** Reads the exact analyze-time texts the refactors were planned against, as map path → text. */
+/** Reads the exact texts the refactors were planned against, as map path → text (only the files they touch). */
 export const loadPatchTexts = Effect.fn("lift.loadPatchTexts")(function* (
-  model: EffectModel,
+  refactors: ReadonlyArray<Refactor>,
 ): Effect.fn.Return<ReadonlyMap<string, string>, CompilerFault, FileSystem.FileSystem> {
   const fs = yield* FileSystem.FileSystem;
 
   const entries = yield* Effect.forEach(
-    model.files,
+    [...new Set(refactors.map((refactor) => refactor.file))].toSorted(),
     (file) =>
-      fs.readFileString(file.file).pipe(
-        Effect.map((text): readonly [string, string] => [file.file, text]),
+      fs.readFileString(file).pipe(
+        Effect.map((text): readonly [string, string] => [file, text]),
         Effect.mapError(
           (cause) =>
             new CompilerFault({
               stage: "lift",
-              message: `cannot read the analyzed file ${file.file}`,
+              message: `cannot read the analyzed file ${file}`,
               cause,
             }),
         ),
@@ -157,6 +156,12 @@ export const refuseWriteTarget = Effect.fn("lift.refuseWriteTarget")(function* (
   return resolvedTarget;
 });
 
+/** The exact printer bytes of each requested form; a form that was not requested stays absent. */
+export interface LiftSuggestions {
+  readonly verbose?: string;
+  readonly dense?: string;
+}
+
 /** The exact source bytes produced by the shared printer, with failures kept in the error channel. */
 export const suggestionSection = (
   collected: Collected,
@@ -165,44 +170,70 @@ export const suggestionSection = (
 ): Result.Result<string, string> =>
   printedSuggestion(collected, input.output.module, codeReferences);
 
+/** The verbose text, printed by the one shared printer; none when only the dense form was requested. */
+const verboseOf = (run: LiftRunParams): Result.Result<string | undefined, string> =>
+  run.form === "dense"
+    ? Result.succeed(undefined)
+    : suggestionSection(run.result.collected, run.input, run.result.codeReferences);
+
+const denseOf = (run: LiftRunParams): Result.Result<string | undefined, string> => {
+  if (run.form === "verbose") return Result.succeed(undefined);
+
+  if (Option.isNone(run.dense))
+    return run.form === "dense"
+      ? Result.fail("dense suggestion unavailable: canonical IR equality was not proven")
+      : Result.succeed(undefined);
+
+  return suggestionSection(run.dense.value, run.input, run.result.codeReferences);
+};
+
+type SuggestionsDraft = { -readonly [K in keyof LiftSuggestions]: LiftSuggestions[K] };
+
+/**
+ * The suggestions every surface shares. `verbose` and `dense` print one form each; `both` prints the
+ * dense form only when its canonical IR equality was proven and otherwise leaves it absent. An explicit
+ * `dense` request without a proven dense form is an error, never a silent fallback.
+ */
+export const suggestionsOf = (run: LiftRunParams): Result.Result<LiftSuggestions, string> =>
+  Result.flatMap(verboseOf(run), (verbose) =>
+    Result.map(denseOf(run), (dense): LiftSuggestions => {
+      const suggestions: SuggestionsDraft = {};
+
+      if (verbose !== undefined) suggestions.verbose = verbose;
+
+      if (dense !== undefined) suggestions.dense = dense;
+
+      return suggestions;
+    }),
+  );
+
 /** One per-form report rendering with the §4.2 sections in the order the CLI prints. */
 export interface LiftReportRendering {
   /** Human report bytes; suggestion snippets remain byte-identical to the printer outputs. */
   readonly text: string;
   /** Exact printer bytes retained for --write, --json and the real overlay check. */
-  readonly suggestions: ReadonlyArray<string>;
+  readonly suggestions: LiftSuggestions;
 }
 
 export const renderLiftReport = (
   run: LiftRunParams,
 ): Result.Result<LiftReportRendering, string> => {
-  const { result, input, form } = run;
+  const { result } = run;
+  const printed = suggestionsOf(run);
+
+  if (Result.isFailure(printed)) return Result.fail(printed.failure);
+
+  const suggestions = printed.success;
   const sections: Array<string> = [];
-  const suggestions: Array<string> = [];
 
-  if (form !== "dense") {
-    const verbose = suggestionSection(result.collected, input, result.codeReferences);
+  if (suggestions.verbose !== undefined)
+    sections.push(`SUGGESTION (verbose)\n${suggestions.verbose}`);
 
-    if (Result.isFailure(verbose)) return Result.fail(verbose.failure);
-
-    suggestions.push(verbose.success);
-    sections.push(`SUGGESTION (verbose)\n${verbose.success}`);
-  }
-
-  if (form !== "verbose") {
-    const dense = denseSuggestion(result.collected);
-
-    if (!Option.isSome(dense)) {
-      return Result.fail("dense suggestion unavailable: canonical IR equality was not proven");
-    }
-
-    const denseText = suggestionSection(dense.value, input, result.codeReferences);
-
-    if (Result.isFailure(denseText)) return Result.fail(denseText.failure);
-
-    suggestions.push(denseText.success);
-    sections.push(`SUGGESTION (dense)\n${denseText.success}`);
-  }
+  if (suggestions.dense !== undefined) sections.push(`SUGGESTION (dense)\n${suggestions.dense}`);
+  else if (run.form === "both")
+    sections.push(
+      "SUGGESTION (dense)\n  unavailable: its canonical IR equality with the verbose form was not proven",
+    );
 
   if (result.refactors.length > 0) {
     sections.push(
@@ -244,6 +275,41 @@ export const renderLiftReport = (
   }
 
   return Result.succeed({ text: sections.join("\n\n"), suggestions });
+};
+
+/** The `--check` section of the report: one line per requested form and the binding gate, never source text. */
+export const renderCheckSection = (check: LiftCheckResult): string => {
+  const form = (name: "verbose" | "dense"): ReadonlyArray<string> => {
+    const outcome = check[name];
+
+    if (outcome === undefined) return [];
+
+    switch (outcome._tag) {
+      case "Pass":
+        return [
+          outcome.deltas.length === 0
+            ? `  ${name}: PASS`
+            : `  ${name}: PASS(${outcome.deltas.join(", ")})`,
+        ];
+      case "Mismatch":
+        return [`  ${name}: FAIL`, ...outcome.differences.map((difference) => `    ${difference}`)];
+      case "Impossible":
+        return [`  ${name}: COULD NOT RUN (${outcome.reason}) ${outcome.detail}`];
+    }
+  };
+
+  const binding = ((): string => {
+    switch (check.binding._tag) {
+      case "Passed":
+        return `  binding: PASSED (keys ${check.binding.keyProof.declared.join(", ") || "none"}; typecheck exit ${check.binding.receipt.exit})`;
+      case "Failed":
+        return "  binding: FAILED";
+      case "Missing":
+        return "  binding: MISSING (never accepted without evidence)";
+    }
+  })();
+
+  return ["CHECK", ...form("verbose"), ...form("dense"), binding].join("\n");
 };
 
 /** The diagnostics-only rendering a diagnosed run prints after its own sections (counts are data). */

@@ -100,7 +100,7 @@ describe("lift check native child custody (spec 0019 §2.4 step 5)", () => {
   it.live("retains stdout and stderr diagnostics in the typecheck receipt", () =>
     Effect.flatMap(LiftCheckExecution, (execution) =>
       execution.runTypecheck({
-        tscPath: process.execPath,
+        binary: process.execPath,
         cwd,
         args: [peer, "diag"],
         captureBytes: 1_048_576,

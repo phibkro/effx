@@ -47,19 +47,11 @@ export interface CheckChildResult {
   readonly timedOut: boolean;
 }
 
-/** The overlay-wide typecheck the binding gate needs (spec 0019 §7). */
-export interface OverlayTypecheckSpec {
-  /** Absolute path of the TypeScript entry the root adapter runs. */
-  readonly tscPath: string;
-  /** Program arguments (the tsc project path and flag-style switches). */
-  readonly args: ReadonlyArray<string>;
-  /** Absolute working directory of the overlay. */
-  readonly cwd: string;
-  /** Per-pipe byte cap; overflow remains a typed data fact. */
-  readonly captureBytes: number;
-  /** Forced-stop deadline the root adapter grants. */
-  readonly forcedStopMs: number;
-}
+/**
+ * The overlay-wide typecheck the binding gate needs (spec 0019 §7). It is one ordinary child: the
+ * root-owned runtime runs the TypeScript compiler entry with explicit arguments and cwd.
+ */
+export type OverlayTypecheckSpec = CheckChildSpec;
 
 /** The real typecheck receipt: each pipe stays separate; callers render summaries, never raw source lines. */
 export interface OverlayTypecheckResult {
@@ -92,3 +84,17 @@ export class LiftCheckExecution extends Context.Service<
     ) => Effect.Effect<OverlayTypecheckResult, CompilerFault, never>;
   }
 >()("effx/cli/LiftCheckExecution") {}
+
+/**
+ * The root-owned executables the check runs. Package code never resolves a binary by name, searches a
+ * `PATH` or copies an environment; the root supplies exactly these two absolute files.
+ */
+export class LiftToolchain extends Context.Service<
+  LiftToolchain,
+  {
+    /** Absolute path of the JavaScript runtime that runs the generated witness and the TypeScript compiler. */
+    readonly runtime: string;
+    /** Absolute path of the TypeScript compiler entry module (`tsc.js`) the runtime executes. */
+    readonly typescript: string;
+  }
+>()("effx/cli/LiftToolchain") {}

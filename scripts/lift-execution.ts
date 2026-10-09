@@ -1,16 +1,27 @@
 #!/usr/bin/env bun
 /** @effect-diagnostics unstableApiUsage:off -- EX-0034: native ChildProcess custody at the 0019 lift-check root. */
-import { DateTime, Duration, Effect, Exit, Fiber, Layer, PlatformError, Stream } from "effect";
+import {
+  DateTime,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Path,
+  PlatformError,
+  Stream,
+} from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   LiftCheckExecution,
+  LiftToolchain,
   type CheckChildExit,
   type CheckChildResult,
   type CheckChildSpec,
   type OverlayTypecheckResult,
-  type OverlayTypecheckSpec,
 } from "@effx/cli/lift-boundaries";
 import { CompilerFault } from "@effx/compiler";
+import process from "node:process";
 
 /*
  * The single native process adapter for spec 0019 §2.4. Two independent pipe readers and the real process
@@ -204,14 +215,6 @@ const completeOwned = Effect.fnUntraced(function* (
   );
 });
 
-const broadenTypecheck = (spec: OverlayTypecheckSpec): CheckChildSpec => ({
-  binary: spec.tscPath,
-  args: spec.args,
-  cwd: spec.cwd,
-  captureBytes: spec.captureBytes,
-  forcedStopMs: spec.forcedStopMs,
-});
-
 const typecheckReceiptOf = (receipt: CheckChildResult): OverlayTypecheckResult => {
   const stdoutLines = linesOf(receipt.stdout);
   const stderrLines = linesOf(receipt.stderr);
@@ -251,10 +254,28 @@ export const liftCheckExecutionLayer: Layer.Layer<
           Effect.mapError((cause) => childFault("lift-check child failed", cause)),
         ),
       runTypecheck: (spec) =>
-        runOwned(broadenTypecheck(spec)).pipe(
+        runOwned(spec).pipe(
           Effect.map(typecheckReceiptOf),
           Effect.mapError((cause) => childFault("binding overlay typecheck failed", cause)),
         ),
     });
+  }),
+);
+
+/**
+ * The root's reviewed toolchain: the one running Bun executable and the TypeScript 6 compiler entry the
+ * packed CLI depends on. Both are absolute files; nothing is searched on a `PATH`.
+ */
+export const liftToolchainLayer: Layer.Layer<LiftToolchain, never, Path.Path> = Layer.effect(
+  LiftToolchain,
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+
+    // A malformed URL for this package's own fixed dependency export is an installation defect.
+    const typescript = yield* path
+      .fromFileUrl(new URL(import.meta.resolve("@typescript/typescript6/lib/tsc.js")))
+      .pipe(Effect.orDie);
+
+    return LiftToolchain.of({ runtime: process.execPath, typescript });
   }),
 );
