@@ -27,16 +27,33 @@ const recognizeRateLimit: DefinitionLift<typeof RateLimit>["recognize"] = (site)
   if (site.value._tag !== "Obj")
     return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
 
-  const perMinute = site.value.entries.find((entry) => entry.key === "perMinute")?.value;
+  const entries = site.value.entries;
+  const count = (name: string) => entries.filter((entry) => entry.key === name).length;
+
+  const integer = (name: string) => {
+    const value = entries.find((entry) => entry.key === name)?.value;
+
+    return value?._tag === "Lit" && Predicate.isNumber(value.json) && Number.isInteger(value.json)
+      ? value.json
+      : undefined;
+  };
+
+  const perMinute = integer("perMinute");
+  const burst = integer("burst");
+  const burstCount = count("burst");
 
   if (
-    perMinute?._tag !== "Lit" ||
-    !Predicate.isNumber(perMinute.json) ||
-    !Number.isInteger(perMinute.json)
+    perMinute === undefined ||
+    count("perMinute") !== 1 ||
+    burstCount > 1 ||
+    (burstCount === 1 && burst === undefined) ||
+    entries.some((entry) => entry.key !== "perMinute" && entry.key !== "burst")
   )
-    return Result.fail({ _tag: "Unsupported", construct: "an integer perMinute field" });
+    return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
 
-  return Result.succeed([{ perMinute: perMinute.json }]);
+  const args = burst === undefined ? { perMinute } : { perMinute, burst };
+
+  return Result.succeed([args]);
 };
 
 const rateLimit = implement(RateLimit, {

@@ -1675,59 +1675,76 @@ extension registry explicitly to `lift(model, input, registry)`.
 
 ```ts
 import {
- CoreDiagnostics,
- type DefinitionLift,
- type Diagnostic,
- dataOf,
- extension,
- implement,
+  CoreDiagnostics,
+  type DefinitionLift,
+  type Diagnostic,
+  dataOf,
+  extension,
+  implement,
 } from "@effx/compiler";
 import { IRGraph } from "@effx/ir";
 import { Option, Predicate, Result } from "effect";
 import { RateLimit } from "./03_define-annotation.ts";
 
 const recognizeRateLimit: DefinitionLift<typeof RateLimit>["recognize"] = (site) => {
- if (site.value._tag !== "Obj")
-  return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
+  if (site.value._tag !== "Obj")
+    return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
 
- const perMinute = site.value.entries.find((entry) => entry.key === "perMinute")?.value;
+  const entries = site.value.entries;
+  const count = (name: string) => entries.filter((entry) => entry.key === name).length;
 
- if (
-  perMinute?._tag !== "Lit" ||
-  !Predicate.isNumber(perMinute.json) ||
-  !Number.isInteger(perMinute.json)
- )
-  return Result.fail({ _tag: "Unsupported", construct: "an integer perMinute field" });
+  const integer = (name: string) => {
+    const value = entries.find((entry) => entry.key === name)?.value;
 
- return Result.succeed([{ perMinute: perMinute.json }]);
+    return value?._tag === "Lit" && Predicate.isNumber(value.json) && Number.isInteger(value.json)
+      ? value.json
+      : undefined;
+  };
+
+  const perMinute = integer("perMinute");
+  const burst = integer("burst");
+  const burstCount = count("burst");
+
+  if (
+    perMinute === undefined ||
+    count("perMinute") !== 1 ||
+    burstCount > 1 ||
+    (burstCount === 1 && burst === undefined) ||
+    entries.some((entry) => entry.key !== "perMinute" && entry.key !== "burst")
+  )
+    return Result.fail({ _tag: "Unsupported", construct: "a literal RateLimit object" });
+
+  const args = burst === undefined ? { perMinute } : { perMinute, burst };
+
+  return Result.succeed([args]);
 };
 
 const rateLimit = implement(RateLimit, {
- lift: { recognize: recognizeRateLimit },
- // Analyses read the normalized IR and return diagnostics (data, not failures).
- analyze: (ir, index) =>
-  ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
-   if (node._tag !== "Operation") return [];
+  lift: { recognize: recognizeRateLimit },
+  // Analyses read the normalized IR and return diagnostics (data, not failures).
+  analyze: (ir, index) =>
+    ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
+      if (node._tag !== "Operation") return [];
 
-   // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.
-   const limit = dataOf(RateLimit, ir, node.id);
+      // `dataOf` decodes the declarative node with the same schema the compiler derived from `args`.
+      const limit = dataOf(RateLimit, ir, node.id);
 
-   if (Option.isNone(limit)) return [];
+      if (Option.isNone(limit)) return [];
 
-   const [options] = limit.value;
+      const [options] = limit.value;
 
-   const exposed = IRGraph.outgoing(index, node.id, "ExposedAs").some(
-    (edge) => edge.qualifier === "http",
-   );
+      const exposed = IRGraph.outgoing(index, node.id, "ExposedAs").some(
+        (edge) => edge.qualifier === "http",
+      );
 
-   if (!exposed) {
-    return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
-   }
+      if (!exposed) {
+        return [CoreDiagnostics["EFFX9101"].emit({ subject: node.name })];
+      }
 
-   return options.perMinute > 10_000
-    ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
-    : [];
-  }),
+      return options.perMinute > 10_000
+        ? [CoreDiagnostics["EFFX9102"].emit({ subject: node.name, perMinute: options.perMinute })]
+        : [];
+    }),
 });
 
 // An ordinary `Extension`. List it in `effx.config.ts`: the CLI compiles with the built-ins
