@@ -9,8 +9,8 @@ interface AliasEntry {
   readonly replacement: string;
 }
 
-// Run explicitly: `bun --bun vitest run --config scripts/test/lift-execution-custody.config.ts`.
-// No tests execute during module construction: the suite runs real Bun children only while running.
+// Run explicitly: `bun --bun vitest run --config scripts/test/lift-native.config.ts`.
+// No tests execute during module construction: the suites run real Bun children only while running.
 // Aliases are an ordered array (longest first) because vitest's object form lets `@effx/cli`
 // swallow the `@effx/cli/lift-boundaries` prefix.
 const aliases: Array<AliasEntry> = [
@@ -40,6 +40,8 @@ export default defineConfig({
     include: [
       "scripts/test/lift-execution-custody.test.ts",
       "scripts/test/lift-check-native.test.ts",
+      "scripts/test/lift-cli-native.test.ts",
+      "scripts/test/lift-corpus-native.test.ts",
     ],
     fileParallelism: false,
     testTimeout: 60_000,
