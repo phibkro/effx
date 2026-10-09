@@ -86,10 +86,12 @@ describe("effx lift through the installed-style process root (spec 0019 §4)", (
     "prints the refactor patch and leaves the analyzed source untouched",
     () =>
       Effect.gen(function* () {
-        const inline = api.replace(
-          "{ query: ProfileQuery,",
-          "{ query: Schema.Struct({ expand: Schema.optionalKey(Schema.String) }),",
-        );
+        const inline = api
+          .replace(
+            "{ query: ProfileQuery,",
+            "{ query: Schema.Struct({ expand: Schema.optionalKey(Schema.String) }),",
+          )
+          .replace("ProfilePatch, ProfileQuery, ProfileResponse", "ProfilePatch, ProfileResponse");
 
         const fixture = yield* writeProject({ ...miniFiles, "src/api.ts": inline }, ["src/api.ts"]);
         const before = yield* digestTree(fixture.directory);

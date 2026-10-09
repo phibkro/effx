@@ -470,10 +470,13 @@ describe("effx lift --check on a real Bun child (spec 0019 §2.4)", () => {
     "applies verified refactors only in the overlay and refuses a stale analyzed source",
     () =>
       Effect.gen(function* () {
-        const inline = api.replace(
-          "{ query: ProfileQuery,",
-          "{ query: Schema.Struct({ expand: Schema.optionalKey(Schema.String) }),",
-        );
+        // The inline variant also drops the now-unused import: the authored project itself must typecheck.
+        const inline = api
+          .replace(
+            "{ query: ProfileQuery,",
+            "{ query: Schema.Struct({ expand: Schema.optionalKey(Schema.String) }),",
+          )
+          .replace("ProfilePatch, ProfileQuery, ProfileResponse", "ProfilePatch, ProfileResponse");
 
         const fixture = yield* writeProject({ ...miniFiles, "src/api.ts": inline }, ["src/api.ts"]);
         const before = yield* digestTree(fixture.directory);
