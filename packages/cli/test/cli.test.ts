@@ -9,10 +9,10 @@ const fixtureRoot = new URL("../../frontend-ts/test/fixtures/users/", import.met
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const contactProject = new URL(
-  "../../frontend-ts/test/fixtures/rc116/tsconfig.contact.effx.json",
+  "../../frontend-ts/test/fixtures/stable-v4/tsconfig.contact.effx.json",
   import.meta.url,
 ).pathname;
 

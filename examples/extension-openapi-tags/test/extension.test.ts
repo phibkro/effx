@@ -16,7 +16,7 @@ import { deprecatedExtension } from "../deprecated-extension.ts";
 
 const example = new URL("../", import.meta.url).pathname;
 
-const cli = new URL("../../../packages/cli/src/main.ts", import.meta.url).pathname;
+const cli = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
 

@@ -192,7 +192,7 @@ Each annotation maps to a named Effect construct, or is recorded in the IR only.
 | Evaluating access | `@Http.Access` and `@Authorize` are declarations. effx never executes an access value, resolves a credential or chooses a principal (spec 0006). Cedar authorization and leases are deferred (ADR 0007). |
 | Persistence or SQL | **Gap.** Spec 0008 is proposed, not frozen. `STATE.md` parks it. `examples/users` uses an in-memory `Ref` and `HashMap`. SQL itself comes from the Effect packages (`packages/effect/src/sql/` and `packages/sql/*` in the [Effect repository](https://github.com/Effect-TS/effect)); effx generates nothing for it. |
 | Jobs, queues, scheduling | **Gap** in effx: no spec or source. Effect has `Schedule`, `Queue`, `workflow` and `cluster` modules (`packages/effect/src/{Schedule,Queue}.ts`, `packages/effect/src/{workflow,cluster}/`); effx does not generate code for them. |
-| Scaffolding, generators, a test harness | **Gap.** The CLI has four commands: `check`, `build`, `inspect`, `graph` (`packages/cli/src/main.ts`, [CLI](/docs/cli)). |
+| Scaffolding, generators, a test harness | **Gap.** The CLI has four commands: `check`, `build`, `inspect`, `graph` (`scripts/effx.ts`, [CLI](/docs/cli)). |
 | Reimplement the Effect ecosystem | Authentication, persistence, jobs, caching and infrastructure come from existing Effect packages and your layers. Where none exists, the documentation says "gap" (ADR 0012). |
 
 Effect paths above are in the official repository at commit `b5a2d4c1d6`, the clone used to write this page. Status words: **supported** is implemented, **via ecosystem package** is done by an Effect package, **gap** is nothing today.

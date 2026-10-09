@@ -1,0 +1,100 @@
+{
+  "formatVersion": 1,
+  "abiVersion": 1,
+  "abi": {
+    "test_signal_bound": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_mask_member": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "test_selected_member": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "test_set_blocked": {
+      "args": ["i32", "i32"],
+      "returns": "i32"
+    },
+    "test_pending": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_disposition": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_set_disposition": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "test_raise_pending": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_consume_pending": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_epipe": {
+      "args": [],
+      "returns": "i32"
+    },
+    "test_broken_fd": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "test_close": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "test_scope": {
+      "args": ["ptr"],
+      "returns": "i32"
+    }
+  },
+  "exportedFunctions": [
+    "test_broken_fd",
+    "test_close",
+    "test_consume_pending",
+    "test_disposition",
+    "test_epipe",
+    "test_mask_member",
+    "test_pending",
+    "test_raise_pending",
+    "test_scope",
+    "test_selected_member",
+    "test_set_blocked",
+    "test_set_disposition",
+    "test_signal_bound"
+  ],
+  "library": "lsp-sigpipe-test.so",
+  "platform": "linux",
+  "architecture": "x64",
+  "elfClass": 64,
+  "elfMachine": 62,
+  "libc": "glibc",
+  "minimumGlibc": "2.34",
+  "glibcVersions": ["2.2.5", "2.9", "2.32", "2.34"],
+  "neededLibraries": ["libc.so.6"],
+  "byteLength": 14264,
+  "sha256": "c62542dc7fff01966c27f8e51834e59aa9f6dd83b33e3facd6cb0f6b2833d9ee",
+  "source": {
+    "file": "tools/native/lsp-sigpipe-test.c",
+    "byteLength": 4649,
+    "sha256": "265f97075409c0572eb8f8cbacdeaf04c7aa88c3cc1a61b43b1c3f212dd4adc1"
+  },
+  "compiler": {
+    "family": "gcc",
+    "version": "16.2.0",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "toolchain": {
+    "sourceNarHash": "sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=",
+    "binutilsVersion": "2.46",
+    "patchelfVersion": "0.15.2"
+  },
+  "reproducible": true
+}

@@ -6,7 +6,7 @@ Next.js + [Fumadocs](https://fumadocs.dev) site, scaffolded with `create-fumadoc
 | Command (repository root) | Does                                                                                      |
 | ------------------------- | ----------------------------------------------------------------------------------------- |
 | `bun run docs:dev`        | dev server on http://localhost:3000/docs (needs `bun run docs:sync` and `docs:api` once)   |
-| `bun run docs:build`      | `docs:sync` + `docs:api` + `next build` (static export to `apps/docs/out`)                 |
+| `bun run docs:build`      | clears `.next` and `.source`, then `docs:sync` + `docs:api` + `next build` (static export to `apps/docs/out`)                 |
 | `bun run docs:sync`       | renders `docs/decisions` and `docs/specs` into `content/docs/{decisions,specs}`            |
 | `bun run docs:api`        | generates `content/docs/api/**` from JSDoc with `@effect/docgen`                           |
 | `bun run docs:check`      | parses documentation fences and checks their languages with the configured highlighter (also the first step of `bun run check`) |

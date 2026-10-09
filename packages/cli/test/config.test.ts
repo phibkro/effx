@@ -11,7 +11,7 @@ const fixtureRoot = new URL("../../frontend-ts/test/fixtures/users/", import.met
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const configImport = `import { defineConfig } from "${new URL("../src/config.ts", import.meta.url).href}";`;
 
@@ -32,7 +32,7 @@ const fixture = <A, E, R>(use: (dir: string, project: string) => Effect.Effect<A
     const project = path.join(dir, "tsconfig.json");
     yield* fs.writeFileString(
       project,
-      `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/operations.ts"], "effx": { "projectRoot": ".", "outDir": "ts-out", "emit": "handlers", "target": "effect-4.0-rc", "strictAccess": true } }`,
+      `{ "extends": ${yield* encodeJsonString(path.join(fixtureRoot, "tsconfig.json"))}, "include": ["src/operations.ts"], "effx": { "projectRoot": ".", "outDir": "ts-out", "emit": "handlers", "target": "effect-4.0", "strictAccess": true } }`,
     );
 
     return yield* use(dir, project);
@@ -96,7 +96,7 @@ describe("spec 0024 naming config precedence", () => {
           undefined,
           undefined,
           false,
-          "Cli{Key}Problem",
+          { namingProblemIdentifier: "Cli{Key}Problem" },
         );
 
         assert.deepStrictEqual(selected.config.naming, { problemIdentifier: "Cli{Key}Problem" });
@@ -220,7 +220,7 @@ describe("spec 0015 config resolution", () => {
             projectRoot: path.resolve(dir),
             outDir: path.join(dir, "ts-out"),
             emit: "handlers",
-            target: "effect-4.0-rc",
+            target: "effect-4.0",
             strictAccess: true,
           });
           const rooted = path.join(dir, "rooted.json");
@@ -247,7 +247,7 @@ describe("spec 0015 config resolution", () => {
           const overridden = yield* resolveProject(
             project,
             false,
-            "effect-4.0-rc",
+            "effect-4.0",
             "all",
             undefined,
             "cli-out",
@@ -257,7 +257,7 @@ describe("spec 0015 config resolution", () => {
           assert.strictEqual(overridden.tsconfigPath, project);
           assert.strictEqual(overridden.config.outDir, path.resolve("cli-out"));
           assert.strictEqual(overridden.config.emit, "all");
-          assert.strictEqual(overridden.config.target, "effect-4.0-rc");
+          assert.strictEqual(overridden.config.target, "effect-4.0");
           assert.strictEqual(overridden.config.strictAccess, false);
 
           const explicit = yield* resolveProject(

@@ -23,7 +23,7 @@ const usersRoot = `${repoRoot}examples/users/`;
 
 const accessSources = `${repoRoot}ai-docs/src/04_problems-and-access/`;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const goldens = new URL("../../compiler/test/fixtures/cedar/", import.meta.url).pathname;
 

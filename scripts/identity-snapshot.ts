@@ -5,7 +5,7 @@
  *
  *   bun scripts/identity-snapshot.ts <out.json> [extra-cases.json] [--extras-only]
  *
- * Built-in cases cover the users fixture entries, the rc116 split projects and `examples/users`.
+ * Built-in cases cover the users fixture entries, the stable-v4 split projects and `examples/users`.
  * `extra-cases.json` is `[{ name, tsconfigPath, entry?, emit?, target?, strictAccess?, naming? }]` (the mono-web
  * baseline declarations are built this way through a throwaway tsconfig).
  */
@@ -52,19 +52,19 @@ const discover = Effect.gen(function* () {
     });
   }
 
-  const rc = path.join(root, "packages/frontend-ts/test/fixtures/rc116");
+  const stable = path.join(root, "packages/frontend-ts/test/fixtures/stable-v4");
 
   for (const project of ["contract", "handlers", "content-handlers"]) {
-    const tsconfigPath = path.join(rc, "project", project, "tsconfig.effx.json");
+    const tsconfigPath = path.join(stable, "project", project, "tsconfig.effx.json");
 
     if (!(yield* fs.exists(tsconfigPath))) continue;
 
-    for (const file of (yield* fs.readDirectory(path.join(rc, "src"))).toSorted()) {
+    for (const file of (yield* fs.readDirectory(path.join(stable, "src"))).toSorted()) {
       if (!file.endsWith(".effx.ts")) continue;
 
       for (const emit of ["contract", "handlers"] as const) {
         cases.push({
-          name: `rc116/${project}/${file}/${emit}`,
+          name: `stable-v4/${project}/${file}/${emit}`,
           tsconfigPath,
           entry: [`../../src/${file}`],
           emit,
@@ -138,7 +138,7 @@ const ExtraCases = Schema.fromJsonString(
       tsconfigPath: Schema.String,
       entry: Schema.optionalKey(Schema.Array(Schema.String)),
       emit: Schema.optionalKey(Schema.Literals(["contract", "handlers", "all"])),
-      target: Schema.optionalKey(Schema.Literals(["effect-4.0", "effect-4.0-rc"])),
+      target: Schema.optionalKey(Schema.Literals(["effect-4.0"])),
       strictAccess: Schema.optionalKey(Schema.Boolean),
       projectRoot: Schema.optionalKey(Schema.String),
       naming: Schema.optionalKey(Naming),

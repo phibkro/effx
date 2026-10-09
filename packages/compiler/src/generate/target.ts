@@ -14,7 +14,7 @@ const modules = {
   sql: "effect/sql",
 } as const;
 
-const moduleNames = Object.values(modules);
+const moduleNames = new Set<string>(Object.values(modules));
 
 /** Check actual installed exports without rewriting application module names. */
 const targetModule = (context: GenerationContext, module: string): string | undefined => {
@@ -22,7 +22,7 @@ const targetModule = (context: GenerationContext, module: string): string | unde
     return context.resolveEffectModule(module) ? module : undefined;
   }
 
-  return moduleNames.some((name) => name === module) ? module : undefined;
+  return moduleNames.has(module) ? module : undefined;
 };
 
 export const Imports = (_context: GenerationContext = defaultGenerationContext) => modules;

@@ -1,7 +1,7 @@
 /**
  * @title Registering extensions in effx.config.ts
  *
- * The CLI evaluates exactly one user module: the selected config. It default-exports
+ * The CLI evaluates the selected config and its imports. It default-exports
  * `defineConfig(...)` from `@effx/cli/config`. A hand-written `Extension` and an extension built
  * from typed definitions register the same way.
  */
@@ -20,6 +20,13 @@ export default defineConfig({
   // Semantic input (spec 0024 §5): both emit passes must use the same data pattern.
   naming: { problemIdentifier: "{Group}{Key}Problem" },
 
+  // Cover all otherwise-unobserved executable routes, not just dynamic imports.
+  // Paths resolve beside this config. Launch declarations add pre-import coverage.
+  // This example has local relative extension helpers; package aliases need their own routes.
+  executableCoverage: {
+    files: ["package.json"],
+    directories: [{ path: ".", recursive: false }],
+  },
   // An array APPENDS to the built-in extensions. Pass a callback instead to see the built-ins
   // and return the complete, ordered list: `(builtin) => [...builtin, auditExtension, appExtension]`.
   extensions: [auditExtension, appExtension],

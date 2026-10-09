@@ -62,7 +62,7 @@ describe("native Git hooks", () => {
       const installer = join(scriptDirectory, "install-git-hooks.ts");
       writeFileSync(
         join(repository, ".oxlintrc.json"),
-        '{"ignorePatterns":["packages/frontend-ts/test/fixtures/rc116/**"],"rules":{"no-debugger":"error"}}\n',
+        '{"ignorePatterns":["packages/frontend-ts/test/fixtures/stable-v4/**"],"rules":{"no-debugger":"error"}}\n',
       );
       writeFileSync(join(repository, ".oxfmtrc.json"), '{"ignorePatterns":["docs/research/**"]}\n');
 
@@ -186,13 +186,23 @@ describe("native Git hooks", () => {
 
       expect(committed.exitCode).toBe(0);
       expect(existsSync(marker)).toBe(true);
-      const fixtureDirectory = join(linkedWorktree, "packages/frontend-ts/test/fixtures/rc116/src");
+
+      const fixtureDirectory = join(
+        linkedWorktree,
+        "packages/frontend-ts/test/fixtures/stable-v4/src",
+      );
+
       mkdirSync(fixtureDirectory, { recursive: true });
+
       const ignoredFixture = join(fixtureDirectory, "profile-openapi.spec.ts");
       writeFileSync(ignoredFixture, "export   const profile='fixture'\n");
 
       const stagedUnformattedFixture = spawnSync({
-        cmd: ["git", "add", "packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts"],
+        cmd: [
+          "git",
+          "add",
+          "packages/frontend-ts/test/fixtures/stable-v4/src/profile-openapi.spec.ts",
+        ],
         cwd: linkedWorktree,
         stdout: "pipe",
         stderr: "pipe",
@@ -215,7 +225,11 @@ describe("native Git hooks", () => {
       writeFileSync(ignoredFixture, 'export const profile = "fixture";\n');
 
       const stagedIgnoredFixture = spawnSync({
-        cmd: ["git", "add", "packages/frontend-ts/test/fixtures/rc116/src/profile-openapi.spec.ts"],
+        cmd: [
+          "git",
+          "add",
+          "packages/frontend-ts/test/fixtures/stable-v4/src/profile-openapi.spec.ts",
+        ],
         cwd: linkedWorktree,
         stdout: "pipe",
         stderr: "pipe",

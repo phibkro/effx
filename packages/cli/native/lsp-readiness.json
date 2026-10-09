@@ -1,0 +1,100 @@
+{
+  "formatVersion": 1,
+  "abiVersion": 2,
+  "abi": {
+    "ready_now": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "fd_flags": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "poll_in": {
+      "args": [],
+      "returns": "i32"
+    },
+    "poll_hup": {
+      "args": [],
+      "returns": "i32"
+    },
+    "poll_err": {
+      "args": [],
+      "returns": "i32"
+    },
+    "poll_invalid": {
+      "args": [],
+      "returns": "i32"
+    },
+    "pollfd_size": {
+      "args": [],
+      "returns": "i32"
+    },
+    "output_ready_now": {
+      "args": ["i32"],
+      "returns": "i32"
+    },
+    "poll_out": {
+      "args": [],
+      "returns": "i32"
+    },
+    "open_output_now": {
+      "args": [],
+      "returns": "i32"
+    },
+    "socket_write_now": {
+      "args": ["i32", "ptr", "u32"],
+      "returns": "i32"
+    },
+    "fd_write_now": {
+      "args": ["i32", "ptr", "u32"],
+      "returns": "i32"
+    },
+    "io_would_block": {
+      "args": ["i32"],
+      "returns": "i32"
+    }
+  },
+  "exportedFunctions": [
+    "fd_flags",
+    "fd_write_now",
+    "io_would_block",
+    "open_output_now",
+    "output_ready_now",
+    "poll_err",
+    "poll_hup",
+    "poll_in",
+    "poll_invalid",
+    "poll_out",
+    "pollfd_size",
+    "ready_now",
+    "socket_write_now"
+  ],
+  "library": "lsp-readiness.so",
+  "platform": "linux",
+  "architecture": "x64",
+  "elfClass": 64,
+  "elfMachine": 62,
+  "libc": "glibc",
+  "minimumGlibc": "2.32",
+  "glibcVersions": ["2.2.5", "2.32"],
+  "neededLibraries": ["libc.so.6"],
+  "byteLength": 14272,
+  "sha256": "db8843396d90597318a5eacdfb7a11cdee22df912dae1e2ee2c7eb99f0e49d3c",
+  "source": {
+    "file": "tools/native/lsp-readiness.c",
+    "byteLength": 4464,
+    "sha256": "8fad9c4eb545bb136b3ef655c61b693ee9a0da0833b76a4913f5d75e764a1b67"
+  },
+  "compiler": {
+    "family": "gcc",
+    "version": "16.2.0",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "toolchain": {
+    "sourceNarHash": "sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=",
+    "binutilsVersion": "2.46",
+    "patchelfVersion": "0.15.2"
+  },
+  "reproducible": true
+}

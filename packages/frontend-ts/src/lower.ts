@@ -11,7 +11,6 @@ import {
 import {
   type Resolver,
   exportedSymbol,
-  httpApiKind,
   isFromRuntime,
   isHeadersMarked,
   isSchemaValueType,
@@ -607,7 +606,7 @@ export const lowerExpression = (
       if (
         exported === undefined ||
         exported.ref.member !== undefined ||
-        httpApiKind(type) !== "HttpApi"
+        type.getProperty("~effect/http-api/HttpApi") === undefined
       )
         return reject(declarationId, node, { _tag: "HttpRoot" });
 

@@ -9,6 +9,11 @@ export interface EffxConfig {
   readonly strictAccess?: boolean;
   /** Semantic input: use the same pattern in contract and handlers passes. */
   readonly naming?: { readonly problemIdentifier?: string };
+  /** Complete logical executable routes relative to this config; observation, not a sandbox. */
+  readonly executableCoverage?: {
+    readonly files?: ReadonlyArray<string>;
+    readonly directories?: ReadonlyArray<{ readonly path: string; readonly recursive: boolean }>;
+  };
   /** An array appends to built-ins; a callback replaces the entire ordered list. */
   readonly extensions?:
     | ReadonlyArray<Extension>

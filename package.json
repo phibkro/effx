@@ -17,21 +17,22 @@
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "test": "bun --bun vitest run && bun run --cwd tools/oxlint test",
-    "effx": "bun packages/cli/src/main.ts",
+    "effx": "bun scripts/effx.ts",
     "docs:dev": "bun run --cwd apps/docs dev",
     "docs:api": "bun scripts/docs-api.ts",
     "docs:sync": "bun scripts/docs-sync.ts",
     "docs:check": "bun run --cwd apps/docs check:fences",
-    "docs:build": "bun run docs:sync && bun run docs:api && bun run --cwd apps/docs build",
+    "docs:build": "rm -rf apps/docs/.next apps/docs/.source && bun run docs:sync && bun run docs:api && bun run --cwd apps/docs build",
     "ai-docs": "bun scripts/ai-docs.ts",
     "ai-docs:check": "bun scripts/ai-docs.ts --check",
     "pack": "bun run ai-docs && bun run --cwd packages/diagnostics build && bun run --cwd packages/runtime build && bun run --cwd packages/ir build && bun run --cwd packages/compiler build && bun run --cwd packages/persistence build && bun run --cwd packages/cli build && bun scripts/pack.ts",
     "check": "bun run docs:check && bun run typecheck && bun run lint && bun run fmt:check && bun run ai-docs:check && bun run test",
-    "gate": "bun run --cwd examples/users effx:build && bun run --cwd examples/persistence build && bun install --frozen-lockfile --cwd packages/frontend-ts/test/fixtures/rc116 && bun run check && bun run effect:diagnostics && bun run --cwd packages/frontend-ts/test/fixtures/rc116 typecheck && bun run docs:build && bun run pack && bunx changeset status",
+    "gate": "bash scripts/install-public.sh . --frozen-lockfile && bun run --cwd examples/users effx:build && bun run --cwd examples/persistence build && bash scripts/install-public.sh packages/frontend-ts/test/fixtures/stable-v4 --frozen-lockfile --ignore-scripts && bun run check && bun run effect:diagnostics && bun run --cwd packages/frontend-ts/test/fixtures/stable-v4 typecheck && bun run docs:build && bun run pack && bun scripts/stable-v4-smoke.ts && bun scripts/watch-editor-smoke.ts $(git rev-parse HEAD) && bunx changeset status",
     "prepare": "effect-tsgo patch --typescript --oxlint && bun scripts/install-git-hooks.ts"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0",
+    "@effx/cli": "workspace:*",
     "effect": "4.0.0"
   },
   "devDependencies": {
@@ -55,7 +56,8 @@
     "oxlint-tsgolint": "7.0.2003",
     "tsx": "^4.23.15",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "vscode-languageserver-protocol": "3.18.4"
   },
   "packageManager": "bun@1.3.13",
   "patchedDependencies": {

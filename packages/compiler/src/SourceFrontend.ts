@@ -10,6 +10,17 @@ import type { CompilerFault } from "./CompilerFault.ts";
  */
 export type DefinitionEntry = Pick<DefinitionData, "plan" | "target">;
 
+/** A logical dependency or resolution probe consulted by one analysis. */
+export interface ObservedInput {
+  readonly kind: "file" | "directory" | "missing" | "symlink";
+  readonly path: string;
+  /** True only when the host enumerated this directory's immediate membership.
+   * Absence/false denotes an existence or identity probe, not recursive authority.
+   * A later membership observation may upgrade an earlier probe for the same path.
+   */
+  readonly membership?: boolean;
+}
+
 /**
  * Per-call frontend input that is not serializable project configuration.
  *
@@ -23,6 +34,23 @@ export interface AnalyzeOptions {
    * 0015 takes the same path, by the name it carries.
    */
   readonly definitions?: ReadonlyMap<string, DefinitionEntry>;
+  /** Absolute logical source paths; undefined masks a file as absent. Never persisted.
+   * The caller excludes executable and selected JSON configuration overlays.
+   * Each execution copies this input before reading the saved project.
+   */
+  readonly sources?: ReadonlyMap<string, string | undefined>;
+  /** Synchronous observation only; no filesystem mutation or application evaluation. */
+  readonly onObserve?: (input: ObservedInput) => void;
+  /** Captures each successfully consulted absolute source path and immutable text once.
+   * Includes saved configuration and logical/physical paths actually read by the host.
+   * Capture is synchronous; a throwing callback fails through CompilerFault. No ts objects escape.
+   */
+  readonly onReadSource?: (path: string, text: string) => void;
+  /** Observes selected absolute declaration roots once before program creation.
+   * Uses actual tsconfig membership or explicit entry selection, not imported dependencies.
+   * Synchronous observation only; throwing fails through CompilerFault. Never persisted.
+   */
+  readonly onRootSources?: (paths: ReadonlyArray<string>) => void;
 }
 
 /**

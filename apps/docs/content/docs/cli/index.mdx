@@ -1,14 +1,16 @@
 ---
 title: CLI overview
-description: The effx command line, shared compiler flags, and config precedence.
+description: One-shot compiler commands, saved-input watch checks, and stdio editor diagnostics.
 ---
 
-`effx` has four commands that run the same compiler pipeline over a tsconfig project: `check`, `build`, `inspect` and `graph`. All four accept the same seven shared flags (`--project`, `--config`, `--out-dir`, `--strict-access`, `--target`, `--emit`, `--naming-problem-identifier`). `effx surface check` and `effx cedar` are described in the table below.
+`effx check`, `build`, `inspect`, and `graph` run the same compiler pipeline over a tsconfig project.
+`dev` repeats checks for saved inputs; `lsp` checks source buffers for one editor project.
+The long-running commands use the same compiler meaning and add explicit lifetime and executable-coverage policy.
 
-Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
+Source: `scripts/effx.ts`, `packages/cli/src/commands.ts`, `docs/specs/0015-config-and-extensions.md`.
 
 <Callout type="warn">
-  The CLI is not published. Run it from the monorepo: `bun run effx <command>` at the repository root (root script `effx` is `bun packages/cli/src/main.ts`). See [Getting started](/docs/getting-started).
+  The CLI is not published. Run it from the monorepo: `bun run effx <command>` at the repository root (root script `effx` is `bun scripts/effx.ts`). See [Getting started](/docs/getting-started).
 </Callout>
 
 ## Commands
@@ -17,6 +19,8 @@ Source: `packages/cli/src/main.ts`, `packages/cli/src/commands.ts`, `docs/specs/
 | --- | --- | --- | --- |
 | `effx check` | Diagnose without writing | no | [check](/docs/cli/check) |
 | `effx build` | Write selected projections (default: all) | `.effx/ir.json`, `.effx/manifest.json`, `.effx/surface.json`, generated files | [build](/docs/cli/build) |
+| `effx dev [--build]` | Check saved inputs until stopped; build only with explicit write intent | no by default; normal build artifacts with `--build` | [dev](/docs/cli/dev) |
+| `effx lsp` | Stdio diagnostics for one selected project and unsaved source buffers | no compiler artifacts | [lsp](/docs/cli/lsp) |
 | `effx inspect <name>` | Show one operation's contract and exposures | no | [inspect](/docs/cli/inspect) |
 | `effx graph [name]` | Print a Mermaid graph, optionally from one node | no | [graph](/docs/cli/graph) |
 | `effx surface check --against <file>` | Verify an Alchemy Worker program wires exactly the generated handlers the surface requires (spec 0021). Compiles the project first and exits 1 on errors. | no | none yet |
@@ -30,7 +34,10 @@ Source for the `surface check` row: `main.ts` description and `packages/cli/src/
 
 ## Flags
 
-`main.ts` defines these flags once, as shared flags on the root command (`Command.withSharedFlags`). Every subcommand, including `check`, `build`, `inspect` and `graph`, receives the same set and resolves them with the same function (`resolveProject` in `packages/cli/src/commands.ts`). Every flag is optional.
+The shared compilation flags below retain the same precedence for one-shot commands and sessions.
+`dev` adds `--build`; `lsp` adds launch-time `--trust-config`.
+Both accept repeatable `--exec-file` and `--exec-dir` inputs.
+See [dev coverage](/docs/cli/dev#executable-coverage) and [LSP trust](/docs/cli/lsp#project-selection-and-trust) before you use executable config.
 
 | Flag | Type | Applies to | Precedence | Default when nothing sets it |
 | --- | --- | --- | --- | --- |
@@ -38,11 +45,11 @@ Source for the `surface check` row: `main.ts` description and `packages/cli/src/
 | `--config` | string (path to a config module) | all four | Highest. Beats discovery. | `effx.config.ts` beside the selected tsconfig, if it exists; otherwise no config |
 | `--out-dir` | string (path) | all four | Highest. Beats config `outDir` and the tsconfig `effx.outDir`. | `<tsconfig dir>/.effx/generated` |
 | `--strict-access` / `--no-strict-access` | boolean | all four | Highest. An explicit `--no-strict-access` beats a config or tsconfig `true`. | `false` |
-| `--target` | one of `effect-4.0`, `effect-4.0-rc` | all four | Highest. Beats config `target` and tsconfig `effx.target`. | resolved from the installed Effect version (see below) |
+| `--target` | `effect-4.0` only | all four | Cannot override an unsupported installed Effect version. | resolved from the installed stable Effect version |
 | `--emit` | one of `contract`, `handlers`, `all` | all four | Highest. Beats config `emit` and tsconfig `effx.emit`. | `all` |
 | `--naming-problem-identifier` | string (declared pattern) | all compile commands | Highest. Beats config `naming.problemIdentifier` and tsconfig `effx.naming.problemIdentifier`. | `<endpointKey>Problem` |
 
-`inspect` and `graph` accept all seven flags and resolve them exactly as `check` and `build` do. `--strict-access` changes diagnostic severity; `--naming-problem-identifier` changes problem-contract semantics. See [Problems and access](/docs/authoring/problems-and-access) for the pattern rules.
+`inspect` and `graph` accept all seven flags and resolve them exactly as `check` and `build` do. For example `inspect User.Get --strict-access` and `graph --emit contract` both exit 0 (observed by running `bun scripts/effx.ts` in `examples/users`). `--strict-access` changes diagnostic severity, and `inspect` and `graph` print no diagnostics, so it does not change their output. `--naming-problem-identifier` changes problem-contract semantics; see [Problems and access](/docs/authoring/problems-and-access) for the pattern rules. `check --strict-access` on the same project turns the two `EFFX2504` warnings into errors and exits 1, and `check --no-strict-access` keeps them as warnings and exits 0 (observed).
 
 Positional arguments:
 
@@ -57,7 +64,7 @@ The `--target` and `--emit` values come from the `TargetProfile` and `EmitMode` 
 
 | Schema | Literals |
 | --- | --- |
-| `TargetProfile` | `effect-4.0`, `effect-4.0-rc` |
+| `TargetProfile` | `effect-4.0` |
 | `EmitMode` | `contract`, `handlers`, `all` |
 
 Both `--emit=contract` and `--emit contract` forms are exercised by the CLI tests. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets) for what the values mean.
@@ -67,7 +74,7 @@ Both `--emit=contract` and `--emit contract` forms are exercised by the CLI test
 | Value | Result | Source |
 | --- | --- | --- |
 | emit | `all` | `emit ?? config?.emit ?? effx?.emit ?? "all"` in `resolveProject`, `packages/cli/src/commands.ts` |
-| target | Taken from the installed `effect/package.json` that the target project resolves. `4.0.0` selects `effect-4.0`. `4.0.0-rc.<n>` selects `effect-4.0-rc`. A missing or unsupported package is an `EFFX2701` diagnostic. | `docs/specs/0010-target-profiles-and-emit-modes.md`, `packages/frontend-ts/src/project.ts` |
+| target | The target project's installed stable Effect `>=4.0.0 <5` selects `effect-4.0`. Prerelease, missing, or unsupported packages produce `EFFX2701`. | Spec 0010 stable-only amendment, `packages/frontend-ts/src/project.ts` |
 | strict access | `false`. Access warnings do not block generation. | `docs/specs/0006-access-contract-extension.md`, `resolveProject` |
 
 ## Project config
@@ -81,7 +88,7 @@ export default defineConfig({
   project: "tsconfig.effx.json",
   outDir: ".effx/generated",
   emit: "contract",
-  target: "effect-4.0-rc",
+  target: "effect-4.0",
   strictAccess: true,
   naming: { problemIdentifier: "{Group}{Key}Problem" },
 });
@@ -101,7 +108,10 @@ export default defineConfig({
 
 Discovery looks beside the tsconfig selected by the flag or the default. If the discovered config sets another `project`, the CLI does not look for a second config beside that project. When `--project` is given, the config `project` is ignored.
 
-The config module is the only user module the CLI evaluates, once per command invocation. The CLI never imports application source (spec 0015, `loadConfig` in `commands.ts`).
+The CLI evaluates the selected config and its imports, not application operation modules.
+A long-running session retains that executable graph until restart.
+LSP requires explicit `--config` or launch-time `--trust-config` before discovered config executes.
+Coverage is conditional on complete caller declarations; it is not a sandbox.
 
 ### Precedence
 
@@ -131,7 +141,11 @@ The `.effx` directory that holds `ir.json`, `manifest.json` and `surface.json` i
 
 ### Extensions and generators
 
-The config can also set `extensions` and `generators`. These have no CLI flags. A config `extensions` array is appended to the built-in extensions. A callback receives the built-ins and returns the whole ordered list. `generators` toggles (`http`, `rpc`, `cli`, `client`, `foldkit`) switch off only the matching built-in file generator. All four compile commands use the resulting extension list, so a custom extension's analyses run in `check`, `inspect` and `graph` as well as `build`. See [Extensions](/docs/extensions) for the authoring guide.
+The config can also set `extensions` and `generators`. These have no CLI flags. A config `extensions` array is appended to the built-in extensions. A callback receives the built-ins and returns the whole ordered list. `generators` toggles (`http`, `rpc`, `cli`, `client`, `foldkit`) switch off only the matching built-in file generator. All compilation paths use the resulting extension list. See [Extensions](/docs/extensions) for the authoring guide.
+
+For sessions, `executableCoverage` supplies files and directories relative to the config.
+Launch declarations resolve from startup cwd and merge by union while retaining logical aliases.
+See [Executable coverage](/docs/cli/dev#executable-coverage) for the exact shape, static package-link examples, and completeness limitation.
 
 ## Exit behaviour
 
@@ -148,4 +162,6 @@ Invalid `--target` or `--emit` values fail at the CLI boundary, before the compi
 
 ## Output goes to stdout
 
-Diagnostics, the summary, `inspect` text and `graph` text are all written with the `Console` service. The format is described on each command page and in [Diagnostics](/docs/diagnostics).
+One-shot diagnostics, the summary, `inspect` text, and `graph` text use stdout.
+`dev` prints complete cycle batches. LSP stdout contains only framed JSON-RPC; operational output uses stderr or protocol logs.
+See [Diagnostics](/docs/diagnostics) for the shared diagnostic data.

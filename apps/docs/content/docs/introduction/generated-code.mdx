@@ -76,7 +76,7 @@ The generated group is a value you could have written yourself. Handlers receive
 
 ## Ejecting
 
-Generated code stays readable and ejectable (ADR 0012, "Consequences"). There is no `eject` command in the CLI (`packages/cli/src/main.ts` has `check`, `build`, `inspect`, `graph`). Ejecting is a version-control decision:
+Generated code stays readable and ejectable (ADR 0012, "Consequences"). There is no `eject` command in the CLI (`scripts/effx.ts` has `check`, `build`, `inspect`, `graph`). Ejecting is a version-control decision:
 
 | Step | Why it works |
 | --- | --- |
@@ -88,4 +88,4 @@ Two limits to know. Your handler module still imports the decorators from `@effx
 
 ## Targets
 
-Generated imports depend on the target Effect profile. Stable `effect-4.0` uses `effect/http-api`. The release-candidate profile `effect-4.0-rc` uses `effect/unstable/httpapi`. Source: `packages/compiler/src/generate/target.ts`. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets).
+Generated imports use the sole stable `effect-4.0` target and native `effect/http-api` paths. Prerelease Effect targets are not supported. Source: `packages/compiler/src/generate/target.ts`. See [Emit modes and targets](/docs/concepts/emit-modes-and-targets).

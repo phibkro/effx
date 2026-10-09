@@ -30,46 +30,83 @@ Schema-defined semantic IR, analyses read the IR graph, generators emit ordinary
 Rules: native Effect first; pure total transformations stay plain functions; no `async/await`;
 no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServices` only at
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
-`effect/cli` is bound only in `packages/cli/src/main.ts` with a file-level diagnostics directive.
+`effect/cli` is bound in the portable command graph `packages/cli/src/main.ts`.
+The sole process root `scripts/effx.ts` provides native capabilities and runs it.
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
+EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for installed consumers
+`scripts/watch-editor-smoke.ts` and `scripts/stable-v4-smoke.ts`. The caller Scope
+owns every child and temporary project. Child output payloads are not logged.
+The extended version/scope/verification record is in `docs/research/0018-watch-editor-design.md` §6.
+EX-0023 also owns scripts/test/lsp-linux.test.ts, lsp-linux-extra.test.ts and
+lsp-linux-sigpipe.test.ts for scoped native-host peer invocation. This does not
+grant process APIs to portable product/session code.
 `effect/sql` and `@effect/sql-pglite` are bound only in the reference adapter/database/harness modules of `examples/persistence`; file-level directives name EX-0022, recorded in `docs/research/persistence-0022-evidence.md`. These mandated native SQL APIs remain annotated unstable in Effect 4.0.0; they never enter the persistence compiler or generated port.
+
+EX-0030 records the pinned maintained `vscode-jsonrpc` ABI, not permission to
+override the hard ban on own Node imports/types or ambient Node authority in packages.
+The previous package-Node exception wording was withdrawn by the director on
+2026-10-06. A real process root outside packages must supply owned Effect-facing
+IO/liveness and the single scoped callback bridge; native backend acceptance is pending.
+EX-0031 records native sequential filesystem observation instead of the installed
+unbounded push-watch backend. Both open records, exact versions, tests and retirement
+triggers live in `docs/research/0018-watch-editor-design.md` §6. They are not verified
+until the real boundary and cleanup tests pass. No global Bun resolver hook is permitted.
+EX-0032 permits the installed TypeScript 6.0.3 runtime-exported `matchFiles` ABI
+only inside `packages/frontend-ts/src/ts.ts`. It preserves native include/exclude
+semantics for virtual source membership without a second glob implementation.
+The runtime export is guarded; its local ABI assertion and retirement are recorded
+in the same design evidence. No TypeScript object crosses the frontend service.
+EX-0033 records read-only evaluated module-cache inventory data, not authority for
+`node:module` inside a package. Native cache acquisition must belong to the same
+outside-packages process root and supply a narrow inventory capability. Physical
+keys supplement complete caller-declared logical coverage; they are neither full
+provenance nor a sandbox. The legacy package acquisition remains unaccepted.
+EX-0035 owns the approved qualified Linux LSP root boundary in scripts/lsp-linux.ts
+and its trusted build-time readiness asset, not package-owned native imports.
+Its test-only scope includes scripts/packed-lsp-stdout.ts, scripts/test/lsp-linux-extra.*
+and lsp-linux-sigpipe.* plus tools/native/lsp-sigpipe-test.c and its test-assets.
+EX-0036 owns unstable Effect ChildProcess only in scripts/build-lsp-native.ts
+and scripts/build-lsp-sigpipe-test.ts for trusted build-time artifacts.
+Both open records, examined versions, verification and retirement triggers live
+in docs/research/0018-watch-editor-design.md §10. No implementation gate is claimed.
+EX-0034 remains reserved for the separate 0019 lift reflection boundary.
 
 ## Commands
 
 Effect lint plugin pin: `tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e.tgz` is built from source at public commit `2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e` (package version `0.1.0`); it is **not** the npm-published `@phibkro/oxlint-effect-plugin@0.1.0` artifact, even though both report version `0.1.0`. Reason: npm's `0.1.0` has `peerDependencies.oxlint: "1.76.0"`, which does not satisfy the repository's Oxlint `1.86.0`; the tarball's embedded `package.json` has `peerDependencies.oxlint: "^1.56.0"`, which does. MIT; identity and integrity (name, version, `sha256` of the tarball bytes, peer range) are checked by `tools/conventions/tests/vendor-manifest.test.ts` against `tools/vendor/manifest.json`. Replace the tarball when an npm release with a compatible peer range exists.
 
-| Task               | Command                                                                                                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| typecheck          | `bun run typecheck` (TypeScript diagnostics)                                                                                                                                  |
-| Effect diagnostics | `bun run effect:diagnostics` (Effect-only diagnostics)                                                                                                                        |
-| lint               | `bun run lint`                                                                                                                                                                |
-| format             | `bun run fmt` (check: `bun run fmt:check`)                                                                                                                                    |
-| tests              | `bun run test` (Vitest suites plus the Oxlint RuleTester suite)                                                                                                               |
-| fast checks        | `bun run check` (includes `ai-docs:check`)                                                                                                                                    |
-| CI / landing gate  | `bun run gate` (the one ordered gate list used by Check and local landings)                                                                                                   |
-| docs site          | `bun run docs:dev`; `bun run docs:build` (sync + API + static export to `apps/docs/out`; deployed to GitHub Pages by `.github/workflows/docs.yml`, see `apps/docs/README.md`) |
-| API reference      | `bun run docs:api` (`@effect/docgen`; fails on a broken `@example`)                                                                                                           |
-| AI docs            | `bun run ai-docs` regenerates `LLMS.md`; `bun run ai-docs:check` fails on drift                                                                                               |
+| Task               | Command                                                                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| typecheck          | `bun run typecheck` (TypeScript diagnostics)                                                                                                                                                                  |
+| Effect diagnostics | `bun run effect:diagnostics` (Effect-only diagnostics)                                                                                                                                                        |
+| lint               | `bun run lint`                                                                                                                                                                                                |
+| format             | `bun run fmt` (check: `bun run fmt:check`)                                                                                                                                                                    |
+| tests              | `bun run test` (Vitest suites plus the Oxlint RuleTester suite)                                                                                                                                               |
+| fast checks        | `bun run check` (includes `ai-docs:check`)                                                                                                                                                                    |
+| CI / landing gate  | `bun run gate` (the one ordered gate list used by Check and local landings)                                                                                                                                   |
+| docs site          | `bun run docs:dev`; `bun run docs:build` (clears stale `.next`/`.source`, sync + API + static export to `apps/docs/out`; deployed to GitHub Pages by `.github/workflows/docs.yml`, see `apps/docs/README.md`) |
+| API reference      | `bun run docs:api` (`@effect/docgen`; fails on a broken `@example`)                                                                                                                                           |
+| AI docs            | `bun run ai-docs` regenerates `LLMS.md`; `bun run ai-docs:check` fails on drift                                                                                                                               |
 
-Before any fast-forward merge to `main`, run `bun install --frozen-lockfile` on the merged tree. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
+Before any fast-forward merge to `main`, install the merged tree frozen through `bash scripts/install-public.sh . --frozen-lockfile` (CI: `.github/actions/public-install`). That boundary replaces the child environment, uses a private home, cache and empty user config, the public registry and `--no-env-file`, and refuses project-owned `.npmrc`/`bunfig.toml`; it never logs resolver output. If `bun.lock` conflicts, apply package manifest changes and regenerate the lock with `bun install`; never hand-merge lockfile contents.
 
 Run `bun run gate` on the committed tree before landing. Check calls that same script.
-The rc.116 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
+The stable Effect 4 fixture typecheck first generates Profile contract and handler projections in separate ignored projects.
 Each project owns its output and manifest. `cmp` checks the fresh contract against the tracked golden and does not rewrite it.
 
 ## Package map
 
-| Package                                      | Role                                                                                                                                     | Depends on                         |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                     | effect                             |
-| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                            | effect                             |
-| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations, pipeline, lift core       | ir, runtime, diagnostics           |
-| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                 | compiler, runtime                  |
-| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                 | effect, diagnostics                |
-| `packages/cli` (`@effx/cli`)                 | `effx check/build/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation     | compiler, frontend-ts, diagnostics |
-| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI | compiler, runtime, ir              |
-| `examples/users`                             | the User slice from the research report                                                                                                  | runtime                            |
-| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                     | generated pages                    |
+| Package                                      | Role                                                                                                                                         | Depends on                         |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `packages/diagnostics` (`@effx/diagnostics`) | Schema-defined diagnostic entries, typed factories, duplicate-safe registry and shared Markdown renderer (spec 0016)                         | effect                             |
+| `packages/ir` (`@effx/ir`)                   | Schema-defined IR, StableId, normalize, canonical JSON + hash, graph index, Arbitrary adapter                                                | effect                             |
+| `packages/compiler` (`@effx/compiler`)       | `Diagnostic`, distribution registry, `StageResult`, `SourceFrontend`, `Extension`, annotation implementations, pipeline and lift core        | ir, runtime, diagnostics           |
+| `packages/frontend-ts` (`@effx/frontend-ts`) | TypeScript 6 compiler-API frontend producing `Collected`                                                                                     | compiler, runtime                  |
+| `packages/runtime` (`@effx/runtime`)         | standards-compatible decorators and builders; runtime-owned annotation-definition diagnostic entries; source syntax only                     | effect, diagnostics                |
+| `packages/cli` (`@effx/cli`)                 | `effx check/build/dev/lsp/inspect/graph/explain/surface check/cedar` composition root; explain is offline without implicit config evaluation | compiler, frontend-ts, diagnostics |
+| `packages/persistence` (`@effx/persistence`) | Optional `Persist.Port` syntax/compiler extension, generated leaf ports and adapter conformance suites (spec 0022); no SQL or runtime DI     | compiler, runtime, ir              |
+| `examples/users`                             | the User slice from the research report                                                                                                      | runtime                            |
+| `apps/docs`                                  | Fumadocs (Next.js) site; not an Effect program, so oxlint/oxfmt ignore it (`docs:build` is its gate)                                         | generated pages                    |
 
 Tests live in `packages/*/test/**/*.test.ts` and use `@effect/vitest` (`it.effect`). Files using
 TC39 decorators are lowered by TypeScript 6 in `vitest.config.ts` (oxc cannot lower them yet).

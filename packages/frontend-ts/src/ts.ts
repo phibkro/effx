@@ -3,10 +3,41 @@
  * this package receives `ts` values through these helpers and never lets them escape `analyze`.
  */
 import ts from "@typescript/typescript6";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 import { CompilerFault } from "@effx/compiler";
 
 export { ts };
+
+type MatchFiles = (
+  path: string,
+  extensions: readonly string[] | undefined,
+  excludes: readonly string[] | undefined,
+  includes: readonly string[] | undefined,
+  useCaseSensitiveFileNames: boolean,
+  currentDirectory: string,
+  depth: number | undefined,
+  getFileSystemEntries: (path: string) => {
+    readonly files: readonly string[];
+    readonly directories: readonly string[];
+  },
+  realpath: (path: string) => string,
+) => string[];
+
+/**
+ * EX-0032: installed TS 6.0.3 exports matchFiles but omits it from its public declarations.
+ * lib/typescript.js:8612 uses this exact ABI for sys.readDirectory; :22513-22559
+ * implements the native include/exclude, depth and canonical visited-path rules.
+ * This assertion describes that single ABI, not input decoding or Effect channels.
+ * Retire when TS exposes a typed matcher or a public snapshot enumeration host.
+ */
+export const matchFiles = (...args: Parameters<MatchFiles>): string[] => {
+  if (!Predicate.hasProperty(ts, "matchFiles") || !Predicate.isFunction(ts.matchFiles))
+    throw new Error("TypeScript matchFiles ABI is unavailable");
+
+  // SAFETY: EX-0032 pins this guarded runtime function to TS 6.0.3 sys.readDirectory
+  // and its installed matchFiles implementation; only the omitted ABI is asserted.
+  return (ts.matchFiles as MatchFiles)(...args);
+};
 
 /** Runs a synchronous compiler-API thunk, turning any throw into a `CompilerFault`. */
 export const tryTs = <A>(stage: string, thunk: () => A): Effect.Effect<A, CompilerFault> =>

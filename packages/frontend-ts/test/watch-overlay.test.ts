@@ -1,0 +1,724 @@
+import { BunServices } from "@effect/platform-bun";
+import { assert, describe, it } from "@effect/vitest";
+import { expectTypeOf } from "vitest";
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schema } from "effect";
+import {
+  type AnalyzeOptions,
+  type Collected,
+  type CompilerFault,
+  type CompileResult,
+  type ObservedInput,
+  type ProjectConfig,
+  Extensions,
+  SourceFrontend,
+  compile,
+  AnnotationArg,
+  SchemaArg,
+} from "@effx/compiler";
+import { canonical } from "@effx/ir";
+import { TsSourceFrontend } from "@effx/frontend-ts";
+import { copyUsersFixture } from "../../../tools/testing/projects.ts";
+import { loadProject } from "../src/project.ts";
+import { snapshotHost } from "../src/snapshot-host.ts";
+import { ts, tryTs } from "../src/ts.ts";
+
+const Services = Layer.mergeAll(
+  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  BunServices.layer,
+);
+
+// Substitute only execution input; retain compile's registry/definitions and every pipeline stage.
+const compileSnapshot = Effect.fnUntraced(function* (
+  project: ProjectConfig,
+  input: AnalyzeOptions,
+) {
+  const frontend = yield* SourceFrontend;
+
+  return yield* compile(project, Extensions.builtin).pipe(
+    Effect.provideService(SourceFrontend, {
+      analyze: (config, options) => frontend.analyze(config, { ...options, ...input }),
+    }),
+  );
+});
+
+const tree = Effect.fnUntraced(function* (root: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const names = (yield* fs.readDirectory(root, { recursive: true })).toSorted();
+  const files: Array<readonly [string, string]> = [];
+
+  for (const name of names) {
+    const file = path.join(root, name);
+
+    if ((yield* fs.stat(file)).type === "File") files.push([name, yield* fs.readFileString(file)]);
+  }
+
+  return { names, files };
+});
+
+const assertSameCompilation = (actual: CompileResult, expected: CompileResult): void => {
+  const actualCollected = Option.getOrThrow(actual.collected.value);
+  const expectedCollected = Option.getOrThrow(expected.collected.value);
+  assert.deepStrictEqual(actualCollected.declarations, expectedCollected.declarations);
+  assert.deepStrictEqual(actualCollected.diagnostics, expectedCollected.diagnostics);
+  assert.deepStrictEqual(actualCollected.project, expectedCollected.project);
+  assert.deepStrictEqual(actualCollected.spreads, expectedCollected.spreads);
+  assert.deepStrictEqual(actual.diagnostics, expected.diagnostics);
+  assert.strictEqual(Option.isSome(actual.ir.value), Option.isSome(expected.ir.value));
+
+  if (Option.isSome(actual.ir.value) && Option.isSome(expected.ir.value))
+    assert.strictEqual(canonical(actual.ir.value.value), canonical(expected.ir.value.value));
+  assert.deepStrictEqual(actual.files, expected.files);
+};
+
+const added = `import { Effect, Schema } from "effect";
+import { Query } from "@effx/runtime";
+export class Added {
+  @Query({ name: "Added.Get", input: Schema.Void, success: Schema.String })
+  static get() { return Effect.succeed("added"); }
+}
+`;
+
+describe("analysis source snapshots", () => {
+  it("preserves channels and does no work when constructed and discarded", () => {
+    const observed: ObservedInput[] = [];
+
+    const analysis = TsSourceFrontend.analyze(
+      { tsconfigPath: "/not-read/tsconfig.json" },
+      {
+        sources: new Map([["/not-read/source.ts", added]]),
+        onObserve: (input) => observed.push(input),
+      },
+    );
+
+    expectTypeOf<Effect.Success<typeof analysis>>().toEqualTypeOf<Collected>();
+    expectTypeOf<Effect.Success<typeof analysis>>().not.toEqualTypeOf<{
+      declarations: never[];
+      diagnostics: never[];
+    }>();
+    expectTypeOf<Effect.Error<typeof analysis>>().toEqualTypeOf<CompilerFault>();
+    expectTypeOf<Effect.Services<typeof analysis>>().toEqualTypeOf<
+      FileSystem.FileSystem | Path.Path
+    >();
+    expectTypeOf<Effect.Services<typeof analysis>>().not.toEqualTypeOf<never>();
+    assert.deepStrictEqual(observed, []);
+  });
+
+  it.effect(
+    "directory probes do not authorize enumeration and later membership upgrades survive dedup",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "tsconfig.json");
+        const text = yield* fs.readFileString(config);
+        const sourceDirectory = path.join(root, "src");
+        const probes: ObservedInput[] = [];
+
+        const host = yield* tryTs("collect", () =>
+          snapshotHost(path, { onObserve: (input) => probes.push(input) }, [config, text]),
+        );
+
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.deepStrictEqual(
+          probes.filter((input) => input.path === sourceDirectory),
+          [{ kind: "directory", path: sourceDirectory }],
+        );
+        const actual = host.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1);
+        const expected = ts.sys.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1);
+
+        assert.deepStrictEqual(actual, expected);
+        assert.isTrue(host.directoryExists(sourceDirectory));
+        assert.deepStrictEqual(
+          probes.filter((input) => input.path === sourceDirectory),
+          [
+            { kind: "directory", path: sourceDirectory },
+            { kind: "directory", path: sourceDirectory, membership: true },
+          ],
+        );
+        assert.deepStrictEqual(
+          host.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1),
+          expected,
+        );
+        assert.strictEqual(probes.filter((input) => input.path === sourceDirectory).length, 2);
+        const lookupOnly = path.join(root, "lookup-only");
+
+        yield* fs.makeDirectory(lookupOnly);
+        assert.isFalse(host.fileExists(path.join(lookupOnly, "missing.ts")));
+        assert.isTrue(
+          probes.some((input) => input.path === lookupOnly && input.kind === "directory"),
+        );
+        assert.isFalse(
+          probes.some((input) => input.path === lookupOnly && input.membership === true),
+        );
+        assert.isTrue(
+          probes.some(
+            (input) =>
+              input.path === path.join(lookupOnly, "missing.ts") && input.kind === "missing",
+          ),
+        );
+
+        const withoutObservation = yield* tryTs("collect", () =>
+          snapshotHost(path, {}, [config, text]),
+        );
+
+        assert.deepStrictEqual(
+          withoutObservation.readDirectory(sourceDirectory, [".ts"], undefined, ["*"], 1),
+          expected,
+        );
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "observes native overlay roots before source reads and preserves explicit files selection",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "tsconfig.json");
+        const included = path.join(root, "src/selected-new.ts");
+        const outside = path.join(root, "opened/outside.ts");
+
+        const sources = new Map([
+          [included, added],
+          [outside, added],
+        ]);
+
+        const selected: ReadonlyArray<string>[] = [];
+        let rootsObserved = false;
+
+        const loaded = yield* loadProject(
+          { tsconfigPath: config },
+          {
+            sources,
+            onRootSources: (paths) => {
+              rootsObserved = true;
+              selected.push(paths);
+            },
+            onReadSource: (file) => {
+              if (file === included) assert.isTrue(rootsObserved);
+            },
+          },
+        );
+
+        assert.deepStrictEqual(selected, [loaded.rootNames]);
+        assert.isTrue(selected[0]?.includes(included));
+        assert.isFalse(selected[0]?.includes(outside));
+        const explicitConfig = path.join(root, "explicit-roots.json");
+
+        yield* fs.writeFileString(
+          explicitConfig,
+          '{"extends":"./tsconfig.json","files":["src/selected-new.ts"],"include":[]}',
+        );
+        const explicit: ReadonlyArray<string>[] = [];
+
+        yield* loadProject(
+          { tsconfigPath: explicitConfig },
+          { sources, onRootSources: (paths) => explicit.push(paths) },
+        );
+        assert.deepStrictEqual(explicit, [[included]]);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("root callback failure stays a CompilerFault and precedes program source reads", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+      const file = path.join(root, "src/operations.ts");
+      let sourceRead = false;
+
+      const failure = yield* TsSourceFrontend.analyze(
+        { tsconfigPath: path.join(root, "tsconfig.json"), entry: ["src/operations.ts"] },
+        {
+          onRootSources: () => {
+            throw new Error("root observation failed");
+          },
+          onReadSource: (read) => {
+            if (read === file) sourceRead = true;
+          },
+        },
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(failure._tag, "CompilerFault");
+      assert.strictEqual(failure.stage, "collect");
+      assert.include(failure.message, "root observation failed");
+      assert.isFalse(sourceRead);
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "same-source overlays preserve collected IDs, diagnostics, canonical IR and generated bytes",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+
+        const project = {
+          tsconfigPath: path.join(root, "tsconfig.json"),
+          entry: ["src/operations.ts"],
+        };
+
+        const file = path.join(root, "src/operations.ts");
+        const text = yield* fs.readFileString(file);
+        const before = yield* tree(root);
+        const selected: ReadonlyArray<string>[] = [];
+        const saved = yield* compile(project, Extensions.builtin);
+
+        const overlay = yield* compileSnapshot(project, {
+          sources: new Map([[file, text]]),
+          onRootSources: (paths) => selected.push(paths),
+        });
+
+        assert.deepStrictEqual(selected, [[file]]);
+        assert.isFalse(selected[0]?.includes(path.join(root, "src/user.ts")));
+        assertSameCompilation(overlay, saved);
+        assert.deepStrictEqual(yield* tree(root), before);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "unsaved error and repair match saved analysis, including one-based UTF-16 points",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+
+        const project = {
+          tsconfigPath: path.join(root, "tsconfig.json"),
+          entry: ["src/operations.ts"],
+        };
+
+        const file = path.join(root, "src/operations.ts");
+        const text = yield* fs.readFileString(file);
+        const invalid = text.replace('  @Http.Get("/users/:id")', "  /*😀*/ @Http.Get");
+        assert.notStrictEqual(invalid, text);
+        const before = yield* tree(root);
+        const saved = yield* compile(project, Extensions.builtin);
+        const broken = yield* compileSnapshot(project, { sources: new Map([[file, invalid]]) });
+
+        const error = broken.diagnostics.find(
+          (diagnostic) => diagnostic.code === "EFFX1104" && diagnostic.location?.file === file,
+        );
+
+        assert.isDefined(error);
+        const lines = invalid.split("\n");
+        const line = lines.findIndex((value) => value.includes("/*😀*/ @Http.Get"));
+        assert.deepStrictEqual(error?.location, {
+          file,
+          line: line + 1,
+          col: (lines[line]?.indexOf("@Http.Get") ?? -1) + 1,
+        });
+        assert.isTrue(Option.isNone(broken.files.value));
+        assertSameCompilation(
+          yield* compileSnapshot(project, { sources: new Map([[file, text]]) }),
+          saved,
+        );
+        assert.deepStrictEqual(yield* tree(root), before);
+        // Only the test saves the comparator, after proving both overlay runs were read-only.
+        yield* fs.writeFileString(file, invalid);
+        assertSameCompilation(broken, yield* compile(project, Extensions.builtin));
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "native include/exclude matching admits new nested sources but not merely opened documents",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const project = { tsconfigPath: path.join(root, "tsconfig.json") };
+        const included = path.join(root, "src/new/nested.ts");
+        const outside = path.join(root, "opened/outside.ts");
+        const excluded = path.join(root, "node_modules/opened.ts");
+        const before = yield* tree(root);
+
+        const sources = new Map([
+          [included, added],
+          [outside, added.replaceAll("Added", "Outside")],
+          [excluded, added.replaceAll("Added", "Excluded")],
+        ]);
+
+        const loaded = yield* loadProject(project, { sources });
+        assert.isTrue(loaded.rootNames.includes(included));
+        assert.isFalse(loaded.rootNames.includes(outside));
+        assert.isFalse(loaded.rootNames.includes(excluded));
+
+        const collected = yield* SourceFrontend.use((frontend) =>
+          frontend.analyze(project, { sources }),
+        );
+
+        assert.isTrue(collected.declarations.some((declaration) => declaration.id === "Added.get"));
+        assert.isFalse(
+          collected.declarations.some(
+            (declaration) => declaration.id === "Outside.get" || declaration.id === "Excluded.get",
+          ),
+        );
+        assert.deepStrictEqual(yield* tree(root), before);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "imported overlay dependencies resolve even outside includes, and explicit absence masks disk",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const file = path.join(root, "src/operations.ts");
+        const schema = path.join(root, "src/schemas.ts");
+        const helper = path.join(root, "opened/schema.ts");
+        const text = yield* fs.readFileString(file);
+        const schemaText = yield* fs.readFileString(schema);
+
+        const project = {
+          tsconfigPath: path.join(root, "tsconfig.json"),
+          entry: ["src/operations.ts"],
+        };
+
+        const before = yield* tree(root);
+        const probes: ObservedInput[] = [];
+
+        const sources = new Map<string, string | undefined>([
+          [file, text.replace('"./schemas.ts"', '"../opened/schema.ts"')],
+          [helper, schemaText.replace("id: UserId });", "id: UserId, extra: Schema.String });")],
+          [schema, undefined],
+        ]);
+
+        const loaded = yield* loadProject(project, {
+          sources,
+          onObserve: (input) => probes.push(input),
+        });
+
+        assert.strictEqual(loaded.program.getSourceFile(helper)?.text, sources.get(helper));
+        assert.isFalse(loaded.rootNames.includes(helper));
+
+        const collected = yield* SourceFrontend.use((frontend) =>
+          frontend.analyze(project, { sources }),
+        );
+
+        const declaration = collected.declarations.find(
+          (value) => value.id === "UserOperations.get",
+        );
+
+        assert.isDefined(declaration);
+        const query = declaration?.annotations.find((value) => value.name === "Query");
+
+        const argumentsObject = yield* Schema.decodeUnknownEffect(
+          Schema.Record(Schema.String, AnnotationArg),
+        )(query?.args[0]);
+
+        const inputSchema = yield* Schema.decodeUnknownEffect(SchemaArg)(argumentsObject.input);
+        assert.include(inputSchema.fields ?? [], "extra");
+
+        const absent = yield* loadProject(project, {
+          sources: new Map([[schema, undefined]]),
+          onObserve: (input) => probes.push(input),
+        });
+
+        assert.isUndefined(absent.program.getSourceFile(schema));
+        assert.isTrue(probes.some((input) => input.kind === "file" && input.path === helper));
+        assert.isTrue(probes.some((input) => input.kind === "missing" && input.path === schema));
+        assert.isTrue(
+          probes.some((input) => input.kind === "directory" && input.path === path.dirname(schema)),
+        );
+        assert.deepStrictEqual(yield* tree(root), before);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "saved referenced config faults block compilation and recover without changing valid IR",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "selected-reference.json");
+        const referenceDirectory = path.join(root, "referenced");
+        const reference = path.join(referenceDirectory, "tsconfig.json");
+
+        const validReference =
+          '{"extends":"../tsconfig.json","files":["../src/schemas.ts"],"include":[]}';
+
+        yield* fs.makeDirectory(referenceDirectory);
+        yield* fs.writeFileString(reference, validReference);
+        yield* fs.writeFileString(
+          config,
+          '{"extends":"./tsconfig.json","references":[{"path":"./referenced"}]}',
+        );
+        const project = { tsconfigPath: config, entry: ["src/operations.ts"] };
+        const probes: ObservedInput[] = [];
+
+        const initial = yield* compileSnapshot(project, {
+          onObserve: (input) => probes.push(input),
+        });
+
+        const withoutReferences = yield* compile(
+          { tsconfigPath: path.join(root, "tsconfig.json"), entry: ["src/operations.ts"] },
+          Extensions.builtin,
+        );
+
+        assertSameCompilation(initial, withoutReferences);
+        assert.isTrue(probes.some((input) => input.kind === "file" && input.path === reference));
+        yield* fs.writeFileString(reference, "{");
+        const malformed = yield* compileSnapshot(project, {}).pipe(Effect.flip);
+
+        assert.strictEqual(malformed._tag, "CompilerFault");
+        assert.strictEqual(malformed.stage, "collect");
+        assert.include(malformed.message, reference);
+        yield* fs.writeFileString(
+          reference,
+          '{"extends":"../tsconfig.json","compilerOptions":{"target":"not-a-target"},"files":["../src/schemas.ts"],"include":[]}',
+        );
+        const invalidOptions = yield* compileSnapshot(project, {}).pipe(Effect.flip);
+
+        assert.strictEqual(invalidOptions._tag, "CompilerFault");
+        assert.include(invalidOptions.message, reference);
+        assert.include(invalidOptions.message, "target");
+        yield* fs.remove(reference);
+        const missingProbes: ObservedInput[] = [];
+
+        const missing = yield* compileSnapshot(project, {
+          onObserve: (input) => missingProbes.push(input),
+        }).pipe(Effect.flip);
+
+        assert.strictEqual(missing._tag, "CompilerFault");
+        assert.include(missing.message, reference);
+        assert.isTrue(
+          missingProbes.some((input) => input.kind === "missing" && input.path === reference),
+        );
+        assert.isTrue(
+          missingProbes.some(
+            (input) => input.kind === "directory" && input.path === referenceDirectory,
+          ),
+        );
+        yield* fs.writeFileString(reference, validReference);
+        const repaired = yield* compileSnapshot(project, {});
+
+        assertSameCompilation(repaired, initial);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "observes configs, membership, metadata, missing resolution parents and physical dependency links",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* copyUsersFixture();
+        const config = path.join(root, "selected.json");
+        const reference = path.join(root, "referenced.json");
+        yield* fs.writeFileString(reference, '{"extends":"./tsconfig.json"}');
+        yield* fs.writeFileString(
+          config,
+          '{"extends":"./tsconfig.json","references":[{"path":"./referenced.json"}],"include":["src/**/*.ts"],"exclude":["src/excluded/**"]}',
+        );
+        const included = path.join(root, "src/new.ts");
+        const excluded = path.join(root, "src/excluded/open.ts");
+        const probes: ObservedInput[] = [];
+        const before = yield* tree(root);
+
+        const loaded = yield* loadProject(
+          { tsconfigPath: config },
+          {
+            sources: new Map([
+              [config, "invalid unsaved JSON"],
+              [included, added + '\nimport "./never-created/dependency.ts";'],
+              [excluded, added],
+            ]),
+            onObserve: (input) => probes.push(input),
+          },
+        );
+
+        assert.isTrue(loaded.rootNames.includes(included));
+        assert.isFalse(loaded.rootNames.includes(excluded));
+
+        for (const file of [config, reference, path.join(root, "tsconfig.json")])
+          assert.isTrue(
+            probes.some((input) => input.kind === "file" && input.path === file),
+            file,
+          );
+        assert.isTrue(
+          probes.some((input) => input.kind === "missing" && input.path.includes("never-created")),
+        );
+        assert.isTrue(
+          probes.some(
+            (input) => input.kind === "directory" && input.path === path.join(root, "src"),
+          ),
+        );
+        assert.isTrue(
+          probes.some(
+            (input) => input.kind === "file" && input.path.endsWith("effect/package.json"),
+          ),
+        );
+        assert.isTrue(probes.some((input) => input.kind === "symlink"));
+        assert.strictEqual(
+          new Set(
+            probes.map(
+              (input) => input.kind + ":" + input.path + ":" + (input.membership === true),
+            ),
+          ).size,
+          probes.length,
+        );
+        assert.deepStrictEqual(yield* tree(root), before);
+      }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("captured host reads and probes remain coherent after the caller mutates its map", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+      const config = path.join(root, "tsconfig.json");
+      const file = path.join(root, "src/new.ts");
+      const sources = new Map<string, string | undefined>([[file, added]]);
+
+      const host = yield* tryTs("collect", () =>
+        snapshotHost(path, { sources }, [config, ts.sys.readFile(config) ?? ""]),
+      );
+
+      sources.set(file, undefined);
+      assert.isTrue(host.fileExists(file));
+      assert.strictEqual(host.readFile(file), added);
+      const disk = path.join(root, "src/operations.ts");
+      const captured = host.readFile(disk);
+      yield* fs.writeFileString(disk, "changed by the test after capture");
+      assert.strictEqual(host.readFile(disk), captured);
+      assert.isTrue(host.fileExists(disk));
+      assert.include(host.readDirectory(root, [".ts"], undefined, ["src/**/*.ts"]), file);
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("records analyzed closed-file text and saved config without a later disk reread", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+      const config = path.join(root, "tsconfig.json");
+      const operation = path.join(root, "src/operations.ts");
+      const closed = path.join(root, "src/user.ts");
+      const savedConfig = yield* fs.readFileString(config);
+      const savedClosed = yield* fs.readFileString(closed);
+      const unsaved = (yield* fs.readFileString(operation)) + "\n// unsaved source snapshot\n";
+      const captured = new Map<string, string>();
+      const counts = new Map<string, number>();
+
+      const collected = yield* SourceFrontend.use((frontend) =>
+        frontend.analyze(
+          { tsconfigPath: config, entry: ["src/operations.ts"] },
+          {
+            sources: new Map([
+              [config, "unsaved config must not replace saved config"],
+              [operation, unsaved],
+            ]),
+            onReadSource: (file, text) => {
+              captured.set(file, text);
+              counts.set(file, (counts.get(file) ?? 0) + 1);
+            },
+          },
+        ),
+      );
+
+      assert.strictEqual(captured.get(config), savedConfig);
+      assert.strictEqual(captured.get(operation), unsaved);
+      assert.strictEqual(captured.get(closed), savedClosed);
+      assert.isTrue(
+        collected.declarations.some((declaration) => declaration.location?.file === closed),
+      );
+      assert.isTrue([...counts.values()].every((count) => count === 1));
+      yield* fs.writeFileString(closed, "changed by the test after analysis");
+      assert.strictEqual(captured.get(closed), savedClosed);
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("source capture callback failure stays a CompilerFault", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+
+      const failure = yield* TsSourceFrontend.analyze(
+        { tsconfigPath: path.join(root, "tsconfig.json") },
+        {
+          onReadSource: () => {
+            throw new Error("source capture failed");
+          },
+        },
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(failure._tag, "CompilerFault");
+      assert.strictEqual(failure.stage, "collect");
+      assert.include(failure.message, "source capture failed");
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect("observer boundary failure stays a CompilerFault instead of becoming diagnostics", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const root = yield* copyUsersFixture();
+
+      const failure = yield* TsSourceFrontend.analyze(
+        { tsconfigPath: path.join(root, "tsconfig.json") },
+        {
+          onObserve: () => {
+            throw new Error("observer failed");
+          },
+        },
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(failure._tag, "CompilerFault");
+      assert.strictEqual(failure.stage, "collect");
+      assert.include(failure.message, "observer failed");
+    }).pipe(Effect.scoped, Effect.provide(Services)),
+  );
+
+  it.effect(
+    "interruption during saved config acquisition releases once and never consults sources",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const started = yield* Deferred.make<void>();
+        const released = yield* Deferred.make<void>();
+        let releases = 0;
+        const probes: ObservedInput[] = [];
+
+        const waitingRead = Effect.gen(function* () {
+          yield* Deferred.succeed(started, undefined);
+
+          return yield* Effect.never;
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              releases++;
+              yield* Deferred.succeed(released, undefined);
+            }),
+          ),
+        );
+
+        const fiber = yield* Effect.forkChild(
+          TsSourceFrontend.analyze(
+            { tsconfigPath: "/owned/tsconfig.json" },
+            {
+              sources: new Map([["/owned/source.ts", added]]),
+              onObserve: (input) => probes.push(input),
+            },
+          ).pipe(
+            Effect.provideService(FileSystem.FileSystem, {
+              ...fs,
+              readFileString: () => waitingRead,
+            }),
+          ),
+        );
+
+        yield* Deferred.await(started);
+        yield* Fiber.interrupt(fiber);
+        yield* Deferred.await(released);
+        assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(fiber)));
+        assert.strictEqual(releases, 1);
+        assert.deepStrictEqual(probes, []);
+      }).pipe(Effect.provide(BunServices.layer)),
+  );
+});

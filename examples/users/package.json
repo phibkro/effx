@@ -9,7 +9,7 @@
     "./services": "./src/services.ts"
   },
   "scripts": {
-    "effx:build": "bun ../../packages/cli/src/main.ts build",
+    "effx:build": "bun ../../scripts/effx.ts build",
     "serve": "bun src/server-main.ts",
     "client": "bun src/client-main.ts",
     "cli": "bun src/cli-main.ts"

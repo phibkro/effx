@@ -4,13 +4,8 @@ import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { ts, tryTs } from "../src/ts.ts";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
 
 const repository = new URL("../../../", import.meta.url).pathname;
-
-const rc116 = new URL("./fixtures/rc116/", import.meta.url).pathname;
-
-requireRc116FixtureDependencies(rc116);
 
 const Services = Layer.mergeAll(
   TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
@@ -20,15 +15,9 @@ const Services = Layer.mergeAll(
 const versions = [
   {
     version: "4.0.0",
-    dependencies: `${repository}node_modules`,
+    dependencies: new URL("../../../node_modules", import.meta.url).pathname,
     api: "effect/http-api",
     http: "effect/http",
-  },
-  {
-    version: "4.0.0-rc.116",
-    dependencies: `${rc116}node_modules`,
-    api: "effect/unstable/httpapi",
-    http: "effect/unstable/http",
   },
 ] as const;
 

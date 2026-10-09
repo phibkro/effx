@@ -12,16 +12,16 @@ import {
 } from "@effx/compiler";
 import { TsSourceFrontend, Wiring } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
-import { requireRc116FixtureDependencies } from "./rc116-fixture-dependencies.ts";
+import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependencies.ts";
 
 /*
- * Spec 0021 falsifiers 1, 2 and 5 over the isolated Effect rc.116 Profile twin: the external
+ * Spec 0021 falsifiers 1, 2 and 5 over the isolated Effect stable Effect 4 Profile twin: the external
  * group's surface, its mode independence, and the handlers-mode wiring check.
  */
 
-const fixtures = new URL("./fixtures/rc116/", import.meta.url).pathname;
+const fixtures = new URL("./fixtures/stable-v4/", import.meta.url).pathname;
 
-requireRc116FixtureDependencies(fixtures);
+requireStableV4FixtureDependencies(fixtures);
 
 const contractConfig = `${fixtures}project/contract/tsconfig.effx.json`;
 
@@ -73,7 +73,7 @@ const wiring = Effect.fn("wiring")(function* (
   return checkWiring({ surface: built.surface, generated, facts, entry });
 });
 
-describe("surface manifest over the rc.116 Profile twin (spec 0021)", () => {
+describe("surface manifest over the stable Effect 4 Profile twin (spec 0021)", () => {
   it.effect("is byte-identical for contract and handlers emit and lists the external group", () =>
     Effect.gen(function* () {
       const contract = yield* profile(contractConfig, "contract");

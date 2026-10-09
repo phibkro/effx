@@ -83,6 +83,25 @@ Core lookup needs no project or config. For a package-qualified extension code, 
 the project or writes output. The docs catalogue and installed AI guides derive from the same registry
 ([spec 0016](docs/specs/0016-diagnostic-registry.md)).
 
+### Watch checks and editor diagnostics
+
+```sh
+bun run effx dev --project examples/users/tsconfig.json
+bun run effx dev --project examples/users/tsconfig.json --build
+bun run effx lsp --project examples/users/tsconfig.json
+```
+
+`dev` checks saved sources and dependencies until you stop it. Only `--build` enables normal build writes; output config does not.
+`lsp` uses stdio for one project and checks unsaved source buffers without compiler writes.
+If a saved executable config exists, launch LSP with explicit `--config <path>` or `--trust-config`.
+Editor messages cannot grant trust. Trusted config imports run with process privileges; LSP is not a sandbox.
+
+Both commands accept repeatable `--exec-file` and `--exec-dir` inputs.
+The caller must declare **all** otherwise-unobservable executable routes, including static bare-package symlinks, exports, `#imports`, and external aliases.
+Omitted routes can change without detection. Covered executable changes require a fresh process, not hot reload.
+See [dev and executable coverage](apps/docs/content/docs/cli/dev.mdx) and [LSP](apps/docs/content/docs/cli/lsp.mdx) for limits and shutdown.
+Source: [spec 0018, amendment A](docs/specs/0018-watch-editor.md), `packages/cli/src/config.ts`, `documents.ts`, `project-session.ts`, and `watch-files.ts`.
+
 ## Packages
 
 | Package                                     | Status  | Role                                                                                               |
@@ -99,4 +118,4 @@ Project specifications and decisions live in [`docs/`](docs/). The planned docum
 
 ## Supported versions
 
-**Effect ≥ 4.0.0 < 5; TypeScript analysis via TS 6.0 (TS 7 JS API pending 7.1, see [ADR 0009](docs/decisions/0009-ts6-frontend-is-a-registered-exception.md)); Bun ≥ 1.3.** Effect `4.0.0-rc.116` is accepted as a temporary compatibility target for the vektorprogrammet migration; the supported Effect release line starts at `4.0.0`.
+**Effect ≥ 4.0.0 < 5 (stable releases only); TypeScript analysis via TS 6.0 (TS 7 JS API pending 7.1, see [ADR 0009](docs/decisions/0009-ts6-frontend-is-a-registered-exception.md)); Bun ≥ 1.3.** Prerelease Effect versions are not supported.

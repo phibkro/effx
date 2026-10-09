@@ -151,11 +151,11 @@ resolves them. A GET or DELETE input without keys derives no `query`; a Query ov
 
 ### Example: dense builder declarations
 
-<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts</include>
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/stable-v4/src/profile.effx.ts"'>../../packages/frontend-ts/test/fixtures/stable-v4/src/profile.effx.ts</include>
 
 ### Example: class decorator form
 
-<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/rc116/src/directory-class.effx.ts</include>
+<include cwd lang="ts" meta='title="packages/frontend-ts/test/fixtures/stable-v4/src/directory-class.effx.ts"'>../../packages/frontend-ts/test/fixtures/stable-v4/src/directory-class.effx.ts</include>
 
 ## `.declare()`: external operations
 
@@ -202,9 +202,9 @@ choice. It is not an annotation and does not enter the semantic hash.
 | `all`      | both files, plus projections for local operations | No external operation gains an invented handler call.                                  |
 
 Source: `docs/specs/0010-target-profiles-and-emit-modes.md` §"Emit modes and raw bindings";
-`--emit` flag in `packages/cli/src/main.ts`.
+`--emit` flag in `scripts/effx.ts`.
 
 <Callout type="info">
-  Evidence for external bindings is compiler and fixture level (rc.116 Profile twin). Mono-web's own
+  Evidence for external bindings is compiler and fixture level (stable Effect 4 Profile twin). Mono-web's own
   backend typecheck and browser/PostgreSQL journeys are separate gates (STATE.md, specs 0009-0012).
 </Callout>

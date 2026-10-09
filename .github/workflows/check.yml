@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/public-install
       - name: Lint pull request commit messages
         if: github.event_name == 'pull_request'
         env:
@@ -57,5 +57,5 @@ jobs:
             echo "Notice: BEFORE_SHA $BEFORE_SHA is unreachable; linting only pushed HEAD commit."
             git show -s --format=%B "$HEAD_SHA" | bun --bun commitlint
           fi
-      - name: Run landing gate
+      - name: Run stable Effect ordered landing gate
         run: bun run gate

@@ -9,7 +9,7 @@ effx check [--project <tsconfig>] [--config <file>] [--out-dir <dir>] [--strict-
 
 From the monorepo root: `bun run effx check --project examples/users/tsconfig.json`.
 
-Source: `packages/cli/src/main.ts`, `check` and `compileAndReport` in `packages/cli/src/commands.ts`, `packages/cli/src/report.ts`.
+Source: `scripts/effx.ts`, `check` and `compileAndReport` in `packages/cli/src/commands.ts`, `packages/cli/src/report.ts`.
 
 ## Flags
 
@@ -21,10 +21,10 @@ Source: `packages/cli/src/main.ts`, `check` and `compileAndReport` in `packages/
 | `--config` | path to an `effx.config.ts` module | `effx.config.ts` beside the selected tsconfig, if present |
 | `--out-dir` | path | `<tsconfig dir>/.effx/generated` |
 | `--strict-access`, `--no-strict-access` | boolean flag | `false` |
-| `--target` | `effect-4.0`, `effect-4.0-rc` | resolved from the project's installed Effect |
+| `--target` | `effect-4.0` | resolved from the project's installed Effect |
 | `--emit` | `contract`, `handlers`, `all` | `all` |
 
-`--strict-access` turns the missing-access warning into an error. Missing security markers are errors in both modes. Source: `docs/specs/0006-access-contract-extension.md`. On `examples/users`, `check --strict-access` turns the two `EFFX2504` warnings into errors and exits 1. `check --no-strict-access` keeps them as warnings and exits 0. Both were observed by running `bun packages/cli/src/main.ts`. `--no-strict-access` also overrides a `strictAccess: true` from the config or the tsconfig (`strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false` in `resolveProject`).
+`--strict-access` turns the missing-access warning into an error. Missing security markers are errors in both modes. Source: `docs/specs/0006-access-contract-extension.md`. On `examples/users`, `check --strict-access` turns the two `EFFX2504` warnings into errors and exits 1. `check --no-strict-access` keeps them as warnings and exits 0. Both were observed by running `bun scripts/effx.ts`. `--no-strict-access` also overrides a `strictAccess: true` from the config or the tsconfig (`strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false` in `resolveProject`).
 
 `--target` and `--emit` change what the generators would emit and which target-specific diagnostics can appear. `check` writes no files in any mode, so `--out-dir` only changes the resolved output location.
 

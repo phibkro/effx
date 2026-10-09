@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "effx:check": "bun ../../packages/cli/src/main.ts check",
-    "effx:build": "bun ../../packages/cli/src/main.ts build"
+    "effx:check": "bun ../../scripts/effx.ts check",
+    "effx:build": "bun ../../scripts/effx.ts build"
   },
   "dependencies": {
     "@effx/cli": "workspace:*",

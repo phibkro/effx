@@ -20,10 +20,10 @@ Source: `inspectCommand` in `packages/cli/src/commands.ts`, `packages/cli/src/in
 | `--config` | path to an `effx.config.ts` module, default discovery beside the selected tsconfig |
 | `--out-dir` | output directory for generated files. Accepted, but `inspect` writes nothing. |
 | `--strict-access`, `--no-strict-access` | boolean flag, default `false` |
-| `--target` | `effect-4.0` or `effect-4.0-rc`, default resolved from the installed Effect |
+| `--target` | `effect-4.0`, default resolved from the installed Effect |
 | `--emit` | `contract`, `handlers` or `all`, default `all` |
 
-These are the six shared flags that the root command defines, so `inspect` accepts the same flags as `check` and `build`. Flags, `effx.config.ts`, the tsconfig `effx` block and defaults are resolved in the order given in [Project config](/docs/cli#project-config). `inspect User.Get --strict-access` exits 0 on `examples/users` (observed by running `bun packages/cli/src/main.ts`).
+These are the six shared flags that the root command defines, so `inspect` accepts the same flags as `check` and `build`. Flags, `effx.config.ts`, the tsconfig `effx` block and defaults are resolved in the order given in [Project config](/docs/cli#project-config). `inspect User.Get --strict-access` exits 0 on `examples/users` (observed by running `bun scripts/effx.ts`).
 
 `inspect` compiles the project with the resolved settings and the resolved extension list, and reads the IR through its graph index. It does not write files and does not print diagnostics, so `--strict-access` does not turn a warning into a failing exit here. Use [check](/docs/cli/check) for that. Only `generate` is skipped when errors exist, so `inspect` still shows the IR (comment in `indexed`, `commands.ts`). A missing or invalid explicit `--config` still fails before compilation.
 

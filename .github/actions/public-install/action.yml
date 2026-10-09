@@ -1,0 +1,22 @@
+name: Anonymous public install
+description: Bootstrap workspace dependencies through the one credential-free resolver boundary.
+inputs:
+  cwd:
+    description: Owned workspace directory
+    required: false
+    default: .
+  flags:
+    description: Extra install flags (--ignore-scripts)
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INSTALL_CWD: ${{ inputs.cwd }}
+        INSTALL_FLAGS: ${{ inputs.flags }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC2086
+        bash "${GITHUB_WORKSPACE}/scripts/install-public.sh" "$INSTALL_CWD" --frozen-lockfile $INSTALL_FLAGS

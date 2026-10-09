@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun ../../packages/cli/src/main.ts build",
+    "build": "bun ../../scripts/effx.ts build",
     "start": "bun src/server-main.ts"
   },
   "dependencies": {

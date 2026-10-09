@@ -21,6 +21,14 @@ import { inspect } from "./inspect.ts";
 import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "./manifest.ts";
 import { count, report, summary } from "./report.ts";
 import { writeSurface } from "./surface-file.ts";
+import type { WatchInput } from "./watch-files.ts";
+import {
+  acquireOutputOwner,
+  assertOutputOwner,
+  canonicalOutputPath,
+  migrateOutputOwner,
+  type OutputOwner,
+} from "./output-owner.ts";
 
 type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 
@@ -58,6 +66,33 @@ export interface Project {
   readonly effxDir: string;
   readonly config: ProjectConfig;
   readonly extensions: ReadonlyArray<Extension>;
+  /** Logical selected candidate, including an absent discovered config. */
+  readonly configPath?: string;
+  readonly executableCoverage?: ReadonlyArray<WatchInput>;
+  /** Process-epoch inputs for saved JSON refresh without executable reevaluation. */
+  readonly resolution?: ProjectResolution;
+}
+
+export interface ResolveOptions<R = never> {
+  readonly trustDiscoveredConfig?: boolean;
+  readonly executableFiles?: ReadonlyArray<string>;
+  readonly executableDirectories?: ReadonlyArray<string>;
+  /** Semantic input: the same problem-identifier pattern for contract and handlers passes. */
+  readonly namingProblemIdentifier?: string | undefined;
+  readonly beforeImport?: (
+    configFile: string,
+    launchCoverage: ReadonlyArray<WatchInput>,
+  ) => Effect.Effect<void, CompilerFault, R>;
+}
+
+export interface ProjectResolution {
+  readonly executableConfig: typeof ConfigFields.Type | undefined;
+  readonly configFile: string;
+  readonly strictAccess: boolean | undefined;
+  readonly namingProblemIdentifier: string | undefined;
+  readonly target: TargetProfile | undefined;
+  readonly emit: EmitMode | undefined;
+  readonly outDir: string | undefined;
 }
 
 const ConfigFields = Schema.Struct({
@@ -68,6 +103,14 @@ const ConfigFields = Schema.Struct({
   strictAccess: Schema.optionalKey(Schema.Boolean),
   naming: Schema.optionalKey(Naming),
   extensions: Schema.optionalKey(Schema.Unknown),
+  executableCoverage: Schema.optionalKey(
+    Schema.Struct({
+      files: Schema.optionalKey(Schema.Array(Schema.String)),
+      directories: Schema.optionalKey(
+        Schema.Array(Schema.Struct({ path: Schema.String, recursive: Schema.Boolean })),
+      ),
+    }),
+  ),
   generators: Schema.optionalKey(
     Schema.Struct({
       http: Schema.optionalKey(Schema.Boolean),
@@ -78,6 +121,8 @@ const ConfigFields = Schema.Struct({
     }),
   ),
 });
+
+const decodeConfigFields = Schema.decodeUnknownEffect(ConfigFields);
 
 /** A definition an extension declares (spec 0020), as `Extension.annotations` carries it. */
 type Definition = NonNullable<Extension["annotations"]>[number];
@@ -139,7 +184,7 @@ export const loadConfig = Effect.fnUntraced(function* (file: string) {
     catch: (cause) => invalidConfig(file, "module import failed", cause),
   });
 
-  const config = yield* Schema.decodeUnknownEffect(ConfigFields)(loaded.default).pipe(
+  const config = yield* decodeConfigFields(loaded.default).pipe(
     Effect.mapError((cause) => invalidConfig(file, "invalid fields", cause)),
   );
 
@@ -197,8 +242,8 @@ export const configuredExtensions = Effect.fnUntraced(function* (
   });
 });
 
-/** Resolve paths at the source that supplied them; do not discover a second config after project override. */
-export const resolveProject = Effect.fn("resolveProject")(function* (
+/** Resolve paths at their supplying source; retain executable values for this process epoch. */
+export const resolveProject = Effect.fn("resolveProject")(function* <R = never>(
   tsconfig = "tsconfig.json",
   strictAccess?: boolean,
   target?: TargetProfile,
@@ -206,17 +251,43 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
   configPath?: string,
   outDir?: string,
   projectSelected = false,
-  namingProblemIdentifier?: string,
+  options: ResolveOptions<R> = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const selectedPath = path.resolve(tsconfig);
-  const discovered = path.join(path.dirname(selectedPath), "effx.config.ts");
-  const file = configPath === undefined ? discovered : path.resolve(configPath);
+
+  const file =
+    configPath === undefined
+      ? path.join(path.dirname(selectedPath), "effx.config.ts")
+      : path.resolve(configPath);
+
+  const launchCoverage = unionCoverage([
+    { path: file, kind: "executable" },
+    ...(options.executableFiles ?? []).map((file): WatchInput => ({
+      path: path.resolve(file),
+      kind: "executable",
+    })),
+    ...(options.executableDirectories ?? []).map((directory): WatchInput => ({
+      path: path.resolve(directory),
+      kind: "executable",
+      directory: true,
+      recursive: true,
+    })),
+  ]);
+
+  if (options.beforeImport !== undefined) yield* options.beforeImport(file, launchCoverage);
   const exists = yield* fs.exists(file);
 
   if (configPath !== undefined && !exists) {
     return yield* invalidConfig(file, "file does not exist");
+  }
+
+  if (exists && configPath === undefined && options.trustDiscoveredConfig === false) {
+    return yield* invalidConfig(
+      file,
+      "execution requires launch-time --trust-config or explicit --config",
+    );
   }
 
   const config = exists ? yield* loadConfig(file) : undefined;
@@ -226,12 +297,64 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
       ? selectedPath
       : path.resolve(path.dirname(file), config.project);
 
+  const executableCoverage = unionCoverage([
+    ...launchCoverage,
+    ...(config?.executableCoverage?.files ?? []).map((entry): WatchInput => ({
+      path: path.resolve(path.dirname(file), entry),
+      kind: "executable",
+    })),
+    ...(config?.executableCoverage?.directories ?? []).map((entry): WatchInput => ({
+      path: path.resolve(path.dirname(file), entry.path),
+      kind: "executable",
+      directory: true,
+      recursive: entry.recursive,
+    })),
+  ]);
+
+  const resolution: ProjectResolution = {
+    executableConfig: config,
+    configFile: file,
+    strictAccess,
+    namingProblemIdentifier: options.namingProblemIdentifier,
+    target,
+    emit,
+    outDir: outDir === undefined ? undefined : path.resolve(outDir),
+  };
+
+  const extensions = yield* configuredExtensions(exists ? file : undefined, config);
+
+  return yield* resolveSavedProject(tsconfigPath, resolution, extensions, executableCoverage);
+});
+
+/** Union exact logical routes without realpath canonicalization or loss of recursive authority. */
+const unionCoverage = (inputs: ReadonlyArray<WatchInput>): ReadonlyArray<WatchInput> => {
+  const routes = new Map<string, WatchInput>();
+
+  for (const input of inputs) {
+    const key = (input.directory === true ? "directory:" : "file:") + input.path;
+    const previous = routes.get(key);
+    routes.set(key, previous?.recursive === true ? previous : input);
+  }
+
+  return [...routes.values()];
+};
+
+const resolveSavedProject = Effect.fnUntraced(function* (
+  tsconfigPath: string,
+  resolution: ProjectResolution,
+  extensions: ReadonlyArray<Extension>,
+  executableCoverage: ReadonlyArray<WatchInput>,
+) {
+  const path = yield* Path.Path;
   const rootDir = path.dirname(tsconfigPath);
   const effx = yield* readTsconfigEffx(tsconfigPath);
-  const selectedTarget = target ?? config?.target ?? effx?.target;
+  const config = resolution.executableConfig;
+  const selectedTarget = resolution.target ?? config?.target ?? effx?.target;
 
   const problemIdentifier =
-    namingProblemIdentifier ?? config?.naming?.problemIdentifier ?? effx?.naming?.problemIdentifier;
+    resolution.namingProblemIdentifier ??
+    config?.naming?.problemIdentifier ??
+    effx?.naming?.problemIdentifier;
 
   const namingIssue =
     problemIdentifier === undefined ? undefined : problemNamingIssue(problemIdentifier);
@@ -251,13 +374,12 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
     tsconfigPath,
     projectRoot: path.resolve(rootDir, effx?.projectRoot ?? "."),
     outDir:
-      outDir === undefined
-        ? config?.outDir === undefined
-          ? path.resolve(rootDir, effx?.outDir ?? ".effx/generated")
-          : path.resolve(path.dirname(file), config.outDir)
-        : path.resolve(outDir),
-    strictAccess: strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false,
-    emit: emit ?? config?.emit ?? effx?.emit ?? "all",
+      resolution.outDir ??
+      (config?.outDir === undefined
+        ? path.resolve(rootDir, effx?.outDir ?? ".effx/generated")
+        : path.resolve(path.dirname(resolution.configFile), config.outDir)),
+    strictAccess: resolution.strictAccess ?? config?.strictAccess ?? effx?.strictAccess ?? false,
+    emit: resolution.emit ?? config?.emit ?? effx?.emit ?? "all",
   };
 
   const resolved: ProjectConfigDraft = { ...base };
@@ -271,8 +393,27 @@ export const resolveProject = Effect.fn("resolveProject")(function* (
     rootDir,
     effxDir: path.join(rootDir, ".effx"),
     config: resolved,
-    extensions: yield* configuredExtensions(exists ? file : undefined, config),
+    extensions,
+    configPath: resolution.configFile,
+    executableCoverage,
+    resolution,
   } satisfies Project;
+});
+
+/** Refresh saved JSON only. The session owns restart admission for executable changes.
+ * No imports, extension callbacks, or config discovery occur; failures and cancellation propagate.
+ */
+export const rereadProject = Effect.fn("rereadProject")(function* (project: Project) {
+  if (project.resolution === undefined) {
+    return yield* invalidConfig(project.tsconfigPath, "project has no retained resolution epoch");
+  }
+
+  return yield* resolveSavedProject(
+    project.tsconfigPath,
+    project.resolution,
+    project.extensions,
+    project.executableCoverage ?? [],
+  );
 });
 
 /** Runs the pipeline and prints the diagnostics; the result is returned so callers decide what to do with it. */
@@ -306,22 +447,33 @@ export const check = Effect.fn("check")(function* (
 
 const decodePreviousManifest = Schema.decodeEffect(PreviousManifestJson);
 
-export const build = Effect.fn("build")(function* (project: Project, versions: Versions) {
+/** Consume the accepted pipeline result without collecting or compiling again. */
+export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
+  project: Project,
+  versions: Versions,
+  accepted: CompileResult,
+  owner: OutputOwner,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const result = yield* failOnErrors(yield* compileAndReport(project));
+  const result = yield* failOnErrors(accepted);
   // After failOnErrors every stage succeeded; getOrThrow would be a pipeline invariant breach.
   const ir = Option.getOrThrow(result.ir.value);
   const files = Option.getOrThrow(result.files.value);
   const collected = Option.getOrThrow(result.collected.value);
   const generatedDir = collected.project?.outputDir ?? path.join(project.effxDir, "generated");
   const manifestPath = path.join(project.effxDir, "manifest.json");
+  yield* assertOutputOwner(owner, { generatedDir, effxDir: project.effxDir });
+  const canonicalGeneratedDir = yield* canonicalOutputPath(generatedDir);
 
   const generated = files.map((file) =>
     path.relative(project.effxDir, path.join(generatedDir, file.path)).split(path.sep).join("/"),
   );
 
-  const currentFiles = new Set(generated.map((file) => path.resolve(project.effxDir, file)));
+  const currentFiles = new Set<string>();
+
+  for (const file of generated)
+    currentFiles.add(yield* canonicalOutputPath(path.resolve(project.effxDir, file)));
 
   const previous = (yield* fs.exists(manifestPath))
     ? yield* decodePreviousManifest(yield* fs.readFileString(manifestPath)).pipe(
@@ -332,83 +484,148 @@ export const build = Effect.fn("build")(function* (project: Project, versions: V
       )
     : undefined;
 
-  // A previous manifest is the ownership record: only obsolete files it lists in this output
-  // directory may be removed. Never sweep an output directory containing unrelated user files.
-  const obsolete = (previous?.generated ?? [])
-    .map((file) => path.resolve(project.effxDir, file))
-    .filter((file) => {
-      const relative = path.relative(generatedDir, file);
+  // The manifest owns only its listed .ts files inside a held generated directory.
+  // Migration custody includes the old directory until this batch finishes.
+  const obsolete: Array<string> = [];
+
+  for (const previousFile of previous?.generated ?? []) {
+    const file = path.resolve(project.effxDir, previousFile);
+    const canonicalFile = yield* canonicalOutputPath(file);
+
+    const owned = owner.generatedDirs.some((directory) => {
+      const relative = path.relative(directory, canonicalFile);
 
       return (
         relative !== "" &&
         relative !== ".." &&
         !relative.startsWith(".." + path.sep) &&
-        !path.isAbsolute(relative) &&
-        path.extname(file) === ".ts" &&
-        !currentFiles.has(file)
+        !path.isAbsolute(relative)
       );
     });
 
-  yield* fs.makeDirectory(generatedDir, { recursive: true });
-  yield* fs.makeDirectory(project.effxDir, { recursive: true });
+    if (owned && path.extname(file) === ".ts" && !currentFiles.has(canonicalFile)) {
+      if (!canonicalFile.split(path.sep).includes(".effx")) {
+        const relative = path.relative(canonicalGeneratedDir, canonicalFile);
 
-  // A custom output may be reused, but stale files can be removed only within a real .effx.
-  // Fail before writing if that ownership invariant is not satisfied.
-  if (
-    obsolete.length > 0 &&
-    !(yield* fs.realPath(generatedDir)).split(path.sep).includes(".effx")
-  ) {
-    return yield* new CompilerFault({
-      stage: "generate",
-      message: "cannot remove obsolete generated files outside .effx: " + generatedDir,
-    });
+        // Retiring custom outputs are not deletable; leave their prior files intact.
+        // The current output still enforces normal obsolete-file refusal.
+        if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative))
+          continue;
+
+        return yield* new CompilerFault({
+          stage: "generate",
+          message: "cannot remove obsolete generated files outside .effx: " + file,
+        });
+      }
+
+      obsolete.push(file);
+    }
   }
 
-  for (const file of files) {
-    yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
-  }
+  // Admission ends here: finish ordered native writes (or their IO failure) before
+  // interruption can close the caller's custody. This is not filesystem atomicity.
+  yield* Effect.uninterruptible(
+    Effect.gen(function* () {
+      yield* fs.makeDirectory(generatedDir, { recursive: true });
+      yield* fs.makeDirectory(project.effxDir, { recursive: true });
 
-  for (const file of obsolete) yield* fs.remove(file, { force: true });
+      for (const file of files) {
+        yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
+      }
 
-  const irText = canonical(ir) + "\n";
-  yield* fs.writeFileString(path.join(project.effxDir, "ir.json"), irText);
-  yield* writeSurface(project.effxDir, ir, Option.getOrThrow(result.index));
+      for (const file of obsolete) yield* fs.remove(file, { force: true });
 
-  const manifestData: ManifestDraft = {
-    format: "effx-manifest",
-    version: 1,
-    compiler: versions,
-    semanticHash: yield* semanticHash(ir),
-    emit: collected.project?.emit ?? project.config.emit ?? "all",
-    naming: collected.project?.naming ??
-      project.config.naming ?? { problemIdentifier: "{key}Problem" },
-    generated,
-    diagnostics: result.diagnostics,
-    locations: locationsOf(collected, (file) =>
-      path.relative(
-        collected.project === undefined
-          ? project.rootDir
-          : path.dirname(path.dirname(collected.project.canonicalImportBase)),
-        file,
-      ),
-    ),
-  };
+      const irText = canonical(ir) + "\n";
+      yield* fs.writeFileString(path.join(project.effxDir, "ir.json"), irText);
+      yield* writeSurface(project.effxDir, ir, Option.getOrThrow(result.index));
 
-  if (collected.spreads !== undefined) {
-    manifestData.spreads = collected.spreads.map((spread) => ({
-      ...spread,
-      location: { ...spread.location, file: path.relative(project.rootDir, spread.location.file) },
-    }));
-  }
+      const manifestData: ManifestDraft = {
+        format: "effx-manifest",
+        version: 1,
+        compiler: versions,
+        semanticHash: yield* semanticHash(ir),
+        emit: collected.project?.emit ?? project.config.emit ?? "all",
+        naming: collected.project?.naming ??
+          project.config.naming ?? { problemIdentifier: "{key}Problem" },
+        generated,
+        diagnostics: result.diagnostics,
+        locations: locationsOf(collected, (file) =>
+          path.relative(
+            collected.project === undefined
+              ? project.rootDir
+              : path.dirname(path.dirname(collected.project.canonicalImportBase)),
+            file,
+          ),
+        ),
+      };
 
-  const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
+      if (collected.spreads !== undefined) {
+        manifestData.spreads = collected.spreads.map((spread) => ({
+          ...spread,
+          location: {
+            ...spread.location,
+            file: path.relative(project.rootDir, spread.location.file),
+          },
+        }));
+      }
 
-  yield* fs.writeFileString(manifestPath, manifest + "\n");
-  yield* Console.log(
-    "wrote " +
-      path.relative(".", project.effxDir) +
-      "/{ir.json, manifest.json, surface.json}; generated: " +
-      generated.join(", "),
+      const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
+
+      yield* fs.writeFileString(manifestPath, manifest + "\n");
+      yield* Console.log(
+        "wrote " +
+          path.relative(".", project.effxDir) +
+          "/{ir.json, manifest.json, surface.json}; generated: " +
+          generated.join(", "),
+      );
+    }),
+  );
+});
+/** Watch callers retain custody in their session scope after first success. */
+
+export const acquireBuildOutput = Effect.fnUntraced(function* (
+  project: Project,
+  accepted: CompileResult,
+) {
+  const result = yield* failOnErrors(accepted);
+  const path = yield* Path.Path;
+  const collected = Option.getOrThrow(result.collected.value);
+
+  return yield* acquireOutputOwner({
+    generatedDir: collected.project?.outputDir ?? path.join(project.effxDir, "generated"),
+    effxDir: project.effxDir,
+  });
+});
+
+/** Reconcile/admit/write under old + new custody; install the returned owner only on success. */
+export const migrateBuildOutput = Effect.fnUntraced(function* <A, E, R>(
+  project: Project,
+  accepted: CompileResult,
+  owner: OutputOwner,
+  use: (owner: OutputOwner) => Effect.Effect<A, E, R>,
+) {
+  const result = yield* failOnErrors(accepted);
+  const path = yield* Path.Path;
+  const collected = Option.getOrThrow(result.collected.value);
+
+  return yield* migrateOutputOwner(
+    owner,
+    {
+      generatedDir: collected.project?.outputDir ?? path.join(project.effxDir, "generated"),
+      effxDir: project.effxDir,
+    },
+    use,
+  );
+});
+
+/** Acquire custody only after a successful compile; scope closes on every exit. */
+export const build = Effect.fn("build")(function* (project: Project, versions: Versions) {
+  const result = yield* failOnErrors(yield* compileAndReport(project));
+  yield* Effect.scoped(
+    Effect.gen(function* () {
+      const owner = yield* acquireBuildOutput(project, result);
+      yield* writeCompileResult(project, versions, result, owner);
+    }),
   );
 });
 

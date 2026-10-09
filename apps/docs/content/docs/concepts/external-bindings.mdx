@@ -32,7 +32,7 @@ handler<Handler>(handler: Handler): OperationValue<Handler>
 declare(): ExternalOperationValue
 ```
 
-A shortened chain, from the fixture `packages/frontend-ts/test/fixtures/rc116/src/profile.effx.ts`:
+A shortened chain, from the fixture `packages/frontend-ts/test/fixtures/stable-v4/src/profile.effx.ts`:
 
 ```ts title="declaration-only operation (shortened)"
 export const readOwnProfile = Operation.query({
@@ -80,7 +80,7 @@ The handlers factory registers each endpoint with `HttpApiBuilder.group(...)` an
 | `raw` | one callback per endpoint, receiving the decoded request (no payload) and a lazy `authorize` thunk. It returns an `HttpServerResponse`. |
 | `guards` | one authorization effect per endpoint. It runs only when the application calls the thunk. |
 
-The generated registration looks like this (from the checked-in snapshot `packages/frontend-ts/test/fixtures/rc116/project/handlers/.effx/generated/directory-handlers.ts`):
+The generated registration looks like this (from the checked-in snapshot `packages/frontend-ts/test/fixtures/stable-v4/project/handlers/.effx/generated/directory-handlers.ts`):
 
 ```ts title="generated handlers, one endpoint shown"
 handlers

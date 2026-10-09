@@ -100,7 +100,7 @@ describe("Effect rule groups", () => {
       [["examples/*/src/**/*.ts"], "effect-library", "portable", undefined, "strict"],
       [
         [
-          "packages/cli/src/main.ts",
+          "scripts/effx.ts",
           "examples/*/src/*-main.ts",
           "examples/*/src/**/*-main.ts",
           "scripts/**/*.ts",
@@ -108,6 +108,22 @@ describe("Effect rule groups", () => {
         "composition-root",
         "bun",
         undefined,
+        "strict",
+      ],
+      [["scripts/lsp-linux.ts"], "composition-root", "bun", undefined, "strict"],
+      [["scripts/test/lsp-linux-extra.peer.ts"], "composition-root", "node", undefined, "strict"],
+      [
+        ["packages/cli/src/lsp-transport.ts"],
+        "runtime-adapter",
+        "portable",
+        ["external-data"],
+        "strict",
+      ],
+      [
+        ["packages/cli/test/packed-watch-peer.ts"],
+        "runtime-adapter",
+        "bun",
+        ["external-data"],
         "strict",
       ],
       [["**/*.test.ts"], "test", "bun", undefined, "strict"],
@@ -180,7 +196,11 @@ describe("Effect rule groups", () => {
         extraAllowedModules: expect.arrayContaining(["node:child_process"]),
       }),
     ]);
-    expect(groupOverrides[4]?.rules?.["effect/no-cross-runtime"]).toMatchObject([
+    expect(
+      groupOverrides.find((override) => override.files?.includes("**/*.test.ts"))?.rules?.[
+        "effect/no-cross-runtime"
+      ],
+    ).toMatchObject([
       "error",
       expect.objectContaining({
         role: "test",

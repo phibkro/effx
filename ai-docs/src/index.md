@@ -79,27 +79,35 @@ Root records retain complete original composition under spec 0019 §0.8. The gen
 
 ## Commands
 
-| Command                    | Purpose                                              |
-| -------------------------- | ---------------------------------------------------- |
-| `effx check`               | diagnose without writing                             |
-| `effx build`               | write projections (`--emit=contract\|handlers\|all`) |
-| `effx inspect <operation>` | show an operation's contract and exposures           |
-| `effx graph [name]`        | print a Mermaid graph                                |
+| Command                    | Purpose                                                      |
+| -------------------------- | ------------------------------------------------------------ |
+| `effx check`               | diagnose without writing                                     |
+| `effx build`               | write projections (`--emit=contract\|handlers\|all`)         |
+| `effx dev [--build]`       | check saved inputs until stopped; write only with `--build`  |
+| `effx lsp`                 | stdio diagnostics for one project and unsaved source buffers |
+| `effx inspect <operation>` | show an operation's contract and exposures                   |
+| `effx graph [name]`        | print a Mermaid graph                                        |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
-`--target`, `--emit`, `--out-dir` (`packages/cli/src/main.ts`).
+`--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
+
+`dev` and `lsp` accept repeatable `--exec-file` and `--exec-dir` launch declarations.
+LSP requires explicit `--config` or launch-time `--trust-config` for discovered executable config.
+Editor messages cannot grant trust. See Watch checks and editor diagnostics below for complete coverage and finite limits.
+Source: `docs/specs/0018-watch-editor.md` amendment A and `packages/cli/src/config.ts`.
 
 ## Sections
 
-| Section                     | Covers                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------- |
-| Declaring operations        | decorator and builder operations, annotation equivalence                                 |
-| Declaration-only operations | `.declare()` and external binding by the application                                     |
-| Group defaults              | `Http.group` / `@Http.Group` shared middleware, problems, access                         |
-| Problems and access         | `Http.Problems` registries, `Http.Access` capabilities and concealment                   |
-| Foldkit commands            | `Foldkit.Command` and command identity                                                   |
-| Custom annotations          | `effx.config.ts`, `@Annotate`, and typed `Annotation.define` + `implement` / `extension` |
-| Persistence ports           | `Persist.Port`, generated leaf services, adapter Layers and shared conformance scenarios |
+| Section                             | Covers                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| Declaring operations                | decorator and builder operations, annotation equivalence                                 |
+| Declaration-only operations         | `.declare()` and external binding by the application                                     |
+| Group defaults                      | `Http.group` / `@Http.Group` shared middleware, problems, access                         |
+| Problems and access                 | `Http.Problems` registries, `Http.Access` capabilities and concealment                   |
+| Foldkit commands                    | `Foldkit.Command` and command identity                                                   |
+| Custom annotations                  | `effx.config.ts`, `@Annotate`, and typed `Annotation.define` + `implement` / `extension` |
+| Persistence ports                   | `Persist.Port`, generated leaf services, adapter Layers and shared conformance scenarios |
+| Watch checks and editor diagnostics | write intent, executable coverage, source overlays, finite bounds, and owned shutdown    |
 
 **Note**: the examples contain comments for illustration. In practice you
 would not include these comments in your code.

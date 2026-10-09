@@ -20,7 +20,7 @@ const fixtures = new URL("./fixtures/surface/", import.meta.url).pathname;
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const withProject = <A, E, R>(use: (project: string, dir: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {

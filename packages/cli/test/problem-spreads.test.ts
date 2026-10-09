@@ -10,7 +10,7 @@ const repoRoot = new URL("../../../", import.meta.url).pathname;
 
 const runtime = new URL("../../runtime/src/index.ts", import.meta.url).pathname;
 
-const main = new URL("../src/main.ts", import.meta.url).pathname;
+const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const Services = Layer.mergeAll(
   BunServices.layer,
