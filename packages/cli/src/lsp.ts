@@ -1,4 +1,4 @@
-import { Crypto, Effect, Exit, FileSystem, Path, Schema, Scope } from "effect";
+import { Crypto, Effect, Exit, FileSystem, Option, Path, Schema, Scope } from "effect";
 import {
   bundledDiagnosticEntries,
   compile,
@@ -420,7 +420,18 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
       )
       .pipe(Effect.mapError(() => unavailable("Watch coverage unavailable")));
     sourceInputs = nextSourceInputs;
-    yield* watch!.poll.pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
+    // poll refuses a concurrent pass with None, and a pass begun before replaceInputs is
+    // discarded. Publication must follow a completed pass over the new coverage.
+    const replaced = yield* watch!.current;
+
+    const polled = yield* watch!.poll.pipe(
+      Effect.mapError(() => unavailable("Watch reconciliation unavailable")),
+    );
+
+    if (Option.isNone(polled))
+      yield* watch!
+        .waitForPass(replaced.pass)
+        .pipe(Effect.mapError(() => unavailable("Watch reconciliation unavailable")));
     const current = yield* watch!.current;
     const changes = yield* watch!.takeChanges;
 
