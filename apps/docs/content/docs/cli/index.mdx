@@ -164,6 +164,9 @@ Invalid `--target` or `--emit` values fail at the CLI boundary, before the compi
 
 ## Output goes to stdout
 
-One-shot diagnostics, the summary, `inspect` text, and `graph` text use stdout.
+One-shot diagnostics, the summary, `inspect` text, `graph` text, `explain` text and the `lift` report use stdout.
 `dev` prints complete cycle batches. LSP stdout contains only framed JSON-RPC; operational output uses stderr or protocol logs.
+
+Every command writes through the process's standard output and error streams and returns only after the stream accepted the bytes. Output larger than a pipe or socket buffer therefore reaches a slow reader complete, with the same bytes as a redirect to a file. Source: `printLines` in `packages/cli/src/output.ts`.
+
 See [Diagnostics](/docs/diagnostics) for the shared diagnostic data.

@@ -49,7 +49,7 @@ Maintained Node-client sockets, FIFO, and PTY remain the qualified output forms,
 This output restriction does not remove regular-file stdin support.
 
 Cooperative trusted config neither reads stdin nor bypasses native reporting.
-Effx-owned Console, logger, config-fault, usage/help and error output uses stderr
+Effx-owned Console, Stdio, logger, config-fault, usage/help and error output uses stderr
 or framed protocol messages, before and after initialization. Arbitrary trusted
 code that writes a raw stdout descriptor or uses the global console is outside
 containment. There is no global console monkeypatch or sandbox.

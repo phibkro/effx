@@ -32,6 +32,9 @@ no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServic
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 `effect/cli` is bound in the portable command graph `packages/cli/src/main.ts`.
 The sole process root `scripts/effx.ts` provides native capabilities and runs it.
+CLI commands print only through `printLines`, `printOut` and `printErr` in `packages/cli/src/output.ts`
+(the `Stdio` sink), never the global console, which drops what a full non-blocking pipe refuses
+(`tools/conventions/tests/cli-output-owner.test.ts`, STATE.md).
 `effect/process` (unstable `ChildProcess`) is bound in `scripts/docs-api.ts` for docgen and in the scoped test adapter `packages/persistence/test/process.ts` for owned acceptance subprocesses (EX-0023, `docs/research/persistence-0022-evidence.md`), with file-level diagnostics directives.
 EX-0023 also owns `packages/cli/test/packed-watch-peer.ts` for installed consumers
 `scripts/watch-editor-smoke.ts` and `scripts/stable-v4-smoke.ts`. The caller Scope
