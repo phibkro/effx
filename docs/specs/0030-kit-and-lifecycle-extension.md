@@ -148,7 +148,7 @@ export declare const runLifecycleCommand: <
 ) => Effect.Effect<LifecycleOutcome<Decision, Failure>, Failure, R | Tx>;
 ```
 
-First consumer: mono-web receipt lifecycle pilot, only after the lifecycle-machines contract is approved and its actor-per-command spike has completed. Both are still in progress/unlanded; this spec records no spike result or cost. Generalises `mono-web/packages/domain/src/receipt/update.ts` `decideReceipt`, its consumer `mono-web/apps/backend/src/http-api/receipt-transaction.ts`, and an unlanded lifecycle-spec branch whose draft file was not present when checked on 2026-10-10. XState pins are prerelease: `xstate` 6.0.0-alpha.65 and `@xstate/effect` 0.1.0-alpha.7. mono-web's compatibility and approval gates remain controlling.
+First consumer: mono-web receipt lifecycle pilot, only after the lifecycle-machines contract is approved. The contract is unlanded (mono-web branch `docs/lifecycle-machines-1010`). Its throwaway receipt spike has run (§4 item 1 states the result and its limits). Generalises `mono-web/packages/domain/src/receipt/update.ts` `decideReceipt` and its consumer `mono-web/apps/backend/src/http-api/receipt-transaction.ts`. XState pins are prerelease: `xstate` 6.0.0-alpha.65 and `@xstate/effect` 0.1.0-alpha.7. mono-web's compatibility and approval gates remain controlling. The spike waited with `waitFor`, not `join`, so the `runLifecycleCommand` sketch above must not be implemented with `join` as is.
 
 ### Testing
 
@@ -226,6 +226,6 @@ Analyses and projections:
 - This is a draft. `@effx/kit` and the lifecycle extension do not exist as packages and are not published.
 - No ORM, schema-diff or migration generation is proposed (spec 0022).
 - No Cedar runtime or policy evaluator is proposed.
-- No XState spike result, equivalence result, model coverage or cost is claimed. The mono-web lifecycle contract and spike are still in progress.
+- The only XState evidence is the one-lifecycle mono-web spike in §4 item 1: no PostgreSQL, transaction, retry or HTTP, a no-op write for the cost, and one machine on one runtime. It supports no claim about other lifecycles, model coverage beyond the receipt machine, or the extension's event-set derivation (falsifier 4 is untested).
 - The Spring Boot and Phoenix mappings are the plan author's mapping, not source-verified comparisons. Several NestJS, Laravel and ASP.NET concepts are marked `not covered` because the existing pages do not compare them.
 - Effect module presence in version 4.0.0 does not establish stability, production suitability or API compatibility with mono-web's rc.116 baseline.
