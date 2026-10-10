@@ -1,6 +1,8 @@
 # Spec 0030 — Effect kit and lifecycle extension
 
-Status: draft (2026-10-10); pending operator approval. No implementation or publication is authorized by this document.
+Status: draft, parked (2026-10-10); pending operator approval. No implementation or publication is authorized by this document.
+
+Parked by the operator on 2026-10-10: see ADR 0014. rat-stack covers lifecycles, the lint fence and the test method. It has no command transaction runner, no receipt or audit table and no outbox delivery, so §2 Command, Receipt and Audit, and Delivery stay as the design for mono-web house constructs. §3 (the effx extension) waits for a second consumer. The rat-stack capability projections (CLI, HTTP, MCP, RPC, code mode) overlap the role of effx's operation projections. This spec does not compare them.
 
 Depends on: proposed ADR 0014; ADRs 0001, 0005, 0008, 0012; specs 0002, 0003, 0005, 0006, 0007, 0010, 0015, 0016, 0020, 0022. Mono-web sources below are read-only references. Paths prefixed `mono-web/` are relative to the mono-web repository root.
 

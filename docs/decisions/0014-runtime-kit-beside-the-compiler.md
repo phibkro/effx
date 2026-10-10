@@ -1,6 +1,8 @@
 # ADR 0014: A runtime kit of ordinary Effect constructs sits beside the compiler
 
-Status: proposed (2026-10-10)
+Status: proposed, parked (2026-10-10)
+
+Parked by the operator on 2026-10-10: for now mono-web builds with rat-stack as its reference (lifecycle machines, the lint fence, the test method) and keeps the command, receipt, audit and delivery constructs as house constructs. The `@rat-stack/*` packages are not published to npm (404 on 2026-10-10), so rat-stack is a source of patterns, not a dependency. This ADR waits for a second consumer of the same construct (spec 0030 §4 item 4). Nothing below is withdrawn.
 
 ## Context
 
