@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Option, Path } from "effect";
+import { Effect, FileSystem, Option, Path } from "effect";
 import {
   CompilerFault,
   CoreDiagnostics,
@@ -10,6 +10,7 @@ import { semanticHash } from "@effx/ir";
 import { CheckFailed, type Project, compileAndReport } from "./commands.ts";
 import { CEDAR_WASM_VERSION, type CedarIssue, CedarValidator } from "./cedar-validate.ts";
 import { count, report, summary } from "./report.ts";
+import { printLines, printOut } from "./output.ts";
 
 /*
  * Spec 0017 §4: `effx cedar` projects the IR's authorization facts to `.effx/cedar/` and validates
@@ -85,14 +86,13 @@ export const cedarCommand = Effect.fn("cedar")(function* (
   const finish = Effect.fnUntraced(function* (note: string) {
     const counts = count(diagnostics);
 
-    for (const line of report(diagnostics, relative)) yield* Console.log(line);
-    yield* Console.log(summary(counts));
+    yield* printLines("stdout", [...report(diagnostics, relative), summary(counts)]);
 
     if (counts.errors > 0 || (options.denyWarnings && counts.warnings > 0)) {
       return yield* new CheckFailed({ errors: counts.errors + counts.warnings });
     }
 
-    yield* Console.log(note);
+    yield* printOut(note);
   });
 
   if (Option.isNone(projection.files)) {

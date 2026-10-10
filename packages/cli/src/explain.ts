@@ -1,7 +1,8 @@
 import { bundledDiagnosticEntries, CompilerFault, DiagnosticDefinitions } from "@effx/compiler";
 import { DiagnosticCode, RegistryError, composeRegistry, renderEntry } from "@effx/diagnostics";
-import { Console, Effect, FileSystem, Option, Path, Predicate, Runtime, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Predicate, Runtime, Schema } from "effect";
 import { configuredExtensions, loadConfig } from "./commands.ts";
+import { printErr, printOut } from "./output.ts";
 import { formatDiagnostic } from "./report.ts";
 
 /** A lookup/usage outcome already rendered at the CLI boundary, never a compiler diagnostic. */
@@ -15,7 +16,7 @@ export class ExplainFailed extends Schema.TaggedError<ExplainFailed>()("ExplainF
 }
 
 export const explainUsage = Effect.fnUntraced(function* (message: string) {
-  yield* Console.error(`Usage: effx explain <code> [--config <path>]\n${message}`);
+  yield* printErr(`Usage: effx explain <code> [--config <path>]\n${message}`);
 
   return yield* new ExplainFailed({ exitCode: 2 });
 });
@@ -102,7 +103,7 @@ export const explain = Effect.fn("explain")(function* (code: string, configPath?
     Effect.catchTags({
       RegistryError: (error) =>
         Effect.gen(function* () {
-          yield* Console.error(
+          yield* printErr(
             formatDiagnostic(
               DiagnosticDefinitions.EFFX0010.emit({
                 _tag: "InvalidRegistry",
@@ -116,7 +117,7 @@ export const explain = Effect.fn("explain")(function* (code: string, configPath?
         }),
       CompilerFault: (error) =>
         Effect.gen(function* () {
-          yield* Console.error(error.message);
+          yield* printErr(error.message);
 
           return yield* new ExplainFailed({ exitCode: 1 });
         }),
@@ -126,13 +127,12 @@ export const explain = Effect.fn("explain")(function* (code: string, configPath?
   const entry = registry.get(code);
 
   if (Option.isNone(entry)) {
-    yield* Console.error(
+    yield* printErr(
       `Unknown diagnostic code: ${code}${code.startsWith("EFFX[") ? "\nUse --config <path> to load the extension's diagnostic entries." : ""}`,
     );
 
     return yield* new ExplainFailed({ exitCode: 1 });
   }
 
-  // info writes stdout; parser help uses log, redirected separately at the entry point.
-  yield* Console.info(renderEntry(entry.value).replace(/\n+$/, ""));
+  yield* printOut(renderEntry(entry.value).replace(/\n+$/, ""));
 });

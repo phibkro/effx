@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Option, Path } from "effect";
+import { Effect, FileSystem, Option, Path } from "effect";
 import {
   type CompileResult,
   type Diagnostic,
@@ -12,6 +12,7 @@ import {
 import { Wiring } from "@effx/frontend-ts";
 import { semanticHash } from "@effx/ir";
 import { CheckFailed, type Project, compileAndReport } from "./commands.ts";
+import { printLines, printOut } from "./output.ts";
 import { count, report, summary } from "./report.ts";
 import { SURFACE_FILE } from "./surface-file.ts";
 
@@ -88,12 +89,11 @@ export const surfaceCheck = Effect.fn("surfaceCheck")(function* (
 
   const diagnostics = yield* wiringDiagnostics(project, result, against);
 
-  for (const line of report(diagnostics, relative)) yield* Console.log(line);
-  yield* Console.log(summary(count(diagnostics)));
+  yield* printLines("stdout", [...report(diagnostics, relative), summary(count(diagnostics))]);
 
   if (hasErrors(diagnostics)) {
     return yield* new CheckFailed({ errors: count(diagnostics).errors });
   }
 
-  yield* Console.log(`surface check: ${against} wires the generated handlers the surface requires`);
+  yield* printOut(`surface check: ${against} wires the generated handlers the surface requires`);
 });

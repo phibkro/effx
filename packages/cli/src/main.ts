@@ -320,6 +320,18 @@ export const main = Effect.gen(function* () {
         trace: console.trace.bind(console),
         warn: console.warn.bind(console),
       }),
+      // Commands print through Stdio: in an LSP session stdout is the protocol channel, so the service the
+      // session sees has no stdout of its own and writes what a command prints to stderr.
+      Effect.provideService(
+        Stdio.Stdio,
+        Stdio.make({
+          args: stdio.args,
+          stdinIsTerminal: stdio.stdinIsTerminal,
+          stdout: (options) => stdio.stderr(options),
+          stderr: (options) => stdio.stderr(options),
+          stdin: stdio.stdin,
+        }),
+      ),
       Effect.provideService(Logger.LogToStderr, true),
     );
   }

@@ -1,7 +1,7 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { CompilerFault } from "@effx/compiler";
-import { Cause, Effect, Exit, FileSystem, Path, PlatformError } from "effect";
+import { Cause, Effect, Exit, FileSystem, Path, PlatformError, Stdio } from "effect";
 import { expectTypeOf } from "vitest";
 import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import {
@@ -56,16 +56,16 @@ describe("spec 0018 executable config epoch", () => {
     const admitted = resolveProject<"pre-import-capability">();
 
     expectTypeOf<Effect.Services<typeof ordinary>>().toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path
+      FileSystem.FileSystem | Path.Path | Stdio.Stdio
     >();
     expectTypeOf<Effect.Services<typeof admitted>>().toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path | "pre-import-capability"
+      FileSystem.FileSystem | Path.Path | Stdio.Stdio | "pre-import-capability"
     >();
     expectTypeOf<Effect.Services<typeof admitted>>().not.toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path
+      FileSystem.FileSystem | Path.Path | Stdio.Stdio
     >();
     expectTypeOf<Effect.Services<ReturnType<typeof rereadProject>>>().toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path
+      FileSystem.FileSystem | Path.Path | Stdio.Stdio
     >();
     expectTypeOf<Effect.Error<typeof ordinary>>().toEqualTypeOf<
       CheckFailed | CompilerFault | PlatformError.PlatformError | PlatformError.BadArgument

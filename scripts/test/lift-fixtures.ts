@@ -1,5 +1,5 @@
 import { assert } from "@effect/vitest";
-import { Effect, FileSystem, Option, Path, Predicate } from "effect";
+import { Effect, FileSystem, Option, Path, Predicate, Schema } from "effect";
 import type { LiftRunParams } from "@effx/cli";
 import { LiftCheckExecution, type CheckChildResult } from "@effx/cli/lift-boundaries";
 import type { AnnotationArg } from "@effx/compiler";
@@ -144,20 +144,70 @@ export const runCli = (cwd: string, args: ReadonlyArray<string>) =>
     }),
   ).pipe(Effect.map(outcome));
 
-const slowReader = new URL("./cli-slow-reader-child.ts", import.meta.url).pathname;
+const readerChild = new URL("./cli-slow-reader-child.ts", import.meta.url).pathname;
+
+/** What a reader received: the CLI's exit code, the stdout byte count and digest, and JSON completeness. */
+export const Delivery = Schema.Struct({
+  code: Schema.Int,
+  bytes: Schema.Int,
+  sha256: Schema.String,
+  complete: Schema.Boolean,
+});
+
+export type Delivery = typeof Delivery.Type;
+
+const decodeDelivery = Schema.decodeUnknownEffect(Schema.fromJsonString(Delivery));
 
 /**
- * The same process root behind a real Bun child that reads the CLI's stdout pipe only after `delayMs`, like a
- * slow consumer. The receipt's stdout is that child's one JSON line: the CLI's exit code, the byte count and
- * whether it arrived as one complete document.
+ * How the real child reads the CLI's stdout. Sink `file` points stdout at a regular file, which no write can
+ * refuse: it is the oracle of what the command prints. Sink `pipe` reads a pipe slower than the CLI prints:
+ * stall `before-first-read` reads nothing for `delayMs`, `after-first-chunk` reads the first chunk and then
+ * stalls for `delayMs`. `dev` keeps stdin open until the first cycle has been read, because `effx dev` ends
+ * at stdin EOF.
  */
-export const runCliSlowReader = (cwd: string, delayMs: number, args: ReadonlyArray<string>) =>
-  Effect.flatMap(LiftCheckExecution, (execution) =>
+export type Reader =
+  | {
+      readonly cwd: string;
+      readonly args: ReadonlyArray<string>;
+      readonly sink: "file";
+      readonly dev?: boolean;
+    }
+  | {
+      readonly cwd: string;
+      readonly args: ReadonlyArray<string>;
+      readonly sink: "pipe";
+      readonly stall: "before-first-read" | "after-first-chunk";
+      readonly delayMs: number;
+      readonly dev?: boolean;
+    };
+
+/**
+ * The same process root behind a real Bun child that reads its stdout as the request says. The child's one
+ * JSON line says what arrived; the child itself must have exited cleanly.
+ */
+export const runReader = Effect.fnUntraced(function* (request: Reader) {
+  const stall = request.sink === "pipe" ? request.stall : "before-first-read";
+  const delayMs = request.sink === "pipe" ? request.delayMs : 0;
+
+  const receipt = yield* Effect.flatMap(LiftCheckExecution, (execution) =>
     execution.runChild({
       binary: process.execPath,
-      cwd,
-      args: [slowReader, effx, String(delayMs), ...args],
+      cwd: request.cwd,
+      args: [
+        readerChild,
+        effx,
+        request.sink,
+        stall,
+        String(delayMs),
+        request.dev === true ? "dev" : "plain",
+        ...request.args,
+      ],
       captureBytes: 64 * 1024,
       forcedStopMs: 540_000,
     }),
   ).pipe(Effect.map(outcome));
+
+  assert.strictEqual(receipt.code, 0, `${receipt.stdout}\n${receipt.stderr}`);
+
+  return yield* decodeDelivery(receipt.stdout.trimEnd());
+});

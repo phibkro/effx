@@ -41,6 +41,7 @@ export default defineConfig({
       "scripts/test/lift-execution-custody.test.ts",
       "scripts/test/lift-check-native.test.ts",
       "scripts/test/lift-cli-native.test.ts",
+      "scripts/test/cli-output-native.test.ts",
       "scripts/test/lift-corpus-native.test.ts",
     ],
     fileParallelism: false,

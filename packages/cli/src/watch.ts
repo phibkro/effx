@@ -5,7 +5,7 @@ import {
   type EmitMode,
   type TargetProfile,
 } from "@effx/compiler";
-import { Console, Effect, Exit, Fiber, FileSystem, Path, Scope, Semaphore } from "effect";
+import { Effect, Exit, Fiber, FileSystem, Path, Scope, Semaphore } from "effect";
 import {
   acquireBuildOutput,
   migrateBuildOutput,
@@ -19,6 +19,7 @@ import { loadedExecutableFiles } from "./config-runtime.ts";
 import type { OutputOwner } from "./output-owner.ts";
 import { canonicalDocument } from "./documents.ts";
 import { makeProjectSession, type ProjectSession, type SessionEvent } from "./project-session.ts";
+import { printLines, printOut } from "./output.ts";
 import { count, report, summary } from "./report.ts";
 import {
   makeWatchFiles,
@@ -346,18 +347,20 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
     ),
     publish: Effect.fnUntraced(function* (event: SessionEvent) {
       if (event._tag === "RestartRequired") {
-        yield* Console.log(`RestartRequired: ${event.reason}`);
+        yield* printOut(`RestartRequired: ${event.reason}`);
 
         return;
       }
 
       if (event._tag === "Cleared") return;
       cycle++;
-      yield* Console.log(`effx dev cycle ${cycle}`);
+      yield* printOut(`effx dev cycle ${cycle}`);
 
       if (event._tag === "Faulted") {
-        yield* Console.log(`CompilerFault: ${event.fault.message}`);
-        yield* Console.log("Diagnostics cleared: failed cycle; previous build artifacts retained.");
+        yield* printLines("stdout", [
+          `CompilerFault: ${event.fault.message}`,
+          "Diagnostics cleared: failed cycle; previous build artifacts retained.",
+        ]);
 
         return;
       }
@@ -368,8 +371,10 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
         return name === ".." || name.startsWith(".." + path.sep) ? file : name;
       };
 
-      for (const line of report(event.result.diagnostics, relative)) yield* Console.log(line);
-      yield* Console.log(summary(count(event.result.diagnostics)));
+      yield* printLines("stdout", [
+        ...report(event.result.diagnostics, relative),
+        summary(count(event.result.diagnostics)),
+      ]);
 
       if (options.build && !hasErrors(event.result.diagnostics)) {
         yield* Effect.uninterruptibleMask((restore) =>
@@ -412,7 +417,7 @@ export const dev = Effect.fn("dev")(function* (options: DevOptions, versions: Ve
             );
 
             owner = migration.owner;
-            yield* Console.log(`effx dev build cycle ${cycle} complete`);
+            yield* printOut(`effx dev build cycle ${cycle} complete`);
           }),
         );
       }

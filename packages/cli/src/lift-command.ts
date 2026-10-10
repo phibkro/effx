@@ -1,15 +1,4 @@
-import {
-  Crypto,
-  Effect,
-  FileSystem,
-  Option,
-  Path,
-  Result,
-  Runtime,
-  Schema,
-  Stdio,
-  Stream,
-} from "effect";
+import { Crypto, Effect, FileSystem, Option, Path, Result, Runtime, Schema, Stdio } from "effect";
 import {
   CompilerFault,
   Diagnostic,
@@ -25,6 +14,7 @@ import type { Project } from "./commands.ts";
 import type { LiftCheckExecution, LiftToolchain } from "./lift-boundaries.ts";
 import { liftCheckPassed, runLiftCheck } from "./lift-check.ts";
 import { provenDense } from "./lift-suggest.ts";
+import { printLines } from "./output.ts";
 import {
   LiftUsageError,
   encodeLiftJsonReport,
@@ -61,27 +51,6 @@ export class LiftExit extends Schema.TaggedError<LiftExit>()("LiftExit", { code:
     return this.code;
   }
 }
-
-/**
- * One line on a standard stream through the process root's `Stdio` service. Its sink completes only after the
- * stream accepted the bytes, so a report larger than the pipe buffer reaches a slow reader before the exit
- * code is raised; a global `console.log` drops what a full non-blocking descriptor refuses (observed: a
- * 289 KB report cut at the 256 KiB the socket held, exit code 1).
- */
-const printLine = (stream: "stdout" | "stderr", text: string) =>
-  Effect.flatMap(Stdio.Stdio, (stdio) =>
-    Stream.make(`${text}\n`).pipe(
-      Stream.run(
-        stream === "stdout"
-          ? stdio.stdout({ endOnDone: false })
-          : stdio.stderr({ endOnDone: false }),
-      ),
-    ),
-  ).pipe(
-    Effect.mapError(
-      (cause) => new CompilerFault({ stage: "lift", message: `cannot write to ${stream}`, cause }),
-    ),
-  );
 
 /** The project could not be analyzed at all: its diagnostics are the only report. */
 export class LiftAnalysisFailed extends Schema.TaggedError<LiftAnalysisFailed>()(
@@ -197,7 +166,7 @@ export const liftCommand = Effect.fn("lift")(function* (
   const exit = (code: number) => Effect.fail(new LiftExit({ code }));
 
   const usage = (message: string) =>
-    Effect.flatMap(printLine("stderr", `error: ${message}`), () => exit(1));
+    Effect.flatMap(printLines("stderr", [`error: ${message}`]), () => exit(1));
 
   if (Option.isSome(options.write) && options.form === "both") {
     return yield* usage("--write writes one file: choose --form verbose or --form dense");
@@ -216,13 +185,8 @@ export const liftCommand = Effect.fn("lift")(function* (
   const { analysis, run } = yield* prepareLift(project, options).pipe(
     Effect.catchTags({
       LiftAnalysisFailed: (error) =>
-        Effect.flatMap(
-          Effect.forEach(
-            printLiftDiagnostics(error.diagnostics),
-            (line) => printLine("stderr", line),
-            { discard: true },
-          ),
-          () => exit(1),
+        Effect.flatMap(printLines("stderr", printLiftDiagnostics(error.diagnostics)), () =>
+          exit(1),
         ),
       LiftUsageError: (error) => usage(error.message),
     }),
@@ -233,8 +197,7 @@ export const liftCommand = Effect.fn("lift")(function* (
   const rendering = renderLiftReport(run);
 
   if (Result.isFailure(rendering)) {
-    for (const line of printLiftDiagnostics([...analysis, ...result.diagnostics]))
-      yield* printLine("stderr", line);
+    yield* printLines("stderr", printLiftDiagnostics([...analysis, ...result.diagnostics]));
 
     return yield* usage(rendering.failure);
   }
@@ -287,15 +250,14 @@ export const liftCommand = Effect.fn("lift")(function* (
       });
     }
 
-    yield* printLine("stdout", encoded.success);
+    yield* printLines("stdout", [encoded.success]);
   } else {
-    yield* printLine("stdout", text);
-
-    if (patch !== "") yield* printLine("stdout", `REFACTOR PATCH\n${patch}`);
-
-    if (check !== undefined) yield* printLine("stdout", renderCheckSection(check));
-
-    for (const line of printLiftDiagnostics(diagnostics)) yield* printLine("stdout", line);
+    yield* printLines("stdout", [
+      text,
+      ...(patch === "" ? [] : [`REFACTOR PATCH\n${patch}`]),
+      ...(check === undefined ? [] : [renderCheckSection(check)]),
+      ...printLiftDiagnostics(diagnostics),
+    ]);
   }
 
   if (Option.isSome(target)) {

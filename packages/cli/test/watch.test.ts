@@ -6,7 +6,6 @@ import { TsSourceFrontend } from "@effx/frontend-ts";
 import { ApplicationIR } from "@effx/ir";
 import {
   Cause,
-  Console,
   Context,
   Deferred,
   Effect,
@@ -15,11 +14,15 @@ import {
   FileSystem,
   Layer,
   Option,
+  Predicate,
   Queue,
   Schema,
+  Sink,
+  Stdio,
+  Stream,
 } from "effect";
 import type { Crypto, Path, PlatformError } from "effect";
-import { TestClock, TestConsole } from "effect/testing";
+import { TestClock } from "effect/testing";
 import { expectTypeOf } from "vitest";
 import {
   copyStableV4Fixture,
@@ -43,7 +46,9 @@ type DevExit = Exit.Exit<
 class ReportReceipts extends Context.Service<
   ReportReceipts,
   {
-    readonly console: Console.Console;
+    readonly stdio: Stdio.Stdio;
+    /** Every line `dev` printed on stdout, without its newline, in order. */
+    readonly lines: Effect.Effect<ReadonlyArray<string>>;
     readonly awaitWake: Effect.Effect<void>;
     readonly exit: Effect.Effect<Option.Option<DevExit>>;
     readonly noteExit: (exit: DevExit) => Effect.Effect<void>;
@@ -52,20 +57,29 @@ class ReportReceipts extends Context.Service<
   static readonly layer = Layer.effect(
     ReportReceipts,
     Effect.gen(function* () {
-      const actual = yield* Console.Console;
       const wake = yield* Queue.dropping<void>(1);
+      const printed: Array<string> = [];
       let exit: Option.Option<DevExit> = Option.none();
       yield* Effect.addFinalizer(() => Queue.shutdown(wake).pipe(Effect.asVoid));
 
       return ReportReceipts.of({
-        // Forward every real Console method. Only native log completion wakes the
+        // The real command prints through the Stdio service. Only a completed stdout write wakes the
         // consumer; one coalesced wake retains no report history or waiting producer.
-        console: Object.assign(Object.create(actual), {
-          log: (...args: ReadonlyArray<unknown>) => {
-            actual.log(...args);
-            Queue.offerUnsafe(wake, undefined);
-          },
+        stdio: Stdio.make({
+          args: Effect.succeed([]),
+          stdout: () =>
+            Sink.forEach((chunk: string | Uint8Array) =>
+              Effect.sync(() => {
+                const text = Predicate.isString(chunk) ? chunk : new TextDecoder().decode(chunk);
+
+                printed.push(...text.replace(/\n$/, "").split("\n"));
+                Queue.offerUnsafe(wake, undefined);
+              }),
+            ),
+          stderr: () => Sink.drain,
+          stdin: Stream.empty,
         }),
+        lines: Effect.sync(() => [...printed]),
         awaitWake: Queue.take(wake),
         exit: Effect.sync(() => exit),
         noteExit: (completed) =>
@@ -78,21 +92,25 @@ class ReportReceipts extends Context.Service<
   );
 }
 
-const consoleReceipts = Layer.effect(
-  Console.Console,
-  ReportReceipts.pipe(Effect.map((receipts) => receipts.console)),
-).pipe(Layer.provideMerge(ReportReceipts.layer));
+const printedLines = Effect.flatMap(ReportReceipts, (receipts) => receipts.lines);
 
 const platform = TsSourceFrontend.layer.pipe(
   Layer.provideMerge(BunServices.layer),
-  Layer.provideMerge(consoleReceipts),
+  Layer.provideMerge(ReportReceipts.layer),
   Layer.provideMerge(executableInventoryLayer),
 );
 
+/**
+ * `dev` with the capturing Stdio provided at the call. `BunServices.layer` also provides a Stdio, so a layer
+ * would leave the winner to merge order; a service provided at the call always wins.
+ */
 const observeDev = Effect.fnUntraced(function* (...args: Parameters<typeof dev>) {
   const receipts = yield* ReportReceipts;
 
-  return yield* dev(...args).pipe(Effect.onExit(receipts.noteExit));
+  return yield* dev(...args).pipe(
+    Effect.provideService(Stdio.Stdio, receipts.stdio),
+    Effect.onExit(receipts.noteExit),
+  );
 });
 
 const versions = { effx: "test", effect: "4.0.0", typescript: "6.0.3" };
@@ -111,7 +129,7 @@ const awaitOutput = Effect.fnUntraced(function* (
   yield* TestClock.adjust("250 millis");
 
   while (true) {
-    const lines = yield* TestConsole.logLines;
+    const lines = yield* printedLines;
     const text = lines.slice(after).map(String).join("\n");
 
     if (accepts(text)) return { text, offset: lines.length };
@@ -164,7 +182,12 @@ describe("actual scoped effx dev journey", () => {
       | PlatformError.BadArgument
     >();
     expectTypeOf<Effect.Services<typeof value>>().toEqualTypeOf<
-      FileSystem.FileSystem | Path.Path | Crypto.Crypto | SourceFrontend | ExecutableInventory
+      | FileSystem.FileSystem
+      | Path.Path
+      | Crypto.Crypto
+      | SourceFrontend
+      | ExecutableInventory
+      | Stdio.Stdio
     >();
     expectTypeOf<Effect.Error<typeof value>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Services<typeof value>>().not.toEqualTypeOf<never>();
@@ -234,10 +257,10 @@ describe("actual scoped effx dev journey", () => {
       yield* Fiber.interrupt(worker);
       const exit = yield* Fiber.await(worker);
       assert.isTrue(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause));
-      const stopped = yield* TestConsole.logLines;
+      const stopped = yield* printedLines;
       yield* fs.writeFileString(app, broken);
       yield* TestClock.adjust("1 second");
-      assert.deepStrictEqual(yield* TestConsole.logLines, stopped);
+      assert.deepStrictEqual(yield* printedLines, stopped);
     }).pipe(Effect.scoped, Effect.provide(platform)),
   );
 
@@ -440,10 +463,7 @@ describe("actual scoped effx dev journey", () => {
         );
         yield* TestClock.adjust("1 second");
 
-        const subsequent = (yield* TestConsole.logLines)
-          .slice(initial.offset)
-          .map(String)
-          .join("\n");
+        const subsequent = (yield* printedLines).slice(initial.offset).map(String).join("\n");
 
         assert.strictEqual(subsequent.split("RestartRequired:").length - 1, 1);
         assert.isFalse(subsequent.includes("cycle 2"));
@@ -725,7 +745,7 @@ describe("actual scoped effx dev journey", () => {
             assert.isTrue(error.message.includes("Invalid selection"));
         }
 
-        assert.isFalse((yield* TestConsole.logLines).map(String).some(finished));
+        assert.isFalse((yield* printedLines).map(String).some(finished));
       }).pipe(Effect.scoped, Effect.provide(platform)),
   );
 
@@ -760,9 +780,9 @@ describe("actual scoped effx dev journey", () => {
           text.includes("build cycle 2 complete"),
         );
 
-        const settled = yield* TestConsole.logLines;
+        const settled = yield* printedLines;
         yield* TestClock.adjust("1 second");
-        assert.deepStrictEqual(yield* TestConsole.logLines, settled);
+        assert.deepStrictEqual(yield* printedLines, settled);
 
         assert.isTrue((yield* fs.readDirectory(newOutput)).length > 0);
         assert.isFalse(yield* fs.exists(oldOutput + "/.effx-output-owner.lock"));
@@ -860,7 +880,7 @@ describe("actual scoped effx dev journey", () => {
       const contract = yield* resolveProject(contractConfig, true, "effect-4.0", "contract");
       yield* build(contract, versions);
       const bootstrap = yield* fs.readFileString(generatedContract);
-      const beforeWatch = (yield* TestConsole.logLines).length;
+      const beforeWatch = (yield* printedLines).length;
 
       const worker = yield* Effect.forkScoped(
         observeDev(
@@ -916,9 +936,9 @@ describe("actual scoped effx dev journey", () => {
 
       const acceptedManifest = yield* fs.readFileString(handlerManifest);
       const acceptedProjection = yield* fs.readFileString(handlerProjection);
-      const quiet = yield* TestConsole.logLines;
+      const quiet = yield* printedLines;
       yield* TestClock.adjust("1 second");
-      assert.deepStrictEqual(yield* TestConsole.logLines, quiet);
+      assert.deepStrictEqual(yield* printedLines, quiet);
 
       // Produce a genuinely different group through the normal contract compiler,
       // not an edited output fixture or a replacement inventory implementation.
@@ -929,7 +949,7 @@ describe("actual scoped effx dev journey", () => {
           'operationId: "profile.readChanged"',
         ),
       );
-      const beforeChange = (yield* TestConsole.logLines).length;
+      const beforeChange = (yield* printedLines).length;
       yield* build(contract, versions);
       assert.notStrictEqual(yield* fs.readFileString(generatedContract), bootstrap);
       const handler = yield* resolveProject(handlerConfig, true, "effect-4.0", "handlers");
@@ -954,7 +974,7 @@ describe("actual scoped effx dev journey", () => {
       assert.strictEqual(yield* fs.readFileString(handlerProjection), acceptedProjection);
 
       yield* fs.writeFileString(contractSource, original);
-      const beforeRepair = (yield* TestConsole.logLines).length;
+      const beforeRepair = (yield* printedLines).length;
       yield* build(contract, versions);
 
       const repaired = yield* awaitOutput(beforeRepair, (text) => {
@@ -968,9 +988,9 @@ describe("actual scoped effx dev journey", () => {
       );
       assert.strictEqual(yield* fs.readFileString(handlerProjection), acceptedProjection);
       assert.isFalse(yield* fs.exists(sentinel));
-      const repairedQuiet = yield* TestConsole.logLines;
+      const repairedQuiet = yield* printedLines;
       yield* TestClock.adjust("1 second");
-      assert.deepStrictEqual(yield* TestConsole.logLines, repairedQuiet);
+      assert.deepStrictEqual(yield* printedLines, repairedQuiet);
       yield* Fiber.interrupt(worker);
     }).pipe(Effect.scoped, Effect.provide(platform)),
   );

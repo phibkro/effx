@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Option, Path, Predicate, Runtime, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Predicate, Runtime, Schema, Stdio } from "effect";
 import {
   type CompileResult,
   type Extension,
@@ -20,6 +20,7 @@ import { graph } from "./graph.ts";
 import { inspect } from "./inspect.ts";
 import { type Manifest, ManifestJson, PreviousManifestJson, locationsOf } from "./manifest.ts";
 import { count, report, summary } from "./report.ts";
+import { printLines, printOut } from "./output.ts";
 import { writeSurface } from "./surface-file.ts";
 import type { WatchInput } from "./watch-files.ts";
 import {
@@ -366,7 +367,10 @@ const resolveSavedProject = Effect.fnUntraced(function* (
       reason: namingIssue,
     });
 
-    for (const line of report([diagnostic], (file) => file)) yield* Console.log(line);
+    yield* printLines(
+      "stdout",
+      report([diagnostic], (file) => file),
+    );
 
     return yield* new CheckFailed({ errors: 1 });
   }
@@ -431,8 +435,10 @@ export const compileAndReport = Effect.fn("compileAndReport")(function* (project
     return location === ".." || location.startsWith(".." + path.sep) ? file : location;
   };
 
-  for (const line of report(result.diagnostics, relative)) yield* Console.log(line);
-  yield* Console.log(summary(count(result.diagnostics)));
+  yield* printLines("stdout", [
+    ...report(result.diagnostics, relative),
+    summary(count(result.diagnostics)),
+  ]);
 
   return result;
 });
@@ -444,7 +450,7 @@ export const failOnErrors = (result: CompileResult): Effect.Effect<CompileResult
 
 export const check = Effect.fn("check")(function* (
   project: Project,
-): Effect.fn.Return<void, CheckFailed | CompilerFault, SourceFrontend | Path.Path> {
+): Effect.fn.Return<void, CheckFailed | CompilerFault, SourceFrontend | Path.Path | Stdio.Stdio> {
   yield* failOnErrors(yield* compileAndReport(project));
 });
 
@@ -575,7 +581,7 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
       const manifest = yield* Schema.encodeEffect(ManifestJson)(manifestData);
 
       yield* fs.writeFileString(manifestPath, manifest + "\n");
-      yield* Console.log(
+      yield* printOut(
         "wrote " +
           path.relative(".", project.effxDir) +
           "/{ir.json, manifest.json, surface.json}; generated: " +
@@ -644,12 +650,12 @@ export const inspectCommand = Effect.fn("inspect")(function* (project: Project, 
   const text = inspect(index, name);
 
   if (Option.isNone(text)) {
-    yield* Console.log(`error: no operation named ${name}`);
+    yield* printOut(`error: no operation named ${name}`);
 
     return yield* new UnknownName({ name });
   }
 
-  yield* Console.log(text.value);
+  yield* printOut(text.value);
 });
 
 export const graphCommand = Effect.fn("graph")(function* (
@@ -660,10 +666,10 @@ export const graphCommand = Effect.fn("graph")(function* (
   const text = graph(ir, index, name);
 
   if (Option.isNone(text)) {
-    yield* Console.log(`error: no node named ${Option.getOrElse(name, () => "")}`);
+    yield* printOut(`error: no node named ${Option.getOrElse(name, () => "")}`);
 
     return yield* new UnknownName({ name: Option.getOrElse(name, () => "") });
   }
 
-  yield* Console.log(text.value);
+  yield* printOut(text.value);
 });

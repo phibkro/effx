@@ -1,5 +1,16 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Crypto, Effect, Exit, FileSystem, Layer, Option, Path, Schema } from "effect";
+import {
+  Cause,
+  Crypto,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Schema,
+  Stdio,
+} from "effect";
 import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compiler";
 import { BunServices } from "@effect/platform-bun";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -74,6 +85,7 @@ describe("LSP method boundary and projection", () => {
       | SourceFrontend
       | LspPlatform
       | ExecutableInventory
+      | Stdio.Stdio
     >();
     expectTypeOf<Effect.Services<typeof program>>().not.toEqualTypeOf<never>();
     expectTypeOf<
@@ -1264,5 +1276,41 @@ describe("maintained LSP client project journeys", () => {
         }),
       ),
     30000,
+  );
+
+  it.live(
+    "writes what launch resolution prints to stderr and keeps the protocol channel clean",
+    () =>
+      liveProject(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* copyUsersFixture();
+          const tsconfig = path.join(directory, "tsconfig.json");
+          const saved = yield* decodeTsconfig(yield* fs.readFileString(tsconfig));
+
+          // The saved pattern has no `{Key}`: project admission prints its EFFX2412 diagnostic and refuses.
+          // Commands print through the Stdio service, and an LSP session's service has no stdout of its own.
+          yield* fs.writeFileString(
+            tsconfig,
+            yield* encodeTsconfig({
+              ...saved,
+              effx: { naming: { problemIdentifier: "NoPlaceholder" } },
+            }),
+          );
+
+          const peer = yield* acquirePeer(true, { cwd: directory, args: ["lsp"] });
+
+          const failure = yield* peer.requestError("initialize", {
+            ...clientParameters,
+            rootUri: (yield* path.toFileUrl(directory)).href,
+          });
+
+          assert.strictEqual(failure.code, -32603);
+          assert.include(yield* peer.stderr, "EFFX2412");
+          assert.strictEqual(yield* peer.protocolErrorCount, 0);
+        }),
+      ),
+    60000,
   );
 });
