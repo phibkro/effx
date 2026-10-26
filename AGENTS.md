@@ -30,6 +30,7 @@ Schema-defined semantic IR, analyses read the IR graph, generators emit ordinary
 Rules: native Effect first; pure total transformations stay plain functions; no `async/await`;
 no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServices` only at
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
+EX-0037 covers the native platform/test APIs named in `docs/research/effect-4.0-api-notes.md`.
 `effect/cli` is bound in the portable command graph `packages/cli/src/main.ts`.
 The sole process root `scripts/effx.ts` provides native capabilities and runs it.
 CLI commands print only through `printLines`, `printOut` and `printErr` in `packages/cli/src/output.ts`

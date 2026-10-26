@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnostics": false,
+        "allowedUnstableApis": [
+          "effect/FileSystem",
+          "effect/Path",
+          "effect/Crypto",
+          "effect/PlatformError",
+          "effect/Stdio",
+          "@effect/platform-bun/BunServices",
+          "@effect/vitest"
+        ],
+        "overrides": [
+          {
+            "include": [
+              "scripts/**/*.ts",
+              "**/test/**/*.ts",
+              "examples/**/src/*-main.ts",
+              "examples/**/src/server*.ts",
+              "src/*-main.ts",
+              "src/server*.ts"
+            ],
+            "options": {
+              "allowedUnstableApis": [
+                "effect/FileSystem",
+                "effect/Path",
+                "effect/Crypto",
+                "effect/PlatformError",
+                "effect/Stdio",
+                "@effect/platform-bun/BunServices",
+                "@effect/vitest",
+                "@effect/platform-bun/BunRuntime",
+                "@effect/platform-bun/BunCrypto",
+                "@effect/platform-bun/BunHttpServer"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

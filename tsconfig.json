@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/@effect/tsgo/schema.json",
+  "extends": "./tsconfig.effect-stability.json",
   "compilerOptions": {
     "target": "ES2023",
     "module": "ESNext",
@@ -31,13 +32,7 @@
       "@effx/cli/config": ["./packages/cli/src/config.ts"],
       "@effx/cli/lift-boundaries": ["./packages/cli/src/lift-boundaries.ts"],
       "@effx/cli": ["./packages/cli/src/index.ts"]
-    },
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "diagnostics": false
-      }
-    ]
+    }
   },
   "include": ["packages/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts", "ai-docs/**/*.ts"],
   "exclude": ["**/node_modules/**", "**/.effx/**", "**/test/fixtures/**", "packages/*/ai-docs/**"]

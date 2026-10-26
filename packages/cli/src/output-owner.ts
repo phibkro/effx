@@ -25,6 +25,8 @@ export interface OutputOwner {
   readonly generatedDirs: ReadonlyArray<string>;
 }
 
+const encodeToken = Schema.encodeEffect(Schema.Uint8ArrayFromHex);
+
 const lockName = ".effx-output-owner.lock";
 
 /** Resolve missing suffixes through their nearest existing physical parent. */
@@ -89,7 +91,8 @@ const acquireDirectories = Effect.fnUntraced(function* (directories: ReadonlyArr
 
   return yield* Effect.gen(function* () {
     for (const directory of directories) {
-      const token = yield* crypto.randomUUIDv4;
+      // Encoding random bytes cannot fail; a codec failure is an invariant defect.
+      const token = yield* encodeToken(yield* crypto.randomBytes(16)).pipe(Effect.orDie);
       const scope = yield* Scope.fork(parent);
       const lock = path.join(directory, lockName);
       leases.push({ directory, token, scope });
