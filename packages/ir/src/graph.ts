@@ -1,4 +1,3 @@
-/** @effect-diagnostics unstableApiUsage:off -- EX-0037: ADR 0002 Graph working-index adapter. */
 import { Array as Arr, Graph, HashMap, Option, Trie } from "effect";
 import { type ApplicationIR, make } from "./ApplicationIR.ts";
 import type { Edge, EdgeKind } from "./Edge.ts";

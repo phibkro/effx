@@ -10,6 +10,7 @@
           "effect/Crypto",
           "effect/PlatformError",
           "effect/Stdio",
+          "effect/Graph",
           "@effect/platform-bun/BunServices",
           "@effect/vitest"
         ],
@@ -30,6 +31,7 @@
                 "effect/Crypto",
                 "effect/PlatformError",
                 "effect/Stdio",
+                "effect/Graph",
                 "@effect/platform-bun/BunServices",
                 "@effect/vitest",
                 "@effect/platform-bun/BunRuntime",
