@@ -2,6 +2,11 @@
 
 Snapshot: installed `effect@4.0.0`, `@effect/platform-bun@4.0.0`, and `@effect/vitest@4.0.0`. Signatures are copied from installed primary source; source paths and line numbers follow each group.
 
+## Upgrade observations: 4.0.5
+
+- `Crypto.Crypto.randomUUIDv4` and `randomUUIDv7` changed from Effect properties in 4.0.0 to methods in 4.0.5 (`src/Crypto.ts`). Output custody needs an opaque random token, not a UUID; it now encodes 16 bytes from `randomBytes` using `Schema.Uint8ArrayFromHex`, APIs present in both versions.
+- `HttpApiClient.Client.Response` changed from a non-distributive conditional in 4.0.0 to a distributive conditional in 4.0.5 (`src/http-api/HttpApiClient.ts:139`). Generic method return extraction therefore includes all response modes. Generated calls select `decoded-only` explicitly and SDK success types derive from those calls. Both versions accept that mode.
+
 ## Import paths
 
 | API | Import path |
