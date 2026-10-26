@@ -64,11 +64,20 @@ type MethodEffect<
   Operation extends keyof ApiClients[Root][Group],
 > = ApiClients[Root][Group][Operation] extends (...args: never[]) => infer Result ? Result : never;
 
+type DecodedSuccesses = {
+  readonly "effx": {
+    readonly "profile": {
+      readonly "read": Effect.Success<ReturnType<typeof ProfileRead>>;
+      readonly "update": Effect.Success<ReturnType<typeof ProfileUpdate>>;
+    };
+  };
+};
+
 export type EffectSdkSuccess<
-  Root extends keyof ApiClients,
-  Group extends keyof ApiClients[Root],
-  Operation extends keyof ApiClients[Root][Group],
-> = Effect.Success<MethodEffect<Root, Group, Operation>>;
+  Root extends keyof DecodedSuccesses,
+  Group extends keyof DecodedSuccesses[Root],
+  Operation extends keyof DecodedSuccesses[Root][Group],
+> = DecodedSuccesses[Root][Group][Operation];
 
 type KnownNativeFailure<E> = unknown extends E ? never : Exclude<E, HttpClientError.HttpClientError>;
 
@@ -112,10 +121,7 @@ const ProfileReadMiddlewareFailure = (failure: unknown): failure is HttpApiMiddl
 
 export const ProfileRead = (request: Parameters<HttpApiClient.ForApi<typeof Api>["profile"]["read"]>[0]) =>
   Client.use((client) => client["profile"]["read"](
-    typeof request !== "object" || request === null ||
-    request.responseMode === undefined || request.responseMode === "decoded-only"
-      ? request
-      : { ...request, responseMode: "decoded-only" },
+    { ...(request || {}), responseMode: "decoded-only" },
   ).pipe(
     Effect.mapError((failure) =>
       !HttpClientError.isHttpClientError(failure) && (Schema.isSchemaError(failure) || Schema.is(CredentialMissing)(failure) || ProfileReadMiddlewareFailure(failure))
@@ -133,10 +139,7 @@ const ProfileUpdateMiddlewareFailure = (failure: unknown): failure is HttpApiMid
 
 export const ProfileUpdate = (request: Parameters<HttpApiClient.ForApi<typeof Api>["profile"]["update"]>[0]) =>
   Client.use((client) => client["profile"]["update"](
-    typeof request !== "object" || request === null ||
-    request.responseMode === undefined || request.responseMode === "decoded-only"
-      ? request
-      : { ...request, responseMode: "decoded-only" },
+    { ...(request || {}), responseMode: "decoded-only" },
   ).pipe(
     Effect.mapError((failure) =>
       !HttpClientError.isHttpClientError(failure) && (Schema.isSchemaError(failure) || Schema.is(CredentialMissing)(failure) || ProfileUpdateMiddlewareFailure(failure))

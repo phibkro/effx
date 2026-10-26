@@ -169,10 +169,7 @@ const contractCall = (
   return [
     `export const ${exportedName} = (request: ${request}) =>`,
     `  ${clientName(item.root)}.use((client) => client[${JSON.stringify(item.group)}][${JSON.stringify(operation)}](`,
-    `    typeof request !== "object" || request === null ||`,
-    `    request.responseMode === undefined || request.responseMode === "decoded-only"`,
-    "      ? request",
-    `      : { ...request, responseMode: "decoded-only" },`,
+    `    { ...(request || {}), responseMode: "decoded-only" },`,
     "  ).pipe(",
     ...indent(mappedFailure(imports, item, exportedName).split("\n"), 2),
     "  ));",
@@ -333,6 +330,31 @@ const body = (imports: Imports, items: ReadonlyArray<HttpItem>): ReadonlyArray<s
     ];
   });
 
+  const successes = roots.flatMap((root) => {
+    const rootItems = items.filter((item) => item.root === root);
+    const groups = [...new Set(rootItems.map((item) => item.group))].toSorted();
+
+    return [
+      `readonly ${JSON.stringify(root)}: {`,
+      ...indent(
+        groups.flatMap((group) => [
+          `readonly ${JSON.stringify(group)}: {`,
+          ...indent(
+            rootItems.flatMap((item) =>
+              item.group === group
+                ? [
+                    `readonly ${JSON.stringify(endpointKey(item))}: ${effect}.Success<ReturnType<typeof ${clientOperationName(item, items)}>>;`,
+                  ]
+                : [],
+            ),
+          ),
+          "};",
+        ]),
+      ),
+      "};",
+    ];
+  });
+
   return [
     ...index,
     `export class TransportFailure extends ${schema}.TaggedError<TransportFailure>()(`,
@@ -382,11 +404,15 @@ const body = (imports: Imports, items: ReadonlyArray<HttpItem>): ReadonlyArray<s
     "  Operation extends keyof ApiClients[Root][Group],",
     `> = ApiClients[Root][Group][Operation] extends (...args: never[]) => infer Result ? Result : never;`,
     "",
+    "type DecodedSuccesses = {",
+    ...indent(successes),
+    "};",
+    "",
     "export type EffectSdkSuccess<",
-    "  Root extends keyof ApiClients,",
-    "  Group extends keyof ApiClients[Root],",
-    "  Operation extends keyof ApiClients[Root][Group],",
-    `> = ${effect}.Success<MethodEffect<Root, Group, Operation>>;`,
+    "  Root extends keyof DecodedSuccesses,",
+    "  Group extends keyof DecodedSuccesses[Root],",
+    "  Operation extends keyof DecodedSuccesses[Root][Group],",
+    "> = DecodedSuccesses[Root][Group][Operation];",
     "",
     `type KnownNativeFailure<E> = unknown extends E ? never : Exclude<E, ${clientError}.HttpClientError>;`,
     "",
