@@ -1,6 +1,6 @@
 # Spec 0031 — Domain-model extension: entities, relationships, machines, events, grants and generated formal models
 
-Status: **draft 2026-10-26, not frozen.** Proposed by the Vektorprogrammet reimagined lead; the operator accepted the direction ("write the effx spec now, keep the reimagined kernel on the same names, extract when a second domain uses it"). Builds on [ADR 0002](../decisions/0002-ir-is-graph-shaped-and-schema-defined.md) (Extension nodes), [ADR 0006](../decisions/0006-query-is-a-semantic-claim.md) (Query/Command only), [ADR 0007](../decisions/0007-cedar-authorizes-effx-issues-leases.md), [spec 0015](0015-config-and-extensions.md) (config toggles, public `Extension`), [spec 0017](0017-effx-cedar.md) (projection pattern) and [spec 0020](0020-annotation-definitions.md) (definitions with derived laws).
+Status: **design accepted 2026-10-26; built in parallel with the Vektorprogrammet information system through slice specs (§7), starting with [spec 0032](0032-domain-model-alloy-grants-machines.md).** The falsifiers in §4 belong to the whole extension; each slice spec freezes the subset it delivers. Builds on [ADR 0002](../decisions/0002-ir-is-graph-shaped-and-schema-defined.md) (Extension nodes), [ADR 0006](../decisions/0006-query-is-a-semantic-claim.md) (Query/Command only), [ADR 0007](../decisions/0007-cedar-authorizes-effx-issues-leases.md), [ADR 0011](../decisions/0011-config-is-an-explicit-execution-boundary.md) (config is the only user-module import), [spec 0015](0015-config-and-extensions.md) (config toggles, public `Extension`), [spec 0017](0017-effx-cedar.md) (projection pattern) and [spec 0020](0020-annotation-definitions.md) (definitions with derived laws).
 
 ## 1. Outcome
 
@@ -100,9 +100,13 @@ Effect 4.0.5 represents a check as data: `SchemaAST.Filter.annotations.represent
 
 ## 7. Sequencing
 
-1. The reimagined kernel uses the node names and shapes of §3 (Entity, Relationship, Machine, Guard, Event, Grant, Requirement) in `packages/domain/src/kernel/`, and spec 0015 there proves the Alloy emitter and trace replay on its teams domain.
-2. When reimagined spec 0011 (placement) is the second domain to use the kernel, the kernel moves into an effx package (`@effx/domain-model`) behind this spec; the reimagined repository then depends on it.
-3. Falsifier 4 runs at step 2, against the teams and placement domains.
+Revised 2026-10-26 (operator): **the library is built in parallel with the Vektorprogrammet information system**, not after it.
+
+1. **One runtime kernel.** `authorize`, `Machine.can` and the guard revivers stay in the Vektorprogrammet kernel until extraction. effx builds the declaration IR, the emitters and the checks; it does not build a second `authorize`.
+2. **The contract between them is `DomainDescription`**, a Schema in a new package `@effx/domain-model`: commands, reads, principals, subject sets, grants and machines (with each guard's `representation`), later entities, relationships and events. The Vektorprogrammet kernel exports a value that decodes with it.
+3. **Conformance vectors close the loop.** effx emits, per domain, the instances the generated model allows (`can` per principal, command and scope; enabled transitions per state and context). The consumer's own `authorize` and `Machine.can` must agree with them in its test suite.
+4. Slices, one spec and one pull request each: 0032 grants and machines → Alloy, checked, with vectors; then entities and relationships; trace replay; Quint (→ TLA+); CML; ArchiMate.
+5. When the Vektorprogrammet placement slice (its spec 0011) is the second domain, the runtime kernel moves into `@effx/domain-model`.
 
 ## 8. Non-goals
 
@@ -113,6 +117,6 @@ Effect 4.0.5 represents a check as data: `SchemaAST.Filter.annotations.represent
 
 ## 9. Open decisions
 
-1. **Invariant 5 (schemas are `SchemaRef`, never serialised).** Emitters need the representation of guards and invariants. Proposed: the IR keeps `SchemaRef`; the model phase loads the referenced modules through an explicit execution boundary, as config evaluation does (ADR 0011), and calls `toRepresentation`. The alternative, copying the payload into node data, makes two copies.
+1. **Invariant 5 — decided.** The description reaches the compiler through `effx.config.ts`, the only user-module import (ADR 0011): the config imports the domain declarations and passes their `DomainDescription` to the `domain-model` extension, which contributes Extension nodes. A context schema stays a `SchemaRef`; a guard's `representation` (`{ id, payload: Json }`, produced by `SchemaRepresentation.toRepresentation` when the config is evaluated) enters the node data as derived data. No new execution boundary.
 2. **TLA+.** Through Quint's output, or a separate emitter. Decide after Quint's TLA+ output is tried on the teams machine.
-3. **Diagnostic range.** `EFFX43xx` is proposed. On `main` at `055bbbed` only `EFFX41xx` is used in the `EFFX4xxx` block; branches `effx/spec-0029-recruitment` and `effx/spec-0030-kit-lifecycle` were not checked, so confirm against the registry (spec 0016) when freezing.
+3. **Diagnostic range — checked.** `EFFX43xx`. `main` (`055bbbed`), `effx/spec-0029-recruitment`, `effx/spec-0030-kit-lifecycle` and `feat/lift-0019` use only `EFFX41xx` in the `EFFX4xxx` block.
