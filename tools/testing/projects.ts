@@ -65,7 +65,7 @@ const repositoryCopy = Effect.fnUntraced(function* (prefix: string) {
   yield* fs.symlink(path.join(repoRoot, "node_modules"), path.join(directory, "node_modules"));
   yield* fs.symlink(path.join(repoRoot, "scripts"), path.join(directory, "scripts"));
 
-  for (const name of ["package.json", "tsconfig.json"])
+  for (const name of ["package.json", "tsconfig.json", "tsconfig.effect-stability.json"])
     yield* fs.copyFile(path.join(repoRoot, name), path.join(directory, name));
 
   return directory;
