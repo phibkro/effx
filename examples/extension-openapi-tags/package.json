@@ -12,11 +12,11 @@
     "@effx/compiler": "workspace:*",
     "@effx/ir": "workspace:*",
     "@effx/runtime": "workspace:*",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0",
-    "@effect/vitest": "4.0.0",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/vitest": "4.0.5",
     "@effx/frontend-ts": "workspace:*",
     "vitest": "5.0.3"
   }

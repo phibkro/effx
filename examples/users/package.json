@@ -15,9 +15,9 @@
     "cli": "bun src/cli-main.ts"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0",
+    "@effect/platform-bun": "4.0.5",
     "@effx/runtime": "workspace:*",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@effx/cli": "workspace:*"

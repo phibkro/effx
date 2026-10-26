@@ -32,19 +32,19 @@
     "prepare": "effect-tsgo patch --typescript --oxlint && bun scripts/install-git-hooks.ts"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0",
+    "@effect/platform-bun": "4.0.5",
     "@effx/cli": "workspace:*",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@cedar-policy/cedar-wasm": "4.13.0",
     "@changesets/cli": "3.0.3",
     "@commitlint/cli": "21.2.3",
     "@commitlint/config-conventional": "21.2.3",
-    "@effect/docgen": "4.0.0",
-    "@effect/sql-pglite": "4.0.0",
+    "@effect/docgen": "4.0.5",
+    "@effect/sql-pglite": "4.0.5",
     "@effect/tsgo": "0.48.0",
-    "@effect/vitest": "4.0.0",
+    "@effect/vitest": "4.0.5",
     "@electric-sql/pglite": "0.5.8",
     "@oxlint/plugins": "1.86.0",
     "@phibkro/oxlint-effect-plugin": "file:tools/vendor/oxlint-effect-plugin-0.1.0-2b63bfe323f32cd6abc4c8e8c116ad12bf12e54e.tgz",
