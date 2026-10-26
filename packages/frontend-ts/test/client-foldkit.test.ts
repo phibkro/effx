@@ -181,6 +181,7 @@ it.live(
         const read = yield* ProfileRead({
           query: { locale: "fr" },
           headers: { "x-trace-id": "trace-read" },
+          responseMode: "response-only",
         });
 
         assert.deepStrictEqual(read.body, { firstName: "Ada" });
