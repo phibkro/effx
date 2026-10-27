@@ -112,7 +112,10 @@ const smoke = Effect.gen(function* () {
     const hash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
     yield* requireThat(hash === expected, "artifact integrity");
-    const name = /^effx-(diagnostics|runtime|ir|compiler|persistence|cli)-/.exec(filename)?.[1];
+
+    const name = /^effx-(diagnostics|runtime|ir|compiler|persistence|domain-model|cli)-/.exec(
+      filename,
+    )?.[1];
 
     yield* requireThat(name !== undefined, "closed package cohort");
 
@@ -120,7 +123,7 @@ const smoke = Effect.gen(function* () {
       dependencies.set("@effx/" + name, "file:" + path.join(artifacts, filename));
   }
 
-  yield* requireThat(dependencies.size === 8, "complete six-package cohort");
+  yield* requireThat(dependencies.size === 9, "complete seven-package cohort");
   const consumer = yield* fs.makeTempDirectoryScoped({ prefix: "effx-stable-consumer-" });
 
   yield* fs.writeFileString(
@@ -165,6 +168,57 @@ const smoke = Effect.gen(function* () {
     "installed projection channels",
   );
   yield* run(consumer, ["test", "smoke.spec.ts"], "installed HTTP/RPC socket contracts");
+
+  // Run the public domain extension and real model checker through the packed CLI.
+  const modelRoot = path.join(consumer, "domain-consumer");
+  yield* fs.makeDirectory(modelRoot);
+  yield* fs.copyFile(
+    path.join(root, "examples/domain-model/domain.ts"),
+    path.join(modelRoot, "domain.ts"),
+  );
+  yield* fs.writeFileString(
+    path.join(modelRoot, "effx.config.ts"),
+    `import { defineConfig } from "@effx/cli/config";
+import { domainModel } from "@effx/domain-model";
+import { domain } from "./domain.ts";
+export default defineConfig({ models: { alloy: true }, extensions: [domainModel(domain)] });
+`,
+  );
+  yield* fs.writeFileString(
+    path.join(modelRoot, "tsconfig.json"),
+    yield* encodeJson({
+      compilerOptions: {
+        target: "ESNext",
+        module: "ESNext",
+        moduleResolution: "bundler",
+        strict: true,
+        noEmit: true,
+        allowImportingTsExtensions: true,
+      },
+      include: ["domain.ts"],
+    }),
+  );
+  yield* run(modelRoot, [cli, "build"], "installed domain model generation");
+  yield* requireThat(
+    yield* fs.exists(path.join(modelRoot, ".effx/models/alloy/community.als")),
+    "installed temporal model",
+  );
+  yield* requireThat(
+    yield* fs.exists(path.join(modelRoot, ".effx/models/alloy/community.static.als")),
+    "installed static model",
+  );
+
+  const modelResult = yield* run(
+    modelRoot,
+    [cli, "models", "check"],
+    "installed Alloy model check",
+  );
+
+  yield* requireThat(
+    modelResult.includes("A7_TimeMonotonic PASS") &&
+      modelResult.includes("wrote 43040 vector instances"),
+    "installed Alloy assertions and vectors",
+  );
 
   const user = yield* decodeUser(
     yield* run(
@@ -310,7 +364,7 @@ const smoke = Effect.gen(function* () {
     }),
   ).pipe(Effect.timeout("30 seconds"));
   yield* Effect.log(
-    "stable installed consumer: checks, channels, HTTP, RPC, CLI, and RC rejection passed",
+    "stable installed consumer: checks, channels, HTTP, RPC, CLI, Alloy models, and RC rejection passed",
   );
 }).pipe(Effect.scoped, Effect.provide(BunServices.layer));
 
