@@ -202,6 +202,7 @@ Focused HTTP, SDK, People/Schools/Profile backend, database and Foldkit suites a
 
 ## Open questions
 
+- **Unreproduced LSP hang:** On commit `49cef3d`, `bun run gate` timed out after 60 seconds in `packages/cli/test/lsp-transport.test.ts`, test `queued numeric and string IDs retain distinct original wire and domain identities`. The gate failed after 1463.50 seconds. The named test passed 20 isolated runs with Effect 4.0.5. The complete file passed three consecutive runs (46 tests each). The reported stack line points into a different test, so it does not identify the stalled operation. The cause and any relationship to Effect 4.0.5 remain unknown.
 - Group endpoint emission order is key-sorted, not source order; affects OpenAPI duplicate-identifier suffixes only (SocialEvents).
 - `ExtensionOf` is now the typed v2 ownership edge; the closed edge vocabulary remains intentional (`docs/specs/0005-http-contract-extension.md`).
 - Unmerged `fix/organization-review-0926` uses a POST `SnapshotRead` with an email body. ADR 0010 permits this only when a Query POST declares `payloadIsQuery: true` with a payload; it does not prove observational semantics (`docs/decisions/0010-query-over-post.md`).
