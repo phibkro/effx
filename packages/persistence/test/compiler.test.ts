@@ -131,8 +131,8 @@ describe("persistence compiler", () => {
           "export class UsersPort extends Context.Service<UsersPort, {",
         );
         assert.include(port!.contents, '}>()("effx/port/Users")');
-        assert.include(port!.contents, "typeof UserNotFound.Type");
-        assert.include(port!.contents, "typeof EmailTaken.Type");
+        assert.include(port!.contents, "Schema.Schema.Type<typeof UserNotFound>");
+        assert.include(port!.contents, "Schema.Schema.Type<typeof EmailTaken>");
         assert.isBelow(
           port!.contents.indexOf('readonly "find"'),
           port!.contents.indexOf('readonly "setDisplayName"'),
@@ -147,7 +147,7 @@ describe("persistence compiler", () => {
         assert.include(suite!.contents, "readonly snapshot: Effect.Effect<Schema.Json, E, R>");
         assert.include(
           suite!.contents,
-          'readonly "EmailTaken": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof EmailTaken.Type',
+          'readonly "EmailTaken": NonEmpty<DomainCase<Schema.Schema.Type<typeof setEmailInput>, Schema.Schema.Type<typeof EmailTaken>',
         );
         assert.include(suite!.contents, 'readonly "setDisplayName+setEmail"');
         assert.include(suite!.contents, "Layer.fresh(harness.layer)");
@@ -346,7 +346,7 @@ describe("persistence compiler", () => {
         assert.isDefined(suite);
         assert.isDefined(port);
         assert.include(port!.contents, 'import { User as User_2 } from "output";');
-        assert.include(port!.contents, "typeof User_2.Public.Type");
+        assert.include(port!.contents, "Schema.Schema.Type<typeof User_2.Public>");
         assert.include(suite!.contents, 'readonly "schema:left/Error": NonEmpty<DomainCase');
         assert.include(suite!.contents, 'readonly "schema:right/Error": NonEmpty<DomainCase');
         assert.include(suite!.contents, 'scenarios.methods["find"].errors["schema:left/Error"]');
@@ -398,7 +398,7 @@ describe("persistence compiler", () => {
 
         if (name === "UsersPort") {
           assert.include(port!.contents, "UsersPort as UsersPort_2");
-          assert.include(port!.contents, "input: typeof UsersPort_2.Type");
+          assert.include(port!.contents, "input: Schema.Schema.Type<typeof UsersPort_2>");
           assert.include(
             port!.contents,
             "export class UsersPort extends Context.Service<UsersPort",
@@ -421,15 +421,15 @@ describe("persistence compiler", () => {
       const [suite, port] = files(result);
       assert.isDefined(suite);
       assert.isDefined(port);
-      assert.include(port!.contents, "typeof Errors.NotFound.Type");
-      assert.include(port!.contents, "typeof Errors.EmailTaken.Type");
+      assert.include(port!.contents, "Schema.Schema.Type<typeof Errors.NotFound>");
+      assert.include(port!.contents, "Schema.Schema.Type<typeof Errors.EmailTaken>");
       assert.include(
         suite!.contents,
-        'readonly "Errors.NotFound": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof Errors.NotFound.Type',
+        'readonly "Errors.NotFound": NonEmpty<DomainCase<Schema.Schema.Type<typeof setEmailInput>, Schema.Schema.Type<typeof Errors.NotFound>',
       );
       assert.include(
         suite!.contents,
-        'readonly "Errors.EmailTaken": NonEmpty<DomainCase<typeof setEmailInput.Type, typeof Errors.EmailTaken.Type',
+        'readonly "Errors.EmailTaken": NonEmpty<DomainCase<Schema.Schema.Type<typeof setEmailInput>, Schema.Schema.Type<typeof Errors.EmailTaken>',
       );
       assert.include(suite!.contents, 'scenarios.methods["setEmail"].errors["Errors.NotFound"]');
       assert.include(suite!.contents, 'scenarios.methods["setEmail"].errors["Errors.EmailTaken"]');
@@ -576,7 +576,10 @@ describe("persistence compiler", () => {
           [{ code: "EFFX3404", severity: "warning" }],
         );
         const [suite, port] = files(result);
-        assert.include(port!.contents, "Effect.Effect<typeof User.Public.Type, never>");
+        assert.include(
+          port!.contents,
+          "Effect.Effect<Schema.Schema.Type<typeof User.Public>, never>",
+        );
         assert.include(suite!.contents, "Schema.Never");
         assert.notInclude(suite!.contents, "G3 rollback");
         assert.notInclude(suite!.contents, "G4 shared transaction");

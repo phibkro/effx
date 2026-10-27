@@ -7,6 +7,7 @@ import {
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 import { defineConfig, type OxlintConfig } from "oxlint";
+import { lintSeverities } from "./tools/conventions/effect-diagnostics.ts";
 
 const effectTsgoPresets = [recommended, correctness];
 
@@ -177,6 +178,9 @@ export default defineConfig({
   rules: {
     ...presetRules(effectTsgoPresets, "error"),
     ...presetRules([effectNative], "off"),
+    // After the effectNative switch-off: a rule that is default-on in @effect/tsgo is an error
+    // everywhere, even when effectNative also lists it (spec 0033).
+    ...lintSeverities,
     "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatterns }],
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-chained-type-assertions": "error",
