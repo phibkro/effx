@@ -25,8 +25,8 @@ default. The publish job depends on the gate, retains its existing write
 authority, and installs no Nix. These workflow changes are unverified on
 GitHub because this branch has not been pushed. Local `actionlint` from that
 same nixpkgs revision exited 0 for both workflow files.
-The effx worktree has Effect 4.0.0 installed; a consumer's 4.0.5 check
-representations cross this boundary as JSON, not as runtime objects.
+The effx worktree now uses Effect 4.0.5; its initial implementation used 4.0.0.
+Consumer check representations cross the boundary as JSON, not runtime objects.
 
 `alloy6 help`, `alloy6 help commands`, and `alloy6 help exec` expose the
 headless dispatcher. The relevant interface is:
@@ -238,10 +238,71 @@ and 93 generated files per side. Both snapshot SHA-256 values were
 `cf819ea19ed2890db4b528f7046bffb0a84fd0d229b1a05eb42d6af331e0b246`.
 This run used Effect 4.0.0 on both sides.
 
+Falsifier 1 isolates this slice from the Effect upgrade. The authoritative
+post-rebase baseline is `57521a84`; both archives use Effect 4.0.5.
+The Effect 4.0.0 comparison above is pre-rebase evidence.
+
+The same-version corpus comparison command, run from the worktree root after
+`bun install`, uses a disposable directory and the repository snapshot harness:
+
+```bash
+set -euo pipefail
+root=$PWD
+base=$(mktemp -d "$root/.effx/identity-0032.XXXXXX")
+source="$base/source"
+trap 'rm -rf -- "$base"' EXIT
+snapshot() {
+  local revision="$1" output="$2"
+  mkdir -p "$source"
+  git archive "$revision" | tar -x -C "$source"
+  ln -s "$root/node_modules" "$source/node_modules"
+  for d in packages/cli packages/compiler packages/diagnostics packages/domain-model packages/frontend-ts packages/ir packages/persistence packages/runtime examples/domain-model examples/extension-openapi-tags examples/persistence examples/users packages/frontend-ts/test/fixtures/stable-v4; do
+    if [ -d "$source/$d" ] && [ -d "$root/$d/node_modules" ]; then ln -s "$root/$d/node_modules" "$source/$d/node_modules"; fi
+  done
+  local resolved
+  resolved=$(cd "$source" && bun -e 'console.log(import.meta.resolve("@effx/compiler"))')
+  printf 'compiler resolution: %s\n' "$resolved"
+  case "$resolved" in "file://$source/packages/compiler/src/index.ts") ;; *) printf 'unexpected compiler resolution\n' >&2; return 1 ;; esac
+  (cd "$source" && bun -e 'import { version } from "effect/package.json"; console.log("effect="+version); if(version!=="4.0.5") process.exitCode=1' && bun run --cwd examples/users effx:build && bun scripts/identity-snapshot.ts "$output")
+}
+snapshot 57521a84 "$base/before.json"
+rm -rf -- "$source"
+snapshot HEAD "$base/after.json"
+if cmp -s "$base/before.json" "$base/after.json"; then printf 'identity snapshots: byte-identical\n'; else printf 'identity snapshots differ\n' >&2; export BEFORE="$base/before.json" AFTER="$base/after.json"; bun -e 'import { Effect, Schema } from "effect"; const decode=Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown))); const [a,b]=await Promise.all([Bun.file(Bun.env.BEFORE).text(),Bun.file(Bun.env.AFTER).text()]); const [left,right]=await Promise.all([Effect.runPromise(decode(a)),Effect.runPromise(decode(b))]); for (const key of [...new Set([...Object.keys(left),...Object.keys(right)])]) { const x=left[key],y=right[key]; if(JSON.stringify(x)!==JSON.stringify(y)) { const fields=[...new Set([...Object.keys(x??{}),...Object.keys(y??{})])].filter(k=>JSON.stringify(x?.[k])!==JSON.stringify(y?.[k])); console.log(key+": "+fields.join(", ")); } }'; exit 1; fi
+export BEFORE="$base/before.json" AFTER="$base/after.json"
+bun -e 'import { Effect, Schema } from "effect"; const decode=Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown))); for (const path of [Bun.env.BEFORE,Bun.env.AFTER]) { const bytes=await Bun.file(path).arrayBuffer(); const data=await Effect.runPromise(decode(new TextDecoder().decode(bytes))); const values=Object.values(data); const faults=values.filter(x=>x && typeof x==="object" && "fault" in x).length; const ir=values.filter(x=>x && typeof x==="object" && "hash" in x && x.hash!==null).length; const files=values.reduce((n,x)=>n+(x && typeof x==="object" && x.files && typeof x.files==="object" ? Object.keys(x.files).length : 0),0); const hash=new Bun.CryptoHasher("sha256").update(bytes).digest("hex"); console.log("cases="+values.length+" faults="+faults+" ir="+ir+" generated-files="+files+" sha256="+hash); if (faults!==0 || ir!==values.length) process.exitCode=1; }'
+```
+
+At candidate `978f762`, the command exited 0 with Effect 4.0.5 on both
+sides. `cmp` reported byte-identical snapshots: each had 190 cases, zero
+faults, 190 IR results and 93 generated files. Both snapshot SHA-256 values
+were `85cd8581ab51f3f609c41207178c579dfbcda72461d9b0e03a124a010b1746a4`.
+
 The real-tool unsupported-guard test,
 `nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "unknown guard is warned"`,
 exited 0 with one test passed and reported `EFFX4302 warning` plus
 `unmodelled guards: example/unregistered (scope 1, steps 4)`.
+
+At product commit `978f762` with Effect 4.0.5,
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "mutant is diagnosed|Alloy receipt|Alloy executable|interrupting the real CLI|toggle off|stored bounds stay fixed|declared writes over|unknown guard is warned"`
+exited 0: 16 tests passed, nine skipped. The six mutants each produced their
+named `EFFX4305`–`EFFX4310`, effx exit 1 and Alloy assertion-process exit 0.
+The disabled toggle left the fake-tool marker absent; missing and wrong-version
+tools returned `EFFX4303`; missing, malformed and incomplete receipts returned
+`EFFX4304`; interruption reaped the stopped child. Scope-2 parameter and write
+checks passed, and the unknown guard reported `EFFX4302`.
+
+## Effect 4.0.5 lookup coverage
+
+The installed `ai-docs/src` examples contain no exact use of these APIs used
+by this slice. Their signatures and source documentation were checked in the
+installed Effect 4.0.5 source:
+
+- `Cause.hasInterrupts`, `Cause.pretty`; `Effect.all`, `Effect.cached`, `Effect.raceFirst`, `Effect.result`, `Effect.timeout`.
+- `Exit.isFailure`, `Exit.isSuccess`; `Fiber.await`, `Fiber.interrupt`; `Option.getOrThrow`.
+- `FileSystem.FileSystem`, `Path.Path`; `Result.fail`, `Result.isFailure`, `Result.isSuccess`, `Result.succeed`.
+- `Schema.Json`, `Schema.NonEmptyArray`, `Schema.Record`, `Schema.TaggedStruct`, `Schema.TaggedUnion`, `Schema.Tuple`, `Schema.decodeEffect`, `Schema.decodeUnknownResult`, `Schema.fromJsonString`, `Schema.isGreaterThan`, `Schema.make`, `Schema.makeFilter`, `Schema.makeFilterGroup`, `Schema.optionalKey`.
+- `SchemaRepresentation.fromJson`, `SchemaRepresentation.fromRepresentation`, `SchemaRepresentation.isFiniteReviver`, `SchemaRepresentation.makeReviverFilter`, `SchemaRepresentation.toJson`, `SchemaRepresentation.toRepresentation`; `Stream.mkString`.
 
 ## Native child boundary: EX-0037 (open)
 
@@ -254,6 +315,7 @@ exited 0 with one test passed and reported `EFFX4302 warning` plus
 - **Data boundary:** The CLI checks the version, exit code and decoded receipt. Its scope owns the temporary output directory. The adapter makes no sandbox claim.
 - **Examined versions:** Effect `4.0.0` and `4.0.5`, `@effect/platform-bun` `4.0.0` and `4.0.5`, `@effect/vitest` `4.0.0` and `4.0.5`, Bun `1.3.13`, Alloy `6.2.0`.
 - **Verification at Effect 4.0.0:** `nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "interrupting the real CLI"` exited 0 (one test). The test interrupted the CLI after a stopped child reported its PID and observed that the child was reaped. The parent test grants five seconds for the CLI to complete its one-second child escalation.
+- **Verification at Effect 4.0.5:** The 16-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
 - **Receipt checks:** The `-t "Alloy receipt"` selection exited 0 (three tests). Missing, malformed and incomplete receipts each produced `EFFX4304`.
 - **Status:** This record stays open until the committed-tree gate passes.
 - **Retirement:** Remove the directive and record when Effect marks the process APIs stable and the real-child and interruption tests pass.
