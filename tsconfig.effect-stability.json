@@ -30,7 +30,7 @@
             }
           },
           {
-            "include": ["**/.effx/**/*.ts"],
+            "include": ["**/.effx/**/*.ts", ".*/**/.effx/**/*.ts"],
             "options": {
               "allowedUnstableApis": [
                 "effect/FileSystem",

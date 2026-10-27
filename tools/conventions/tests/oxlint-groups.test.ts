@@ -3,6 +3,7 @@ import { DEFAULT_PLUGIN_NAME, expandGroupRules, RULE_NAMES } from "@phibkro/oxli
 import { describe, expect, it } from "vitest";
 
 import config, { effectConfig } from "../../../oxlint.config.ts";
+import { lintSeverities } from "../effect-diagnostics.ts";
 
 const root = new URL("../../..", import.meta.url).pathname;
 
@@ -250,7 +251,10 @@ describe("Effect language-service rules", () => {
   it("enable effectNative for packages and examples only", () => {
     expect(notErrorsAt("packages/ir/test/laws.test.ts", nativeRules)).toEqual([]);
     expect(notErrorsAt("examples/users/src/users-main.ts", nativeRules)).toEqual([]);
-    expect(notErrorsAt("scripts/docs-api.ts", nativeRules)).toEqual(nativeRules);
+    // A rule that @effect/tsgo turns on by default is an error everywhere (spec 0033).
+    expect(notErrorsAt("scripts/docs-api.ts", nativeRules)).toEqual(
+      nativeRules.filter((rule) => !(rule in lintSeverities)),
+    );
   });
 
   it("make the correctness category and type-aware lint explicit", () => {
