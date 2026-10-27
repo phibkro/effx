@@ -22,9 +22,16 @@ use `contents: read`, no npm token, and the maintained
 at full commit `13d8dd58da0234aa297dedd986986ccb8e7f3e24` (v31.11.1).
 Its upstream documentation says flakes and `nix-command` are enabled by
 default. The publish job depends on the gate, retains its existing write
-authority, and installs no Nix. These workflow changes are unverified on
-GitHub because this branch has not been pushed. Local `actionlint` from that
-same nixpkgs revision exited 0 for both workflow files.
+authority, and installs no Nix. The first GitHub run (40455010020 on
+`7eb40b92`) ran the ordered gate through the packed watch smoke on Nix and
+failed only at `bunx changeset status`: `Failed to find where HEAD diverged
+from "main"`. A pull-request checkout has only `origin/main`, and changesets
+resolves its base branch as a local ref. Both gate jobs now run
+`git rev-parse --verify --quiet refs/heads/main || git branch main refs/remotes/origin/main`
+first (`d55f6340`). GitHub runs 40461960430 (push) and 40461965773
+(pull request) on `d55f6340` concluded `success`, including `changeset status`.
+Local `actionlint` from that same nixpkgs revision exited 0 for both workflow
+files before the first push.
 The effx worktree now uses Effect 4.0.6; the initial implementation used 4.0.0.
 Consumer check representations cross the boundary as JSON, not runtime objects.
 
@@ -336,6 +343,24 @@ pattern and keeps each title as data. The registry identity and rendering tests
 and the production source scanner then passed in the 65-test selection:
 `bun --bun vitest run packages/compiler/test/diagnostic-registry.test.ts packages/domain-model/test/domain-model.test.ts tools/conventions/tests --reporter verbose`.
 
+The next committed-tree gate (`bun run gate` on `90fdf21a`, about 43 minutes)
+passed install, check, the 137-file / 1,572-test suite, the 41 native tests,
+strict Effect diagnostics, the stable-fixture typecheck and the docs build, then
+failed in `bun run pack` at the compiler build:
+`TS4023: Exported variable 'DiagnosticDefinitions' has or is using name 'Example'
+from external module ... domain-model but cannot be named`. The local interface
+that typed the new example arguments was not exported. It now uses the exported
+`DiagnosticExample` type of `@effx/diagnostics` (`f1a5754e`).
+
+`bun run gate` on clean `f1a5754e` exited 0 in 49 minutes 40 seconds: install,
+`bun run check` (docs, typecheck, lint, format, ai-docs, 137 files and 1,572
+tests, Oxlint rule tests, 41 native tests), strict Effect diagnostics (575
+files, 0 findings), stable-fixture typecheck, docs build, pack with the seven
+tarballs, the Effect 4.0.0 packed-consumer smoke (checks, channels, HTTP, RPC,
+CLI, Alloy models, RC rejection), the watch smoke at that commit and
+`changeset status`. The commits after `f1a5754e` change documentation only and
+the gate has not been re-run on them.
+
 ## Effect 4.0.6 lookup coverage
 
 The installed `ai-docs/src` examples contain no exact use of these APIs used
@@ -348,7 +373,7 @@ installed Effect 4.0.6 source:
 - `Schema.Json`, `Schema.NonEmptyArray`, `Schema.Record`, `Schema.TaggedStruct`, `Schema.TaggedUnion`, `Schema.Tuple`, `Schema.decodeEffect`, `Schema.decodeUnknownResult`, `Schema.fromJsonString`, `Schema.isGreaterThan`, `Schema.make`, `Schema.makeFilter`, `Schema.makeFilterGroup`, `Schema.optionalKey`.
 - `SchemaRepresentation.fromJson`, `SchemaRepresentation.fromRepresentation`, `SchemaRepresentation.isFiniteReviver`, `SchemaRepresentation.makeReviverFilter`, `SchemaRepresentation.toJson`, `SchemaRepresentation.toRepresentation`; `Stream.mkString`.
 
-## Native child boundary: EX-0038 (open)
+## Native child boundary: EX-0038 (verified)
 
 - **Rules:** FX002, FX003, FX006, FX012 and `effecttsgo/unstable-api-usage`.
 - **Owner:** repository root (`AGENTS.md`). The production adapter is `scripts/alloy-execution.ts`. The real-child test adapter is `scripts/test/alloy-cli.ts`.
@@ -362,5 +387,5 @@ installed Effect 4.0.6 source:
 - **Verification at Effect 4.0.5:** The 16-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
 - **Verification at Effect 4.0.6:** The seven-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
 - **Receipt checks:** The `-t "Alloy receipt"` selection exited 0 (three tests). Missing, malformed and incomplete receipts each produced `EFFX4304`.
-- **Status:** This record stays open until the committed-tree gate passes.
+- **Status:** Verified. The committed-tree gate passed on `f1a5754e`, including the real-child interruption and receipt tests under the pinned `alloy6`. The record stays registered until its retirement trigger.
 - **Retirement:** Remove the directive and record when Effect marks the process APIs stable and the real-child and interruption tests pass.
