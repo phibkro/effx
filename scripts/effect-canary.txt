@@ -1,0 +1,7 @@
+// Canary for scripts/effect-diagnostics.sh (spec 0033). The script copies this file into a scratch
+// project that extends one real project's tsconfig and requires `unstableApiUsage`, whose installed
+// default is `warning`, to be reported as an error: a run with the language service off, a lost
+// severity map or an allowlist that admits effect/process reports nothing and fails the gate.
+import { ChildProcess } from "effect/process";
+
+export const canary = ChildProcess.make("true");
