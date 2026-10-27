@@ -176,7 +176,8 @@ const smoke = Effect.gen(function* () {
       version: "1.0.0",
       type: "module",
       dependencies: Object.fromEntries(dependencies),
-      overrides: workspaceOverrides(dependencies),
+      // Keep the transitive platform adapter aligned with the Effect 4.0.0 consumer.
+      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.0.0" },
     }),
   );
 
