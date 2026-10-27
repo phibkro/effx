@@ -246,10 +246,14 @@ This run used Effect 4.0.0 on both sides.
 
 Falsifier 1 isolates this slice from Effect upgrades. The current authoritative
 baseline is `3419f263` and both archives use Effect 4.0.6. The 4.0.0 and
-4.0.5 comparisons below are pre-rebase evidence.
+4.0.5 comparisons are pre-rebase evidence.
 
-The pre-rebase 4.0.5 corpus comparison command, run from the worktree root after
-`bun install`, uses a disposable directory and the repository snapshot harness:
+The pre-rebase 4.0.5 comparison at candidate `978f762` was also byte-identical:
+190 cases, zero faults, 190 IR results and 93 files on each side, snapshot
+SHA-256 `85cd8581ab51f3f609c41207178c579dfbcda72461d9b0e03a124a010b1746a4`.
+
+The authoritative 4.0.6 comparison command, run from the worktree root after
+`bash scripts/install-public.sh .`, uses a disposable directory and the repository snapshot harness:
 
 ```bash
 set -euo pipefail
@@ -269,9 +273,9 @@ snapshot() {
   resolved=$(cd "$source" && bun -e 'console.log(import.meta.resolve("@effx/compiler"))')
   printf 'compiler resolution: %s\n' "$resolved"
   case "$resolved" in "file://$source/packages/compiler/src/index.ts") ;; *) printf 'unexpected compiler resolution\n' >&2; return 1 ;; esac
-  (cd "$source" && bun -e 'import { version } from "effect/package.json"; console.log("effect="+version); if(version!=="4.0.5") process.exitCode=1' && bun run --cwd examples/users effx:build && bun scripts/identity-snapshot.ts "$output")
+  (cd "$source" && bun -e 'import { version } from "effect/package.json"; console.log("effect="+version); if(version!=="4.0.6") process.exitCode=1' && bun run --cwd examples/users effx:build && bun scripts/identity-snapshot.ts "$output")
 }
-snapshot 57521a84 "$base/before.json"
+snapshot 3419f263 "$base/before.json"
 rm -rf -- "$source"
 snapshot HEAD "$base/after.json"
 if cmp -s "$base/before.json" "$base/after.json"; then printf 'identity snapshots: byte-identical\n'; else printf 'identity snapshots differ\n' >&2; export BEFORE="$base/before.json" AFTER="$base/after.json"; bun -e 'import { Effect, Schema } from "effect"; const decode=Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown))); const [a,b]=await Promise.all([Bun.file(Bun.env.BEFORE).text(),Bun.file(Bun.env.AFTER).text()]); const [left,right]=await Promise.all([Effect.runPromise(decode(a)),Effect.runPromise(decode(b))]); for (const key of [...new Set([...Object.keys(left),...Object.keys(right)])]) { const x=left[key],y=right[key]; if(JSON.stringify(x)!==JSON.stringify(y)) { const fields=[...new Set([...Object.keys(x??{}),...Object.keys(y??{})])].filter(k=>JSON.stringify(x?.[k])!==JSON.stringify(y?.[k])); console.log(key+": "+fields.join(", ")); } }'; exit 1; fi
@@ -279,10 +283,10 @@ export BEFORE="$base/before.json" AFTER="$base/after.json"
 bun -e 'import { Effect, Schema } from "effect"; const decode=Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown))); for (const path of [Bun.env.BEFORE,Bun.env.AFTER]) { const bytes=await Bun.file(path).arrayBuffer(); const data=await Effect.runPromise(decode(new TextDecoder().decode(bytes))); const values=Object.values(data); const faults=values.filter(x=>x && typeof x==="object" && "fault" in x).length; const ir=values.filter(x=>x && typeof x==="object" && "hash" in x && x.hash!==null).length; const files=values.reduce((n,x)=>n+(x && typeof x==="object" && x.files && typeof x.files==="object" ? Object.keys(x.files).length : 0),0); const hash=new Bun.CryptoHasher("sha256").update(bytes).digest("hex"); console.log("cases="+values.length+" faults="+faults+" ir="+ir+" generated-files="+files+" sha256="+hash); if (faults!==0 || ir!==values.length) process.exitCode=1; }'
 ```
 
-At candidate `978f762`, the command exited 0 with Effect 4.0.5 on both
+At candidate `da30264`, the command exited 0 with Effect 4.0.6 on both
 sides. `cmp` reported byte-identical snapshots: each had 190 cases, zero
 faults, 190 IR results and 93 generated files. Both snapshot SHA-256 values
-were `85cd8581ab51f3f609c41207178c579dfbcda72461d9b0e03a124a010b1746a4`.
+were `ea3109f38ba98e79148b9f7bc7bf049259490560f1a77c3af03af006ae4a9f2b`.
 
 The real-tool unsupported-guard test,
 `nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "unknown guard is warned"`,
@@ -297,6 +301,14 @@ The disabled toggle left the fake-tool marker absent; missing and wrong-version
 tools returned `EFFX4303`; missing, malformed and incomplete receipts returned
 `EFFX4304`; interruption reaped the stopped child. Scope-2 parameter and write
 checks passed, and the unknown guard reported `EFFX4302`.
+
+At product commit `da30264` on Effect 4.0.6,
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "Alloy receipt|Alloy executable|interrupting the real CLI|toggle off"`
+exited 0 with seven tests passed and 18 skipped. The disabled toggle did not
+invoke the fake tool; the stopped child was reaped; missing and wrong-version
+tools returned `EFFX4303`, and missing, malformed and incomplete receipts
+returned `EFFX4304`. `bun run docs:api` also exited 0 (90 compiler, 11 IR and
+12 runtime modules).
 
 ## Effect 4.0.6 lookup coverage
 
@@ -322,6 +334,7 @@ installed Effect 4.0.6 source:
 - **Examined versions:** Effect `4.0.0`, `4.0.5` and `4.0.6`, `@effect/platform-bun` and `@effect/vitest` `4.0.0`, `4.0.5` and `4.0.6`, Bun `1.3.13`, Alloy `6.2.0`.
 - **Verification at Effect 4.0.0:** `nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "interrupting the real CLI"` exited 0 (one test). The test interrupted the CLI after a stopped child reported its PID and observed that the child was reaped. The parent test grants five seconds for the CLI to complete its one-second child escalation.
 - **Verification at Effect 4.0.5:** The 16-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
+- **Verification at Effect 4.0.6:** The seven-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
 - **Receipt checks:** The `-t "Alloy receipt"` selection exited 0 (three tests). Missing, malformed and incomplete receipts each produced `EFFX4304`.
 - **Status:** This record stays open until the committed-tree gate passes.
 - **Retirement:** Remove the directive and record when Effect marks the process APIs stable and the real-child and interruption tests pass.
