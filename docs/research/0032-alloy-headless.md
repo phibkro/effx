@@ -248,12 +248,12 @@ exited 0 with one test passed and reported `EFFX4302 warning` plus
 - **Rules:** FX002, FX003, FX006, FX012 and `effecttsgo/unstable-api-usage`.
 - **Owner:** repository root (`AGENTS.md`). The production adapter is `scripts/alloy-execution.ts`. The real-child test adapter is `scripts/test/alloy-cli.ts`.
 - **Scope:** The portable CLI uses `AlloyExecution`. Only the adapters import unstable `effect/process`. The process root selects the implementation.
-- **Reason:** Effect 4.0.0 exposes child process custody through the unstable `ChildProcess` and `ChildProcessSpawner` APIs. No stable equivalent is installed.
+- **Reason:** Effect 4.0.0 and 4.0.5 expose child process custody through the unstable `ChildProcess` and `ChildProcessSpawner` APIs. No stable equivalent is installed.
 - **Alternatives:** `@effect/platform-bun` supplies the native spawner. It is used instead of `Bun.spawn` or `node:child_process`. `Bun.which` resolves `alloy6` only at the root.
 - **Ownership:** Each call owns a child scope. The child receives an empty environment and a forced-kill grace. Two streams drain concurrently and retain at most 8 KiB each.
 - **Data boundary:** The CLI checks the version, exit code and decoded receipt. Its scope owns the temporary output directory. The adapter makes no sandbox claim.
-- **Examined versions:** Effect `4.0.0`, `@effect/platform-bun` `4.0.0`, `@effect/vitest` `4.0.0`, Bun `1.3.13`, Alloy `6.2.0`.
-- **Verification:** `nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "interrupting the real CLI"` exited 0 (one test). The test interrupted the CLI after a stopped child reported its PID and observed that the child was reaped. The parent test grants five seconds for the CLI to complete its one-second child escalation.
+- **Examined versions:** Effect `4.0.0` and `4.0.5`, `@effect/platform-bun` `4.0.0` and `4.0.5`, `@effect/vitest` `4.0.0` and `4.0.5`, Bun `1.3.13`, Alloy `6.2.0`.
+- **Verification at Effect 4.0.0:** `nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "interrupting the real CLI"` exited 0 (one test). The test interrupted the CLI after a stopped child reported its PID and observed that the child was reaped. The parent test grants five seconds for the CLI to complete its one-second child escalation.
 - **Receipt checks:** The `-t "Alloy receipt"` selection exited 0 (three tests). Missing, malformed and incomplete receipts each produced `EFFX4304`.
 - **Status:** This record stays open until the committed-tree gate passes.
 - **Retirement:** Remove the directive and record when Effect marks the process APIs stable and the real-child and interruption tests pass.

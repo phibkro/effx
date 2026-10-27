@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@effx/domain-model": "workspace:*",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@effx/cli": "workspace:*"

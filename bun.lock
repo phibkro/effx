@@ -71,7 +71,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@effx/domain-model": "workspace:*",
-        "effect": "4.0.0",
+        "effect": "4.0.5",
       },
       "devDependencies": {
         "@effx/cli": "workspace:*",
@@ -175,7 +175,7 @@
         "@effx/ir": "0.1.0",
       },
       "devDependencies": {
-        "effect": "4.0.0",
+        "effect": "4.0.5",
       },
       "peerDependencies": {
         "effect": ">=4.0.0 <5",
