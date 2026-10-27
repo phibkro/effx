@@ -224,6 +224,12 @@ exited 0. The lower-bound installed CLI checked both membership-bound models
 and 28,072 vectors; the watch smoke reported seven tarballs and zero protocol
 errors.
 
+On committed `8d62a57790be987a683eddd871dfa462b0a2b4b1`, with the workspace
+on Effect 4.0.5, the same pack, pinned-Alloy stable-v4 smoke and exact-SHA
+watch command exited 0. The separately installed consumer remained on Effect
+4.0.0; it checked both generated models and 28,072 vectors. The watch result
+reported seven tarballs, 12 cycles and zero protocol errors.
+
 An interim no-opt-in comparison archived `aa72a792` and `cd9632a` into the
 same disposable source path with Effect 4.0.0 dependencies. The existing
 `scripts/identity-snapshot.ts` ran 190 cases per side and `cmp` reported the
