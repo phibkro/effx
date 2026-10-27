@@ -75,7 +75,10 @@ Import `DomainDescription`, `domainModel` and `generateAlloy` from `@effx/domain
 Pass the description to `domainModel` in `effx.config.ts` and set `models: { alloy: true }`.
 `effx build` writes temporal and static Alloy models. `effx models check` checks them with Alloy 6.2.0.
 The default bound is scope 1, four steps and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
-The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic, including `atNow` and `afterTick` guards.
+The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic. They name entity IDs, stored values, context owners and `atNow` / `afterTick` guard outcomes.
+Context fields have kind `stored` (per entity), `parameter` (per command), or `clock`. A declared `writes` path is over-approximated and reported as a warning.
+Bind membership records to a machine and `grantingStates` with `memberships`; without that declaration, A5 is not applicable.
+A granted membership subject with `term: "any"` can violate A5 outside those states.
 Unknown guard ids produce warnings and the model omits those guards. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
 Register trusted pure guard compilers by representation ID with `domainModel`'s `guardCompilers` option. A compiler receives the JSON payload and declared-path lookup and returns an Alloy Boolean formula.
 A bounded reachability failure does not prove that a state is unreachable.

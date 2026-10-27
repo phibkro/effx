@@ -75,7 +75,10 @@ Import `DomainDescription`, `domainModel` and `generateAlloy` from `@effx/domain
 Pass the description to `domainModel` in `effx.config.ts` and set `models: { alloy: true }`.
 `effx build` writes temporal and static Alloy models. `effx models check` checks them with Alloy 6.2.0.
 The default bound is scope 1, four steps and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
-The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic, including `atNow` and `afterTick` guards.
+The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic. They name entity IDs, stored values, context owners and `atNow` / `afterTick` guard outcomes.
+Context fields have kind `stored` (per entity), `parameter` (per command), or `clock`. A declared `writes` path is over-approximated and reported as a warning.
+Bind membership records to a machine and `grantingStates` with `memberships`; without that declaration, A5 is not applicable.
+A granted membership subject with `term: "any"` can violate A5 outside those states.
 Unknown guard ids produce warnings and the model omits those guards. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
 Register trusted pure guard compilers by representation ID with `domainModel`'s `guardCompilers` option. A compiler receives the JSON payload and declared-path lookup and returns an Alloy Boolean formula.
 A bounded reachability failure does not prove that a state is unreachable.
@@ -2194,6 +2197,7 @@ Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `p
 | [EFFX4310](#EFFX4310) | A6 system job authority | error |
 | [EFFX4311](#EFFX4311) | Nondeterministic time condition | warning |
 | [EFFX4312](#EFFX4312) | A7 clock monotonicity | error |
+| [EFFX4313](#EFFX4313) | Command effect not modelled precisely | warning |
 | [EFFX9001](#EFFX9001) | Example Command lacks Audit annotation | warning |
 | [EFFX9002](#EFFX9002) | Example Audit annotation needs an operation | error |
 | [EFFX9101](#EFFX9101) | Example RateLimit requires HTTP exposure | error |
@@ -4800,7 +4804,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-An ended membership contributes permission.
+A membership outside the declared granting states contributes permission.
 
 ### Example 1
 
@@ -4879,6 +4883,32 @@ Default severity: error
 Severity policy: Fixed
 
 The domain clock moves backward in a model trace.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4313 — Command effect not modelled precisely [#EFFX4313]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A declared stored-field write is modelled as any value in the field order, not as the command's precise effect.
 
 ### Example 1
 

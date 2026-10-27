@@ -5,6 +5,65 @@ const review = domain.machines[0];
 
 /** Each mutation changes declaration data, never the generated Alloy. */
 export const mutants = {
+  withParameter: {
+    ...domain,
+    machines: [
+      {
+        ...review,
+        context: {
+          ...review.context,
+          fields: [
+            ...review.context.fields,
+            { path: ["requested"], order: "ReviewTime", kind: "parameter" },
+          ],
+        },
+        transitions: [
+          {
+            ...review.transitions[0],
+            guard: {
+              context: "ReviewContext",
+              representation: {
+                id: "effx/order/same",
+                payload: { left: ["requested"], right: ["current"] },
+              },
+            },
+          },
+          {
+            ...review.transitions[1],
+            when: {
+              context: "ReviewContext",
+              representation: {
+                id: "effx/order/same",
+                payload: { left: ["requested"], right: ["review", "end"] },
+              },
+            },
+          },
+          review.transitions[2],
+        ],
+      },
+    ],
+  },
+  withWrite: {
+    ...domain,
+    commands: domain.commands.map((command) =>
+      command.name === "AdvanceReview"
+        ? { ...command, writes: [{ machine: "Review", path: ["review", "end"] }] }
+        : command,
+    ),
+  },
+  withRemoval: {
+    ...domain,
+    machines: [
+      {
+        ...review,
+        transitions: [
+          review.transitions[0],
+          review.transitions[1],
+          { ...review.transitions[2], to: "[*]" },
+        ],
+      },
+    ],
+  },
   unreachable: {
     ...domain,
     machines: [
@@ -107,7 +166,12 @@ export const withoutDirectoryGrant = {
   grants: domain.grants.filter((grant) => grant.subject !== "DirectoryJob"),
 } satisfies DomainDescription;
 
-const { adminList: omittedAdminList, clock: omittedClock, ...withoutOptionalDeclarations } = domain;
+const {
+  adminList: omittedAdminList,
+  clock: omittedClock,
+  memberships: omittedMemberships,
+  ...withoutOptionalDeclarations
+} = domain;
 
 const { clockPath: omittedClockPath, ...unboundContext } = review.context;
 
@@ -117,8 +181,20 @@ void omittedClock;
 
 void omittedClockPath;
 
-/** Neither absent feature can be reported as a passed assertion. */
-export const withoutAdminListOrClock = {
+void omittedMemberships;
+
+/** Absent features cannot be reported as passed assertions. */
+export const withoutOptionalBindings = {
   ...withoutOptionalDeclarations,
-  machines: [{ ...review, context: unboundContext }],
+  machines: [
+    {
+      ...review,
+      context: {
+        ...unboundContext,
+        fields: unboundContext.fields.map((field) =>
+          field.kind === "clock" ? { ...field, kind: "parameter" as const } : field,
+        ),
+      },
+    },
+  ],
 } satisfies DomainDescription;

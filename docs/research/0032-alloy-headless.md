@@ -114,40 +114,59 @@ That probe exposed an unjustified nonempty-target assumption: the description
 does not require a target. The final static model permits zero targets and A6
 compares permissions for every target that exists.
 
-At ordinary scope 1, the independent expected count is 1,076 person/system,
-department, team, membership, target and admin worlds, times five context
-choices (none, or two choices for each stored bound), four machine states
-(including `[*]`), and two clock values: `1,076 × 5 × 4 × 2 = 43,040`.
-The 882 worlds with a target split into 27 with no person, 360 with one
-person, and 495 with two. The 194 additional worlds without a target split
-into 15, 92 and 87 respectively. The two-person count treats interchangeable
-people as unordered. The team-function and position lists each have three
-values. The test requires all projected world keys to be distinct.
-
+The earlier singleton-machine model produced 43,040 vectors at scope 1;
 `bun run --cwd examples/domain-model effx:build && nix shell .#alloy6 -c bun run --cwd examples/domain-model models:check`
-exited 0. The three A1 state runs and A2–A7 reported PASS at scope 1 and four
-steps; the command printed `wrote 43040 vector instances` and Alloy 6.2.0
-assertion process exit 0. The standard TypeScript version warning EFFX0001
-also appeared during compilation.
+exited 0 with the three A1 runs and A2–A7 passing. Removing the directory
+grant removed 8,280 rows and no others. This observation predates the R1
+per-entity field change and is not evidence for the revised vector count.
 
-`nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "checks all six"`
-exited 0: `vectors: 43040 before, 43040 after, 8280 removed directory-job
-rows; no other rows changed`. The fixture interpreter agreed on each vector,
-including both `atNow` and `afterTick` outcomes, and all world keys were
-distinct.
+Before membership was bound to the machine, the entity-aware fixture produced
+71,016 vectors on each side of the grant removal, with 13,662 removed
+directory-job rows and no other changes. The independent count was 1,076
+authorization worlds × 33 machine/context worlds × two clock values.
+That observation predates the membership-state binding in R1.
 
-`nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "a calculated guard|a time step can end"`
-exited 0: `SuccessorGuardFires` had no counterexample at scope 1 and four
-steps; the two-step membership witness had one active member before and none
-after.
+With membership bound to the machine, the independent scope-1 expected count
+is `(212 + 432 × 4 × 4 × 2) × 2 = 28,072`: 212 authorization worlds have no
+membership; the other 432 have one membership before choosing its four stored
+bound pairs, four machine states and two context cardinalities. The last factor
+is the two clock values. Membership activity is derived from the machine state,
+not counted as an independent Boolean.
 
-`nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "reachability does not join"`
-exited 0. In the `timeTravel` variant A2 had no counterexample, because each
-outgoing edge was individually satisfiable, while the A1 run found no trace to
-`Open` at scope 1 and four steps: the two edges would require time to move
-backward.
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "checks all six"`
+exited 0. All three A1 runs and A2–A7 passed; it printed `vectors: 28072 before,
+28072 after, 4734 removed directory-job rows; no other rows changed`. The
+interpreter agreed with both sets, including membership/state identity and
+both guard phases, and all projected world keys were distinct.
 
-`nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "mutant is diagnosed"`
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "reachability does not join|stored bounds stay fixed|declared writes over|a calculated guard fires|a time step can end"`
+exited 0 with five tests. At scope 2 and four steps, the `timeTravel` case
+found no trace to `Open` for one entity and two contexts, although A2 had no
+counterexample. A declared write produced `EFFX4313`, could change its target
+entity, and framed another entity. A clock-driven transition and admin expiry
+occurred even with no caller context; the membership-end witness had one
+active membership before and none after.
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "stored bounds stay fixed"`
+exited 0: successive commands chose different caller values while stored
+fields stayed fixed for one entity at scope 2 and four steps.
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "A5 detects"`
+exited 0: Alloy returned a counterexample where the same membership/machine
+atom was outside `grantingStates` but its `term: "any"` subject contributed
+permission. Alloy itself exited 0 for that failed assertion.
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "transition to the sentinel"`
+exited 0: the same membership moved to `[*]` and stopped granting at scope 1
+and four steps.
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "absent admin, membership"`
+exited 0. A4, A5 and A7 each reported `NOT APPLICABLE`, not PASS; the
+unbound time conditions also produced `EFFX4311` warnings.
+
+
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "mutant is diagnosed"`
 exited 0 with six tests passed. Each invocation of `effx models check`
 exited 1 while the Alloy assertion process exited 0:
 
@@ -157,15 +176,15 @@ exited 1 while the Alloy assertion process exited 0:
 | deadEnd | EFFX4306 | nonterminal `Review:Stuck` has no outgoing transition |
 | ungranted | EFFX4307 | `Unassigned` has no grant |
 | adminSelf | EFFX4308 | non-admin `Person$0` can `GrantAdmin` to its own target |
-| endedMembership | EFFX4309 | inactive recruitment membership allows `AdvanceReview` |
+| endedMembership | EFFX4309 | `MembershipRecord$0` is `Closed` and its inactive recruitment membership allows `AdvanceReview` |
 | otherJob | EFFX4310 | directory system can run `CleanDirectory` for the cleanup job |
 
 The last five diagnostics included the principal, membership, target, command
 and state projections. The reachability run had no solution, so it reports the
-bound rather than inventing a counterexample. The tests above used the initial
-system `nixpkgs#alloy6`; the committed gate uses the repository lock.
+bound rather than inventing a counterexample. This run used the repository's
+locked Alloy 6.2.0 package.
 
-The locked-tool command
+Before the per-entity revision, the locked-tool command
 `nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "toggle off|Alloy receipt|Alloy executable|interrupting the real CLI|model output cannot escape|a calculated guard|a time step can end|reachability does not join"`
 exited 0 with 11 tests passed. The disabled toggle printed `effx exit 0; fake
 Alloy marker absent`. Missing and wrong-version tools produced `EFFX4303` and
@@ -182,9 +201,17 @@ now override the shared adapter to their declared platform-bun version.
 `nix shell .#alloy6 -c bun scripts/stable-v4-smoke.ts` then exited 0 and
 reported `stable installed consumer: checks, channels, HTTP, RPC, CLI, Alloy
 models, and RC rejection passed`. It checked both generated model files and
-43,040 vectors through the installed CLI at the Effect 4.0.0 lower bound.
+43,040 vectors through the installed CLI at the Effect 4.0.0 lower bound,
+before the per-entity revision.
 `bun scripts/watch-editor-smoke.ts 7e9ed6d43569398e642344fa3a77ed2ce9a7da6f`
 also exited 0 with `tarballs: 7` and `protocolErrorCount: 0`.
+
+An interim no-opt-in comparison archived `aa72a792` and `cd9632a` into the
+same disposable source path with Effect 4.0.0 dependencies. The existing
+`scripts/identity-snapshot.ts` ran 190 cases per side and `cmp` reported the
+two snapshots byte-identical. Its subsequent summary command failed because
+`jq` was not available in that shell, so this run did not establish the fault
+count or snapshot hash. It predates the per-entity revision and upgrade.
 
 ## Native child boundary: EX-0037 (open)
 

@@ -58,13 +58,14 @@ export const domain = {
   grants: [
     { subject: "BoardLeader", permits: ["StartReview", "AdvanceReview"], scope: "department" },
     { subject: "Recruiter", permits: ["AdvanceReview"], scope: "all" },
-    { subject: "Self", permits: ["CloseReview"], scope: "own" },
+    { subject: "Self", permits: ["StartReview", "AdvanceReview", "CloseReview"], scope: "own" },
     { subject: "Admin", permits: ["GrantAdmin", "RevokeAdmin"], scope: "all" },
     { subject: "DirectoryJob", permits: ["RefreshDirectory"], scope: "all" },
     { subject: "Readers", permits: ["ReadReview"], scope: "all" },
   ],
   orders: [{ name: "ReviewTime" }],
   clock: { order: "ReviewTime" },
+  memberships: { machine: "Review", grantingStates: ["Open"] },
   adminList: { grant: "GrantAdmin", revoke: "RevokeAdmin", expiry: expired },
   machines: [
     {
@@ -74,9 +75,10 @@ export const domain = {
       context: {
         name: "ReviewContext",
         fields: [
-          { path: ["review", "start"], order: "ReviewTime" },
-          { path: ["review", "end"], order: "ReviewTime" },
-          { path: ["current"], order: "ReviewTime" },
+          { path: ["review", "start"], order: "ReviewTime", kind: "stored" },
+          { path: ["review", "end"], order: "ReviewTime", kind: "stored" },
+
+          { path: ["current"], order: "ReviewTime", kind: "clock" },
         ],
         clockPath: ["current"],
       },
@@ -85,7 +87,7 @@ export const domain = {
         { command: "AdvanceReview", from: ["Draft"], to: "Open", guard: ordered },
         { command: "CloseReview", from: ["Open"], to: "Closed" },
       ],
-      calculated: [{ from: "Draft", to: "Closed", when: expired }],
+      calculated: [{ from: "Open", to: "Closed", when: expired }],
     },
   ],
 } as const satisfies DomainDescription;

@@ -84,7 +84,7 @@ describe("Effect rule groups", () => {
       ]),
     ).toEqual([
       [
-        ["packages/{ir,compiler,runtime,cli}/src/**/*.ts"],
+        ["packages/{ir,compiler,runtime,cli,domain-model}/src/**/*.ts"],
         "effect-library",
         "portable",
         undefined,
@@ -97,7 +97,13 @@ describe("Effect rule groups", () => {
         ["external-data"],
         "strict",
       ],
-      [["examples/*/src/**/*.ts"], "effect-library", "portable", undefined, "strict"],
+      [
+        ["examples/*/src/**/*.ts", "examples/domain-model/*.ts"],
+        "effect-library",
+        "portable",
+        undefined,
+        "strict",
+      ],
       [
         [
           "scripts/effx.ts",
@@ -134,6 +140,12 @@ describe("Effect rule groups", () => {
 
   it("apply the intended Effect rules to source and test files", () => {
     expect(effectRulesFor("packages/ir/src/index.ts")).toContain("effect/no-ambient-authority");
+    expect(effectRulesFor("packages/domain-model/src/Alloy.ts")).toContain(
+      "effect/no-ambient-authority",
+    );
+    expect(effectRulesFor("examples/domain-model/domain.ts")).toContain(
+      "effect/no-ambient-authority",
+    );
     expect(effectRulesFor("packages/frontend-ts/src/collect.ts")).toContain(
       "effect/no-raw-json-parse",
     );

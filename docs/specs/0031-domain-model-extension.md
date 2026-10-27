@@ -110,6 +110,8 @@ Revised 2026-10-26 (operator): **the library is built in parallel with the Vekto
 4. Slices, one spec and one pull request each: 0032 grants and machines → Alloy, checked, with vectors; then entities and relationships; trace replay; Quint (→ TLA+); CML; ArchiMate.
 5. When the Vektorprogrammet placement slice (its spec 0011) is the second domain, the runtime kernel moves into `@effx/domain-model`.
 
+Spec 0032 over-approximates declared command writes to stored machine fields; precise command effects belong to a later slice.
+
 ## 8. Non-goals
 
 - Event sourcing. Rows stay the source of truth; events are recorded facts.

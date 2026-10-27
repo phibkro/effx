@@ -38,6 +38,9 @@ export const Command = Schema.Struct({
   name: Name,
   kind: Schema.Literal("Command"),
   runBy: Schema.optionalKey(Schema.Struct({ job: Name })),
+  writes: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ machine: Name, path: Schema.Array(Name) })),
+  ),
 });
 
 export const Read = Schema.Struct({ name: Name });
@@ -50,7 +53,13 @@ export const Grant = Schema.Struct({
 
 export const MachineContext = Schema.Struct({
   name: Name,
-  fields: Schema.Array(Schema.Struct({ path: Schema.Array(Name), order: Name })),
+  fields: Schema.Array(
+    Schema.Struct({
+      path: Schema.Array(Name),
+      order: Name,
+      kind: Schema.Literals(["stored", "parameter", "clock"]),
+    }),
+  ),
   clockPath: Schema.optionalKey(Schema.Array(Name)),
 });
 
@@ -90,6 +99,9 @@ export const DescriptionFields = Schema.Struct({
   grants: Schema.Array(Grant),
   machines: Schema.Array(Machine),
   orders: Schema.Array(Schema.Struct({ name: Name })),
+  memberships: Schema.optionalKey(
+    Schema.Struct({ machine: Name, grantingStates: Schema.Array(Name) }),
+  ),
   clock: Schema.optionalKey(Schema.Struct({ order: Name })),
   adminList: Schema.optionalKey(
     Schema.Struct({ grant: Name, revoke: Name, expiry: Schema.optionalKey(Guard) }),
@@ -224,10 +236,42 @@ const referenceIssues = (domain: DescriptionFields): ReadonlyArray<Schema.Filter
         issue: `unknown job ${command.runBy.job}`,
       });
     }
+
+    for (const [writeIndex, write] of (command.writes ?? []).entries()) {
+      const machine = domain.machines.find((item) => item.name === write.machine);
+
+      const field = machine?.context.fields.find(
+        (item) => pathKey(item.path) === pathKey(write.path),
+      );
+
+      if (field?.kind !== "stored")
+        issues.push({
+          path: ["commands", index, "writes", writeIndex],
+          issue: `unknown stored field ${write.machine}:${pathKey(write.path)}`,
+        });
+    }
   }
 
   if (domain.clock !== undefined && !orders.has(domain.clock.order)) {
     issues.push({ path: ["clock", "order"], issue: `unknown order ${domain.clock.order}` });
+  }
+
+  if (domain.memberships !== undefined) {
+    const machine = domain.machines.find((item) => item.name === domain.memberships!.machine);
+
+    if (machine === undefined)
+      issues.push({
+        path: ["memberships", "machine"],
+        issue: `unknown machine ${domain.memberships.machine}`,
+      });
+    else
+      for (const state of domain.memberships.grantingStates)
+        if (!machine.states.includes(state))
+          issues.push({
+            path: ["memberships", "grantingStates"],
+            issue: `unknown granting state ${state}`,
+          });
+    unique(domain.memberships.grantingStates, ["memberships", "grantingStates"]);
   }
 
   if (domain.adminList !== undefined) {
@@ -310,6 +354,12 @@ const referenceIssues = (domain: DescriptionFields): ReadonlyArray<Schema.Filter
   for (const [index, machine] of domain.machines.entries()) {
     const prefix = ["machines", index] as const;
     const states = new Set(machine.states);
+
+    if (states.has("[*]"))
+      issues.push({
+        path: [...prefix, "states"],
+        issue: "[*] is reserved for the initial or removed state",
+      });
     unique(machine.states, [...prefix, "states"]);
     unique(machine.terminal, [...prefix, "terminal"]);
     unique(
@@ -323,6 +373,19 @@ const referenceIssues = (domain: DescriptionFields): ReadonlyArray<Schema.Filter
           path: [...prefix, "context", "fields", fieldIndex],
           issue: `unknown order ${field.order}`,
         });
+
+      if (
+        field.kind === "clock" &&
+        (domain.clock === undefined ||
+          field.order !== domain.clock.order ||
+          machine.context.clockPath === undefined ||
+          pathKey(field.path) !== pathKey(machine.context.clockPath))
+      ) {
+        issues.push({
+          path: [...prefix, "context", "fields", fieldIndex],
+          issue: "clock field must be the declared clock path of the domain clock order",
+        });
+      }
     }
 
     if (machine.context.clockPath !== undefined) {
@@ -333,7 +396,8 @@ const referenceIssues = (domain: DescriptionFields): ReadonlyArray<Schema.Filter
       if (
         domain.clock === undefined ||
         clockField === undefined ||
-        clockField.order !== domain.clock.order
+        clockField.order !== domain.clock.order ||
+        clockField.kind !== "clock"
       ) {
         issues.push({
           path: [...prefix, "context", "clockPath"],

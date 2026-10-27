@@ -216,7 +216,7 @@ export default defineConfig({ models: { alloy: true }, extensions: [domainModel(
 
   yield* requireThat(
     modelResult.includes("A7_TimeMonotonic PASS") &&
-      modelResult.includes("wrote 43040 vector instances"),
+      modelResult.includes("wrote 28072 vector instances"),
     "installed Alloy assertions and vectors",
   );
 

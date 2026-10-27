@@ -92,16 +92,25 @@ const OrderVector = Schema.Struct({
   before: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
 });
 
+const FieldVector = Schema.Struct({
+  path: Schema.Array(Schema.String),
+  order: Schema.String,
+  kind: Schema.Literals(["stored", "parameter", "clock"]),
+  value: Schema.String,
+});
+
 const ContextVector = Schema.Struct({
   machine: Schema.String,
   id: Schema.String,
-  values: Schema.Array(
-    Schema.Struct({
-      path: Schema.Array(Schema.String),
-      order: Schema.String,
-      value: Schema.String,
-    }),
-  ),
+  entity: Schema.String,
+  values: Schema.Array(FieldVector),
+});
+
+const MachineVector = Schema.Struct({
+  machine: Schema.String,
+  id: Schema.String,
+  state: Schema.String,
+  stored: Schema.Array(FieldVector),
 });
 
 const EnabledVector = Schema.Struct({
@@ -134,7 +143,7 @@ const Snapshot = Schema.Struct({
     }),
   ),
   contexts: Schema.Array(ContextVector),
-  machineStates: Schema.Array(Schema.Struct({ machine: Schema.String, state: Schema.String })),
+  machineStates: Schema.Array(MachineVector),
   allows: Schema.Array(
     Schema.Struct({ principal: Schema.String, permission: Schema.String, target: Schema.String }),
   ),
@@ -202,8 +211,13 @@ const projectionSnapshot = (
       [`order${index}Before`, 2],
     ]),
     ...symbols.machines.flatMap((machine, index): Array<readonly [string, number]> => [
+      [`entities${index}`, 1],
       [`contexts${index}`, 1],
-      [`machineState${index}`, 1],
+      [`contextEntity${index}`, 2],
+      [`machineState${index}`, 2],
+      ...machine.fields.flatMap((field, fieldIndex): Array<readonly [string, number]> =>
+        field.kind === "stored" ? [[`entityField${index}_${fieldIndex}`, 2]] : [],
+      ),
       [`enabledNow${index}`, 3],
       [`enabledAfterTick${index}`, 3],
       ...machine.fields.map((_, fieldIndex): readonly [string, number] => [
@@ -329,52 +343,82 @@ const projectionSnapshot = (
   }
 
   const contexts: Array<typeof ContextVector.Type> = [];
-  const machineStates: Array<{ readonly machine: string; readonly state: string }> = [];
+  const machineStates: Array<typeof MachineVector.Type> = [];
   const atNow: Array<typeof EnabledVector.Type> = [];
   const afterTick: Array<typeof EnabledVector.Type> = [];
 
   for (const [index, machine] of symbols.machines.entries()) {
     const stateNames = atomNames(machine.states);
-    const current = unary(`machineState${index}`);
+    const entityIds = new Set(unary(`entities${index}`));
+    const current = new Map<string, string>();
 
-    if (current.length > 1) return Result.fail(`multiple machine states for ${machine.name}`);
-    const state = current.length === 0 ? "[*]" : stateNames.get(current[0]!);
+    for (const [entity, atom] of projection[`machineState${index}`]!) {
+      const state = stateNames.get(atom!);
 
-    if (state === undefined) return Result.fail(`unknown machine state for ${machine.name}`);
-    machineStates.push({ machine: machine.name, state });
+      if (!entityIds.has(entity!) || current.has(entity!) || state === undefined || state === "[*]")
+        return Result.fail(`invalid machine state for ${machine.name}`);
+      current.set(entity!, state);
+    }
+
+    const entityFields = machine.fields.map((field, fieldIndex) =>
+      field.kind === "stored" ? pairs(`entityField${index}_${fieldIndex}`) : undefined,
+    );
+
+    for (const id of entityIds) {
+      const stored: Array<typeof FieldVector.Type> = [];
+
+      for (const [fieldIndex, field] of machine.fields.entries()) {
+        if (field.kind !== "stored") continue;
+        const value = entityFields[fieldIndex]?.get(id);
+        const order = orders.find((entry) => entry.name === field.order);
+
+        if (value === undefined || order === undefined || !order.values.includes(value))
+          return Result.fail(`invalid stored field ${machine.name} ${id}`);
+        stored.push({ path: field.path, order: field.order, kind: field.kind, value });
+      }
+
+      machineStates.push({ machine: machine.name, id, state: current.get(id) ?? "[*]", stored });
+    }
 
     const transitions = new Map(
       machine.transitions.map((transition) => [`${transition.atom}$0`, transition]),
     );
 
     const contextIds = new Set(unary(`contexts${index}`));
+    const owners = pairs(`contextEntity${index}`);
 
     const contextFields = machine.fields.map((_, fieldIndex) =>
       pairs(`field${index}_${fieldIndex}`),
     );
 
     for (const id of contextIds) {
-      const values: Array<(typeof ContextVector.Type.values)[number]> = [];
+      const entity = owners.get(id);
+
+      if (entity === undefined || !entityIds.has(entity))
+        return Result.fail(`invalid context entity ${machine.name} ${id}`);
+      const values: Array<typeof FieldVector.Type> = [];
 
       for (const [fieldIndex, field] of machine.fields.entries()) {
         const value = contextFields[fieldIndex]!.get(id);
+        const order = orders.find((entry) => entry.name === field.order);
 
-        if (value === undefined) return Result.fail(`missing context field ${machine.name} ${id}`);
-        values.push({ path: field.path, order: field.order, value });
-      }
+        if (value === undefined || order === undefined || !order.values.includes(value))
+          return Result.fail(`invalid context field ${machine.name} ${id}`);
 
-      if (machine.clockPath !== null && clock !== null) {
-        const bound = values.find(
-          (entry) =>
-            entry.path.length === machine.clockPath!.length &&
-            entry.path.every((part, i) => part === machine.clockPath![i]),
-        );
+        if (field.kind === "stored" && entityFields[fieldIndex]?.get(entity) !== value)
+          return Result.fail(
+            `stored context field does not match its entity in ${machine.name} ${id}`,
+          );
 
-        if (bound?.value !== clock.now || bound.order !== clock.order)
+        if (
+          field.kind === "clock" &&
+          (clock === null || value !== clock.now || field.order !== clock.order)
+        )
           return Result.fail(`invalid clock binding for ${machine.name} ${id}`);
+        values.push({ path: field.path, order: field.order, kind: field.kind, value });
       }
 
-      contexts.push({ machine: machine.name, id, values });
+      contexts.push({ machine: machine.name, id, entity, values });
     }
 
     for (const [field, destination] of [
@@ -403,6 +447,24 @@ const projectionSnapshot = (
         if (transition.command !== undefined) entry.command = transition.command;
         destination.push(entry);
       }
+    }
+  }
+
+  if (symbols.memberships !== null) {
+    const binding = symbols.memberships;
+    const entities = machineStates.filter((state) => state.machine === binding.machine);
+
+    if (entities.length !== memberships.length)
+      return Result.fail("membership and machine entity counts differ");
+
+    for (const membership of memberships) {
+      const entity = entities.find((state) => state.id === membership.id);
+
+      if (
+        entity === undefined ||
+        membership.active !== binding.grantingStates.includes(entity.state)
+      )
+        return Result.fail(`invalid membership state binding ${membership.id}`);
     }
   }
 

@@ -97,9 +97,13 @@ The build writes temporal and static models under `.effx/models/alloy/`.
 The check requires Alloy 6.2.0 and writes conformance vectors in the same directory.
 The default bound is scope 1, four steps, and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
 Each result states its bound. A pass covers only that bound; a state not reached within it is not proved unreachable.
+Context fields are `stored` per entity, `parameter` per command, or `clock`. Declared command `writes` are over-approximated and reported as warnings.
+A `memberships` binding identifies the machine and its granting states. Without it, the membership safety assertion is not applicable.
+A granted membership subject with `term: "any"` can violate that assertion outside the granting states.
 Unknown guard representations produce warnings and are not modelled. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
 Register a trusted pure compiler by representation ID in `domainModel`'s `guardCompilers` option. It receives the JSON payload and a declared-path lookup and returns an Alloy Boolean formula.
-The consuming application compares the vectors, including `atNow` and `afterTick` guard outcomes, with its own authorization and machine logic.
+Each vector names machine entities, their stored values, context owners and the `atNow` / `afterTick` guard outcomes.
+The consuming application compares those vectors with its own authorization and machine logic.
 See [spec 0032](docs/specs/0032-domain-model-alloy-grants-machines.md) for the contract and limits.
 
 ### Watch checks and editor diagnostics

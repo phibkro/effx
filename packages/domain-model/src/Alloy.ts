@@ -35,6 +35,7 @@ const MachineSymbols = Schema.Struct({
       path: Schema.Array(Schema.String),
       order: Schema.String,
       field: Schema.String,
+      kind: Schema.Literals(["stored", "parameter", "clock"]),
     }),
   ),
   states: Schema.Array(NamedAtom),
@@ -70,6 +71,9 @@ export const AlloySymbols = Schema.Struct({
   orders: Schema.Array(NamedAtom),
   machines: Schema.Array(MachineSymbols),
   adminApplicable: Schema.Boolean,
+  memberships: Schema.NullOr(
+    Schema.Struct({ machine: Schema.String, grantingStates: Schema.Array(Schema.String) }),
+  ),
   clock: Schema.NullOr(Schema.Struct({ order: Schema.String })),
   nondeterministic: Schema.Array(Schema.String),
   unknownGuards: Schema.Array(Schema.String),
@@ -264,6 +268,12 @@ export const generateAlloy = (
   const orderIndex = new Map(domain.orders.map((item, index) => [item.name, index]));
   const clockIndex = domain.clock === undefined ? undefined : orderIndex.get(domain.clock.order);
   const subjects = new Map(domain.subjectSets.map((item) => [item.name, item.expression]));
+
+  const membershipIndex =
+    domain.memberships === undefined
+      ? undefined
+      : domain.machines.findIndex((machine) => machine.name === domain.memberships!.machine);
+
   const orderedAtoms = Math.max(2, scope);
 
   const machineSymbols: Array<AlloyMachineSymbols> = domain.machines.map((machine, index) => ({
@@ -272,7 +282,12 @@ export const generateAlloy = (
     clockPath: machine.context.clockPath ?? null,
     fields: machine.context.fields.map((field, fieldIndex) => ({
       ...field,
-      field: `ctx${index}f${fieldIndex}`,
+      field:
+        field.kind === "stored"
+          ? `stored${index}f${fieldIndex}`
+          : field.kind === "parameter"
+            ? `ctx${index}f${fieldIndex}`
+            : "Clock.now",
     })),
     states: [
       { name: "[*]", atom: `State${index}_Start` },
@@ -316,7 +331,7 @@ export const generateAlloy = (
     "sig Team { teamFunction: one TeamFunction, department: one Department }",
     "sig MembershipRecord { member: one Person, team: one Team, position: one Position }",
     "sig Target { owner: lone Person, targetDepartment: lone Department }",
-    "var sig Membership in MembershipRecord {}",
+    ...(membershipIndex === undefined ? ["var sig Membership in MembershipRecord {}"] : []),
     "var sig Admin in Person {}",
     "abstract sig Subject {}",
     ...domain.subjectSets.map((_, index) => `one sig Subject` + index + " extends Subject {}"),
@@ -345,12 +360,23 @@ export const generateAlloy = (
   ];
 
   for (const [machineIndex, machine] of domain.machines.entries()) {
-    const clockField =
-      machine.context.clockPath === undefined
-        ? -1
-        : machine.context.fields.findIndex(
-            (field) => pathKey(field.path) === pathKey(machine.context.clockPath!),
-          );
+    const entityFields = [
+      `var current${machineIndex}: lone State${machineIndex}`,
+      ...machine.context.fields.flatMap((field, index) =>
+        field.kind === "stored"
+          ? [`var stored${machineIndex}f${index}: one Order${orderIndex.get(field.order)}`]
+          : [],
+      ),
+    ];
+
+    const contextFields = [
+      `entity${machineIndex}: one Machine${machineIndex}`,
+      ...machine.context.fields.flatMap((field, index) =>
+        field.kind === "parameter"
+          ? [`ctx${machineIndex}f${index}: one Order${orderIndex.get(field.order)}`]
+          : [],
+      ),
+    ];
 
     lines.push(
       `abstract sig State${machineIndex} {}`,
@@ -362,15 +388,26 @@ export const generateAlloy = (
       ...machineSymbols[machineIndex]!.transitions.map(
         (transition) => `one sig ${transition.atom} extends Transition${machineIndex} {}`,
       ),
-      `sig Context${machineIndex} { ${machine.context.fields.map((field, index) => `${index === clockField ? "var " : ""}ctx${machineIndex}f${index}: one Order${orderIndex.get(field.order)}`).join(", ")} }`,
-      `one sig Machine${machineIndex} { var current${machineIndex}: lone State${machineIndex} }`,
+      `sig Machine${machineIndex}${membershipIndex === machineIndex ? " in MembershipRecord" : ""} { ${entityFields.join(", ")} }`,
+      ...(membershipIndex === machineIndex
+        ? [`fact MembershipEntity${machineIndex} { Machine${machineIndex} = MembershipRecord }`]
+        : []),
+      `sig Context${machineIndex} { ${contextFields.join(", ")} }`,
       `fact MachineState${machineIndex} { always (State${machineIndex}_Start not in Machine${machineIndex}.current${machineIndex}) }`,
-      ...(clockIndex === undefined || clockField < 0
-        ? []
-        : [
-            `fact ClockBinding${machineIndex} { always (all ctx: Context${machineIndex} | ctx.ctx${machineIndex}f${clockField} = Clock.now) }`,
-          ]),
     );
+  }
+
+  if (membershipIndex !== undefined) {
+    const machine = domain.machines[membershipIndex]!;
+
+    const granting = disjunction(
+      domain.memberships!.grantingStates.map(
+        (state) =>
+          `m.current${membershipIndex} = ${stateName(membershipIndex, machine.states, state)}`,
+      ),
+    );
+
+    lines.push(`fun Membership: set MembershipRecord { { m: MembershipRecord | ${granting} } }`);
   }
 
   // The static companion has the same declarations but no temporal operators.
@@ -510,19 +547,31 @@ export const generateAlloy = (
       if (fieldIndex < 0) return undefined;
       const field = domain.machines[machineIndex]!.context.fields[fieldIndex]!;
 
-      const clockPath = domain.machines[machineIndex]!.context.clockPath;
+      let value = `v${fieldIndex}`;
 
-      const isClockField =
-        clockIndex !== undefined && clockPath !== undefined && pathKey(clockPath) === pathKey(path);
+      if (prefix === "ctx" || prefix === "next") {
+        value =
+          field.kind === "stored"
+            ? `ctx.entity${machineIndex}.stored${machineIndex}f${fieldIndex}`
+            : field.kind === "parameter"
+              ? `ctx.ctx${machineIndex}f${fieldIndex}`
+              : "Clock.now";
+      }
 
-      let value = `${prefix}${fieldIndex}`;
+      if (prefix === "args" || prefix === "entityNext") {
+        value =
+          field.kind === "stored"
+            ? `entity.stored${machineIndex}f${fieldIndex}`
+            : field.kind === "parameter"
+              ? `arg${machineIndex}f${fieldIndex}`
+              : "Clock.now";
+      }
 
-      if (prefix === "ctx" || prefix === "next") value = `ctx.ctx${machineIndex}f${fieldIndex}`;
-
-      if (prefix === "vn") value = `v${fieldIndex}`;
-
-      if ((prefix === "next" || prefix === "vn") && isClockField) {
-        const current = prefix === "next" ? "Clock.now" : `v${fieldIndex}`;
+      if (
+        (prefix === "next" || prefix === "vn" || prefix === "entityNext") &&
+        field.kind === "clock"
+      ) {
+        const current = prefix === "vn" ? `v${fieldIndex}` : "Clock.now";
         value = `Ordering${clockIndex}/next[${current}]`;
       }
 
@@ -562,7 +611,10 @@ export const generateAlloy = (
       clockPath !== undefined &&
       guard !== undefined &&
       paths.has(pathKey(clockPath)) &&
-      compiled.unknown.length === 0;
+      compiled.unknown.length === 0 &&
+      !domain.machines[machineIndex]!.context.fields.some(
+        (item) => item.kind === "parameter" && paths.has(pathKey(item.path)),
+      );
 
     if (!bound) nondeterministic.add(description);
 
@@ -581,9 +633,12 @@ export const generateAlloy = (
       ? yes
       : `(Clock.now != Ordering${clockIndex}/last and Clock.now' = Ordering${clockIndex}/next[Clock.now])`;
 
+  const membershipStay = membershipIndex === undefined ? "Membership' = Membership" : yes;
+  const membershipAdvance = membershipIndex === undefined ? "Membership' in Membership" : yes;
+
   const frameOthers = (index: number): ReadonlyArray<string> =>
     domain.machines.flatMap((_, other) =>
-      other === index ? [] : [`Machine${other}.current${other}' = Machine${other}.current${other}`],
+      other === index ? [] : [`current${other}' = current${other}`],
     );
 
   const adminFrame = (command: string): string =>
@@ -593,15 +648,57 @@ export const generateAlloy = (
         ? "Admin' = Admin - t.owner"
         : "Admin' = Admin";
 
-  const isCurrent = (machineIndex: number, state: string): string =>
+  const isCurrent = (machineIndex: number, state: string, entity: string): string =>
     state === "[*]"
-      ? `no Machine${machineIndex}.current${machineIndex}`
-      : `Machine${machineIndex}.current${machineIndex} = ${stateName(machineIndex, domain.machines[machineIndex]!.states, state)}`;
+      ? `no ${entity}.current${machineIndex}`
+      : `${entity}.current${machineIndex} = ${stateName(machineIndex, domain.machines[machineIndex]!.states, state)}`;
 
-  const becomes = (machineIndex: number, state: string): string =>
+  const becomes = (machineIndex: number, state: string, entity: string): string =>
     state === "[*]"
-      ? `no Machine${machineIndex}.current${machineIndex}'`
-      : `Machine${machineIndex}.current${machineIndex}' = ${stateName(machineIndex, domain.machines[machineIndex]!.states, state)}`;
+      ? `no ${entity}.current${machineIndex}'`
+      : `${entity}.current${machineIndex}' = ${stateName(machineIndex, domain.machines[machineIndex]!.states, state)}`;
+
+  const updateCurrent = (machineIndex: number, state: string, entity: string): string =>
+    state === "[*]"
+      ? `current${machineIndex}' = (current${machineIndex} - (${entity} -> State${machineIndex}))`
+      : `current${machineIndex}' = (current${machineIndex} ++ (${entity} -> ${stateName(machineIndex, domain.machines[machineIndex]!.states, state)}))`;
+
+  const frozenStored = domain.machines.flatMap((machine, machineIndex) =>
+    machine.context.fields.flatMap((field, fieldIndex) =>
+      field.kind === "stored"
+        ? [`stored${machineIndex}f${fieldIndex}' = stored${machineIndex}f${fieldIndex}`]
+        : [],
+    ),
+  );
+
+  const commandStored = (commandName: string, activeMachine?: number): string => {
+    const writes = domain.commands.find((command) => command.name === commandName)?.writes ?? [];
+    const holders: Array<string> = [];
+    const frames: Array<string> = [];
+
+    for (const [machineIndex, machine] of domain.machines.entries()) {
+      const machineWrites = writes.filter((write) => write.machine === machine.name);
+      const holder = activeMachine === machineIndex ? "entity" : `affected${machineIndex}`;
+
+      if (machineWrites.length > 0 && activeMachine !== machineIndex)
+        holders.push(`affected${machineIndex}: Machine${machineIndex}`);
+
+      for (const [fieldIndex, field] of machine.context.fields.entries()) {
+        if (field.kind !== "stored") continue;
+        const symbol = `stored${machineIndex}f${fieldIndex}`;
+        const changed = machineWrites.some((write) => pathKey(write.path) === pathKey(field.path));
+        frames.push(
+          changed
+            ? `(all other: Machine${machineIndex} - ${holder} | other.${symbol}' = other.${symbol})`
+            : `${symbol}' = ${symbol}`,
+        );
+      }
+    }
+
+    const body = conjunction(frames);
+
+    return holders.length === 0 ? body : `(some ${holders.join(", ")} | ${body})`;
+  };
 
   const stepPredicates: Array<string> = [];
   const edgeNames: Array<string> = [];
@@ -615,6 +712,23 @@ export const generateAlloy = (
     const enabledAfterTick: Array<string> = [];
     const calculatedChoices: Array<string> = [];
     const requiredCalculations: Array<string> = [];
+
+    const parameters = machine.context.fields.flatMap((field, fieldIndex) =>
+      field.kind === "parameter"
+        ? [
+            {
+              name: `arg${machineIndex}f${fieldIndex}`,
+              order: `Order${orderIndex.get(field.order)}`,
+            },
+          ]
+        : [],
+    );
+
+    const parameterDeclarations = parameters.map(
+      (parameter) => `${parameter.name}: ${parameter.order}`,
+    );
+
+    const parameterArguments = parameters.map((parameter) => parameter.name);
 
     const allTransitions = [
       ...machine.transitions.map((transition) => ({
@@ -632,9 +746,14 @@ export const generateAlloy = (
     ];
 
     for (const [transitionIndex, transition] of allTransitions.entries()) {
-      const from = disjunction(transition.from.map((state) => isCurrent(machineIndex, state)));
+      const entity = "entity";
+
+      const from = disjunction(
+        transition.from.map((state) => isCurrent(machineIndex, state, entity)),
+      );
+
       const calculated = transition.command === undefined;
-      const label = `machine ${machine.name} calculated transition ${transitionIndex - machine.transitions.length} lacks a clock-bound guard`;
+      const label = `machine ${machine.name} calculated transition ${transitionIndex - machine.transitions.length} cannot be determined from stored fields and clock`;
 
       const nowGuard = calculated
         ? clockedCondition(machineIndex, transition.guards[0], "ctx", label).expression
@@ -647,7 +766,13 @@ export const generateAlloy = (
       const nextGuard =
         nextCondition?.expression ?? contextFormula(machineIndex, transition.guards, "next");
 
-      const guard = calculated ? nextGuard : nowGuard;
+      const commandGuard = calculated
+        ? yes
+        : contextFormula(machineIndex, transition.guards, "args");
+
+      const tickCondition = calculated
+        ? clockedCondition(machineIndex, transition.guards[0], "entityNext", label)
+        : undefined;
 
       const sources = disjunction(
         transition.from.map((state) => `s = ${stateName(machineIndex, machine.states, state)}`),
@@ -705,41 +830,36 @@ export const generateAlloy = (
         );
       }
 
-      const change = [from, becomes(machineIndex, transition.to), guard];
+      const change = [
+        from,
+        becomes(machineIndex, transition.to, entity),
+        tickCondition?.expression ?? yes,
+      ];
 
       if (transition.command !== undefined) {
         const commandIndex = permissionIndex.get(transition.command);
         lines.push(
-          `pred transition${machineIndex}_${transitionIndex}[p: Principal, t: Target, ctx: Context${machineIndex}] { ${conjunction([`command${commandIndex}[p, t]`, "Membership' = Membership", adminFrame(transition.command), clockStay, ...change, ...frameOthers(machineIndex)])} }`,
+          `pred transition${machineIndex}_${transitionIndex}[${["p: Principal", "t: Target", `entity: Machine${machineIndex}`, ...parameterDeclarations].join(", ")}] { ${conjunction([`command${commandIndex}[p, t]`, membershipStay, adminFrame(transition.command), clockStay, from, updateCurrent(machineIndex, transition.to, entity), commandGuard, commandStored(transition.command, machineIndex), ...frameOthers(machineIndex)])} }`,
         );
         stepPredicates.push(
-          `(some p: Principal, t: Target, ctx: Context${machineIndex} | transition${machineIndex}_${transitionIndex}[p, t, ctx])`,
+          `(some ${["p: Principal", "t: Target", `entity: Machine${machineIndex}`, ...parameterDeclarations].join(", ")} | transition${machineIndex}_${transitionIndex}[${["p", "t", "entity", ...parameterArguments].join(", ")}])`,
         );
       } else {
         lines.push(
-          `pred calculated${machineIndex}_${transitionIndex}[ctx: Context${machineIndex}] { ${conjunction(change)} }`,
+          `pred calculated${machineIndex}_${transitionIndex}[entity: Machine${machineIndex}] { ${conjunction(change)} }`,
         );
-        calculatedChoices.push(
-          `(some ctx: Context${machineIndex} | calculated${machineIndex}_${transitionIndex}[ctx])`,
-        );
+        calculatedChoices.push(`calculated${machineIndex}_${transitionIndex}[entity]`);
 
-        if (nextCondition?.bound === true)
-          requiredCalculations.push(
-            `(some ctx: Context${machineIndex} | ${conjunction([from, nextGuard])})`,
-          );
+        if (tickCondition?.bound === true)
+          requiredCalculations.push(conjunction([from, tickCondition.expression]));
       }
     }
 
-    const unchanged = `Machine${machineIndex}.current${machineIndex}' = Machine${machineIndex}.current${machineIndex}`;
+    const unchanged = `entity.current${machineIndex}' = entity.current${machineIndex}`;
     tickRules.push(
-      disjunction([
-        ...calculatedChoices,
-        conjunction([`not ${disjunction(requiredCalculations)}`, unchanged]),
-      ]),
+      `(all entity: Machine${machineIndex} | ${disjunction([...calculatedChoices, conjunction([`not ${disjunction(requiredCalculations)}`, unchanged])])})`,
     );
-    tickChanges.push(
-      `Machine${machineIndex}.current${machineIndex}' != Machine${machineIndex}.current${machineIndex}`,
-    );
+    tickChanges.push(`current${machineIndex}' != current${machineIndex}`);
     const edge = `edges${machineIndex}`;
     edgeNames.push(edge);
     lines.push(
@@ -761,19 +881,15 @@ export const generateAlloy = (
     )
       continue;
 
-    const frames = domain.machines.map(
-      (_, machine) => `Machine${machine}.current${machine}' = Machine${machine}.current${machine}`,
-    );
+    const frames = domain.machines.map((_, machine) => `current${machine}' = current${machine}`);
 
     lines.push(
-      `pred stepCommand${index}[p: Principal, t: Target] { ${conjunction([`command${index}[p, t]`, "Membership' = Membership", adminFrame(command.name), clockStay, ...frames])} }`,
+      `pred stepCommand${index}[p: Principal, t: Target] { ${conjunction([`command${index}[p, t]`, membershipStay, adminFrame(command.name), clockStay, commandStored(command.name), ...frames])} }`,
     );
     stepPredicates.push(`(some p: Principal, t: Target | stepCommand${index}[p, t])`);
   }
 
-  const timeFrames = domain.machines.map(
-    (_, machine) => `Machine${machine}.current${machine}' = Machine${machine}.current${machine}`,
-  );
+  const timeFrames = domain.machines.map((_, machine) => `current${machine}' = current${machine}`);
 
   const adminExpiry = domain.adminList?.expiry;
 
@@ -788,8 +904,8 @@ export const generateAlloy = (
       : clockedCondition(
           adminContext,
           adminExpiry,
-          "next",
-          "admin expiry lacks a clock-bound guard",
+          "entityNext",
+          "admin expiry cannot be determined from stored fields and clock",
         );
 
   if (
@@ -797,30 +913,32 @@ export const generateAlloy = (
       domain.subjectSets.some((subject) => subject.expression._tag === "Admin")) &&
     adminCondition === undefined
   ) {
-    nondeterministic.add("admin expiry lacks a clock-bound guard");
+    nondeterministic.add("admin expiry cannot be determined from stored fields and clock");
   }
 
   const expiryFrame =
     adminCondition?.bound === true
-      ? `(no Admin - Admin' or (some ctx: Context${adminContext} | ${adminCondition.expression}))`
+      ? `(no Admin - Admin' or (some entity: Machine${adminContext} | ${adminCondition.expression}))`
       : yes;
 
-  const calculatedFrame = `(${disjunction(tickChanges)} implies (Membership' = Membership and Admin' = Admin))`;
+  const calculatedFrame = `(${disjunction(tickChanges)} implies ${conjunction([membershipStay, "Admin' = Admin"])})`;
 
   const advancingTime = conjunction([
     clockAdvance,
-    "Membership' in Membership",
+    membershipAdvance,
     "Admin' in Admin",
     expiryFrame,
     ...tickRules,
+    ...frozenStored,
     calculatedFrame,
   ]);
 
   const stutteringTime = conjunction([
     clockStay,
-    "Membership' = Membership",
+    membershipStay,
     "Admin' = Admin",
     ...timeFrames,
+    ...frozenStored,
   ]);
 
   lines.push(
@@ -855,8 +973,17 @@ export const generateAlloy = (
       `order${index}Before: Order${index} -> Order${index}`,
     ]),
     ...domain.machines.flatMap((machine, machineIndex) => [
+      `entities${machineIndex}: set Machine${machineIndex}`,
       `contexts${machineIndex}: set Context${machineIndex}`,
-      `var machineState${machineIndex}: set State${machineIndex}`,
+      `contextEntity${machineIndex}: Context${machineIndex} -> Machine${machineIndex}`,
+      `var machineState${machineIndex}: Machine${machineIndex} -> State${machineIndex}`,
+      ...machine.context.fields.flatMap((field, fieldIndex) =>
+        field.kind === "stored"
+          ? [
+              `var entityField${machineIndex}_${fieldIndex}: Machine${machineIndex} -> Order${orderIndex.get(field.order)}`,
+            ]
+          : [],
+      ),
       ...machine.context.fields.map(
         (field, fieldIndex) =>
           `var field${machineIndex}_${fieldIndex}: Context${machineIndex} -> Order${orderIndex.get(field.order)}`,
@@ -896,12 +1023,27 @@ export const generateAlloy = (
       `Projection.order${index}Before = { a, b: Order${index} | Ordering${index}/lt[a, b] }`,
     ]),
     ...domain.machines.flatMap((machine, machineIndex) => [
+      `Projection.entities${machineIndex} = Machine${machineIndex}`,
       `Projection.contexts${machineIndex} = Context${machineIndex}`,
-      `Projection.machineState${machineIndex} = Machine${machineIndex}.current${machineIndex}`,
-      ...machine.context.fields.map(
-        (_, fieldIndex) =>
-          `Projection.field${machineIndex}_${fieldIndex} = ctx${machineIndex}f${fieldIndex}`,
+      `Projection.contextEntity${machineIndex} = entity${machineIndex}`,
+      `Projection.machineState${machineIndex} = current${machineIndex}`,
+      ...machine.context.fields.flatMap((field, fieldIndex) =>
+        field.kind === "stored"
+          ? [
+              `Projection.entityField${machineIndex}_${fieldIndex} = stored${machineIndex}f${fieldIndex}`,
+            ]
+          : [],
       ),
+      ...machine.context.fields.map((field, fieldIndex) => {
+        const value =
+          field.kind === "stored"
+            ? `entity${machineIndex}.stored${machineIndex}f${fieldIndex}`
+            : field.kind === "parameter"
+              ? `ctx${machineIndex}f${fieldIndex}`
+              : `Context${machineIndex} -> Clock.now`;
+
+        return `Projection.field${machineIndex}_${fieldIndex} = ${value}`;
+      }),
     ]),
     ...enabled,
   ];
@@ -915,14 +1057,12 @@ export const generateAlloy = (
     `fact ProjectionFacts { ${conjunction(viewFacts)} }`,
   );
 
-  const initial = conjunction(
-    domain.machines.map((_, index) => `no Machine${index}.current${index}`),
-  );
+  const initial = conjunction(domain.machines.map((_, index) => `no current${index}`));
 
   const reachability = domain.machines.flatMap((machine, machineIndex) =>
     machine.states.map((_, stateIndex) => ({
       name: `Reach${machineIndex}_${stateIndex}`,
-      predicate: `pred Reach${machineIndex}_${stateIndex} { ${initial} and eventually (Machine${machineIndex}.current${machineIndex} = State${machineIndex}_${stateIndex}) }`,
+      predicate: `pred Reach${machineIndex}_${stateIndex} { ${initial} and eventually (some entity: Machine${machineIndex} | entity.current${machineIndex} = State${machineIndex}_${stateIndex}) }`,
     })),
   );
 
@@ -961,14 +1101,18 @@ export const generateAlloy = (
       : [
           `assert A4_AdminSelfChange { always (all p: Person, t: Target | (p not in Admin and t.owner = p) implies ${a4}) }`,
         ]),
-    "assert A5_EndedMembership { always (all m: MembershipRecord - Membership, p: Principal, c: Permission, t: Target | not canByMembership[m, p, c, t]) }",
+    ...(membershipIndex === undefined
+      ? ["// A5_EndedMembership: not applicable (no membership-machine binding)"]
+      : [
+          "assert A5_EndedMembership { always (all m: MembershipRecord - Membership, p: Principal, c: Permission, t: Target | not canByMembership[m, p, c, t]) }",
+        ]),
     `assert A6_SystemJob { always ${conjunction(a6)} }`,
     ...(clockIndex === undefined
       ? ["// A7_TimeMonotonic: not applicable (no clock declaration)"]
       : [
           `assert A7_TimeMonotonic { always (Clock.now' = Clock.now or Ordering${clockIndex}/lt[Clock.now, Clock.now']) }`,
         ]),
-    "pred MembershipEnds { some m: Membership | after (m not in Membership) }",
+    `pred MembershipEnds { some m: Membership | ${clockAdvance} and after (m not in Membership) }`,
   );
 
   const scopeParts = [
@@ -996,7 +1140,7 @@ export const generateAlloy = (
     `check A2_NonterminalExit ${bound}`,
     `check A3_CommandGrant ${bound}`,
     ...(a4 === undefined ? [] : [`check A4_AdminSelfChange ${bound}`]),
-    `check A5_EndedMembership ${bound}`,
+    ...(membershipIndex === undefined ? [] : [`check A5_EndedMembership ${bound}`]),
     `check A6_SystemJob ${bound}`,
     ...(clockIndex === undefined ? [] : [`check A7_TimeMonotonic ${bound}`]),
     `run MembershipEnds ${bound}`,
@@ -1018,6 +1162,7 @@ export const generateAlloy = (
     orders: domain.orders.map((order, index) => ({ name: order.name, atom: `Order${index}` })),
     machines: machineSymbols,
     adminApplicable: domain.adminList !== undefined,
+    memberships: domain.memberships ?? null,
     unknownGuards,
     clock: domain.clock ?? null,
     nondeterministic: [...nondeterministic].toSorted(),

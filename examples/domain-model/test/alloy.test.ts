@@ -1,10 +1,12 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Fiber, FileSystem, Path, Schedule, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, FileSystem, Path, Result, Schedule, Schema } from "effect";
 import effectPackage from "effect/package.json";
 import {
   AlloyReceiptJson,
   ConformanceVectorsJson,
+  generateAlloy,
+  snapshotsFromSolutions,
   type ConformanceVectors,
   type DomainDescription,
   type VectorSnapshot,
@@ -36,7 +38,7 @@ const decodeReceipt = Schema.decodeEffect(AlloyReceiptJson);
 type FixtureName =
   | "domain"
   | "withoutDirectoryGrant"
-  | "withoutAdminListOrClock"
+  | "withoutOptionalBindings"
   | keyof typeof mutants;
 
 const configure = Effect.fnUntraced(function* (
@@ -44,12 +46,13 @@ const configure = Effect.fnUntraced(function* (
   name: FixtureName,
   enabled = true,
   steps = 4,
+  scope = 1,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
   const expression =
-    name === "domain" || name === "withoutDirectoryGrant" || name === "withoutAdminListOrClock"
+    name === "domain" || name === "withoutDirectoryGrant" || name === "withoutOptionalBindings"
       ? name
       : `mutants.${name}`;
 
@@ -59,13 +62,18 @@ const configure = Effect.fnUntraced(function* (
 import { defineConfig } from "@effx/cli/config";
 import { domainModel } from "@effx/domain-model";
 import { domain } from ${yield* encodeJsonString(domainModule)};
-import { mutants, withoutDirectoryGrant, withoutAdminListOrClock } from ${yield* encodeJsonString(mutantModule)};
-export default defineConfig({ models: { alloy: ${enabled} }, extensions: [domainModel(${expression}, { steps: ${steps} })] });
+import { mutants, withoutDirectoryGrant, withoutOptionalBindings } from ${yield* encodeJsonString(mutantModule)};
+export default defineConfig({ models: { alloy: ${enabled} }, extensions: [domainModel(${expression}, { steps: ${steps}, scope: ${scope} })] });
 `,
   );
 });
 
-const fixture = Effect.fnUntraced(function* (name: FixtureName, enabled = true, steps = 4) {
+const fixture = Effect.fnUntraced(function* (
+  name: FixtureName,
+  enabled = true,
+  steps = 4,
+  scope = 1,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const directory = yield* testDirectory("domain-alloy-");
@@ -78,7 +86,7 @@ const fixture = Effect.fnUntraced(function* (name: FixtureName, enabled = true, 
     path.join(directory, "tsconfig.json"),
     `{ "extends": ${yield* encodeJsonString(fixtureTsconfig)}, "include": ["entry.ts"], "exclude": [] }\n`,
   );
-  yield* configure(directory, name, enabled, steps);
+  yield* configure(directory, name, enabled, steps, scope);
 
   return directory;
 });
@@ -99,10 +107,57 @@ const readVectors = Effect.fnUntraced(function* (directory: string) {
   );
 });
 
+const boundedProbe = Effect.fnUntraced(function* (
+  directory: string,
+  model: string,
+  command: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const output = path.join(directory, `${command}-probe`);
+
+  const run = yield* alloyTool(directory, [
+    "exec",
+    "--quiet",
+    "--command",
+    command,
+    "--output",
+    output,
+    "--type",
+    "json",
+    "--repeat",
+    "1",
+    "-y",
+    "0",
+    model,
+  ]);
+
+  assert.strictEqual(run.code, 0, run.stdout + run.stderr);
+  const receipt = yield* decodeReceipt(yield* fs.readFileString(path.join(output, "receipt.json")));
+  const result = receipt.commands[command];
+
+  if (result === undefined) return assert.fail(`Alloy omitted ${command}`);
+  assert.strictEqual(result.maxprefix, 4);
+
+  return result;
+});
+
 const assertConforms = (description: DomainDescription, vectors: ConformanceVectors): void => {
   assert.isAbove(vectors.instances.length, 0);
 
   for (const snapshot of vectors.instances) {
+    if (description.memberships !== undefined) {
+      const binding = description.memberships;
+      const entities = snapshot.machineStates.filter((state) => state.machine === binding.machine);
+      assert.strictEqual(entities.length, snapshot.memberships.length);
+
+      for (const membership of snapshot.memberships) {
+        const entity = entities.find((state) => state.id === membership.id);
+        assert.isDefined(entity, "each membership is the same atom as its machine entity");
+        assert.strictEqual(membership.active, binding.grantingStates.includes(entity!.state));
+      }
+    }
+
     for (const principal of snapshot.principals)
       for (const permission of vectors.permissions)
         for (const target of snapshot.targets) {
@@ -206,8 +261,8 @@ describe("spec 0032: real Alloy 6.2.0", () => {
         );
         const before = yield* readVectors(directory);
         assertConforms(domain, before);
-        // 1,076 person/team/membership worlds × 5 contexts × 4 states × 2 clock values.
-        const expectedConfigurations = 1076 * 5 * 4 * 2;
+        // 212 worlds without memberships; 432 membership worlds × 4 stored bounds × 4 states × 2 context cardinalities; two clock values.
+        const expectedConfigurations = (212 + 432 * 4 * 4 * 2) * 2;
         assert.strictEqual(before.instances.length, expectedConfigurations);
         assert.strictEqual(new Set(before.instances.map(worldKey)).size, expectedConfigurations);
         assert.isTrue(before.instances.some((snapshot) => snapshot.targets.length === 0));
@@ -216,7 +271,7 @@ describe("spec 0032: real Alloy 6.2.0", () => {
           snapshot.enabled[phase].some(
             (row) =>
               row.machine === "Review" &&
-              row.state === "Draft" &&
+              row.state === "Open" &&
               row.transition === "Transition0_3",
           );
 
@@ -317,6 +372,101 @@ describe("spec 0032: real Alloy 6.2.0", () => {
   );
 
   it.live(
+    "A5 detects grants from a non-granting membership state",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const directory = yield* fixture("endedMembership");
+        yield* build(directory);
+        const model = path.join(directory, ".effx/models/alloy/community.als");
+        const checked = yield* boundedProbe(directory, model, "A5_EndedMembership");
+
+        if (checked.solution === undefined || checked.solution.length === 0)
+          return assert.fail("A5 found no counterexample");
+
+        const decoded = snapshotsFromSolutions(
+          checked.solution,
+          generateAlloy(mutants.endedMembership).symbols,
+        );
+
+        if (Result.isFailure(decoded)) return assert.fail(decoded.failure);
+
+        const witness = decoded.success.find((snapshot) =>
+          snapshot.memberships.some(
+            (membership) =>
+              !membership.active &&
+              snapshot.machineStates.some(
+                (state) =>
+                  state.id === membership.id &&
+                  state.machine === "Review" &&
+                  state.state !== "Open",
+              ),
+          ),
+        );
+
+        assert.isDefined(witness);
+        yield* printLines("stdout", [
+          "A5: a non-granting membership atom contributes permission; Alloy check exit 0 with a counterexample",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    120_000,
+  );
+
+  it.live(
+    "a transition to the sentinel removes the entity state and its grant",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fixture("withRemoval");
+        yield* build(directory);
+
+        const source = yield* fs.readFileString(
+          path.join(directory, ".effx/models/alloy/community.als"),
+        );
+
+        const run = source.split("\n").find((line) => line.startsWith("run MembershipEnds "));
+
+        if (run === undefined) return assert.fail("missing bounded model command");
+        const model = path.join(directory, "removal-probe.als");
+        yield* fs.writeFileString(
+          model,
+          `${source}\npred RemovalStep { some p: Principal, t: Target, entity: Machine0 | transition0_2[p,t,entity] and no entity.current0' }\n${run.replace("MembershipEnds", "RemovalStep")}\n`,
+        );
+        const result = yield* boundedProbe(directory, model, "RemovalStep");
+
+        if (result.solution === undefined || result.solution.length === 0)
+          return assert.fail("no removal trace");
+
+        const decoded = snapshotsFromSolutions(
+          result.solution,
+          generateAlloy(mutants.withRemoval).symbols,
+        );
+
+        if (Result.isFailure(decoded)) return assert.fail(decoded.failure);
+        const before = decoded.success[0];
+        const after = decoded.success[1];
+
+        if (before === undefined || after === undefined)
+          return assert.fail("removal trace has fewer than two states");
+        const active = before.memberships.find((membership) => membership.active);
+        assert.isDefined(active);
+        assert.isTrue(
+          after.memberships.some(
+            (membership) => membership.id === active!.id && !membership.active,
+          ),
+        );
+        assert.isTrue(
+          after.machineStates.some((state) => state.id === active!.id && state.state === "[*]"),
+        );
+        yield* printLines("stdout", [
+          "removal: the same membership moves to [*] and stops granting at scope 1, steps 4",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    120_000,
+  );
+
+  it.live(
     "toggle off writes no models and does not invoke even a present binary",
     () =>
       Effect.gen(function* () {
@@ -369,9 +519,15 @@ describe("spec 0032: real Alloy 6.2.0", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const directory = yield* fixture("timeTravel");
+        const directory = yield* fixture("timeTravel", true, 4, 2);
         yield* build(directory);
-        const model = path.join(directory, ".effx", "models", "alloy", "community.als");
+        const original = path.join(directory, ".effx", "models", "alloy", "community.als");
+        const model = path.join(directory, "one-entity-two-contexts.als");
+        const source = yield* fs.readFileString(original);
+        yield* fs.writeFileString(
+          model,
+          `${source}\nfact OneEntityTwoContexts { one Machine0 and one Person and no System and one Target and one Department and one Team and one MembershipRecord and (some disj a,b: Context0 | Context0 = a + b) }\n`,
+        );
 
         for (const command of ["Reach0_1", "A2_NonterminalExit"]) {
           const output = path.join(directory, `witness-${command}`);
@@ -406,10 +562,81 @@ describe("spec 0032: real Alloy 6.2.0", () => {
         }
 
         yield* printLines("stdout", [
-          "timeTravel: A2 has no counterexample, but A1 finds no trace to Open at scope 1, steps 4",
+          "timeTravel: A2 has no counterexample, but A1 finds no trace to Open for one entity and two contexts at scope 2, steps 4",
         ]);
       }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
-    60_000,
+    180_000,
+  );
+
+  it.live(
+    "stored bounds stay fixed while caller parameters can change on a command",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fixture("withParameter", true, 4, 2);
+        yield* build(directory);
+
+        const source = yield* fs.readFileString(
+          path.join(directory, ".effx/models/alloy/community.als"),
+        );
+
+        const run = source.split("\n").find((line) => line.startsWith("run MembershipEnds "));
+        const check = source.split("\n").find((line) => line.startsWith("check A7_TimeMonotonic "));
+
+        if (run === undefined || check === undefined)
+          return assert.fail("missing bounded model commands");
+        const model = path.join(directory, "parameter-probe.als");
+        yield* fs.writeFileString(
+          model,
+          `${source}\nfact ParameterWorld { one Machine0 and one Person and no System and one Target and one Department and one Team and one MembershipRecord and (some disj a,b: Context0 | Context0 = a + b) }\npred ParameterChanges { some entity: Machine0, p: Principal, t: Target, first: Order0 | transition0_0[p,t,entity,first] and after (some p2: Principal, t2: Target, second: Order0 | transition0_1[p2,t2,entity,second] and second != first) }\nassert StoredFieldsStable { always (stored0f0' = stored0f0 and stored0f1' = stored0f1) }\n${run.replace("MembershipEnds", "ParameterChanges")}\n${check.replace("A7_TimeMonotonic", "StoredFieldsStable")}\n`,
+        );
+        const witness = yield* boundedProbe(directory, model, "ParameterChanges");
+        const invariant = yield* boundedProbe(directory, model, "StoredFieldsStable");
+        assert.isAbove(witness.solution?.length ?? 0, 0);
+        assert.lengthOf(invariant.solution ?? [], 0);
+        yield* printLines("stdout", [
+          "parameter: successive commands choose different caller values while stored fields stay fixed for one entity at scope 2, steps 4",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    180_000,
+  );
+
+  it.live(
+    "declared writes over-approximate one entity and frame the others",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fixture("withWrite", true, 4, 2);
+        const built = yield* alloyCli(directory, ["build"]);
+        assert.strictEqual(built.code, 0, built.stdout + built.stderr);
+        assert.include(built.stdout, "EFFX4313 warning");
+        assert.include(built.stdout, "effect on Review.review.end not modelled precisely");
+
+        const source = yield* fs.readFileString(
+          path.join(directory, ".effx/models/alloy/community.als"),
+        );
+
+        const run = source.split("\n").find((line) => line.startsWith("run MembershipEnds "));
+        const check = source.split("\n").find((line) => line.startsWith("check A7_TimeMonotonic "));
+
+        if (run === undefined || check === undefined)
+          return assert.fail("missing bounded model commands");
+        const model = path.join(directory, "write-probe.als");
+        yield* fs.writeFileString(
+          model,
+          `${source}\nfact NarrowWriteWorld { one Person and no System and one Target and one Department and one Team and (some disj m,n: MembershipRecord | MembershipRecord = m + n) }\npred WriteCanChangeOne { some disj a,b: Machine0 | some p: Principal, t: Target | transition0_1[p,t,a] and a.stored0f1 != b.stored0f1 and a.stored0f1' != a.stored0f1 and b.stored0f1' = b.stored0f1 and stored0f0' = stored0f0 }\nassert WriteFramesOthers { always (all disj a,b: Machine0 | all p: Principal, t: Target | transition0_1[p,t,a] implies (b.stored0f1' = b.stored0f1 and stored0f0' = stored0f0)) }\n${run.replace("MembershipEnds", "WriteCanChangeOne")}\n${check.replace("A7_TimeMonotonic", "WriteFramesOthers")}\n`,
+        );
+        const witness = yield* boundedProbe(directory, model, "WriteCanChangeOne");
+        const invariant = yield* boundedProbe(directory, model, "WriteFramesOthers");
+        assert.isAbove(witness.solution?.length ?? 0, 0);
+        assert.lengthOf(invariant.solution ?? [], 0);
+        yield* printLines("stdout", [
+          "declared write: EFFX4313 warning; target may change and other entities stay fixed at scope 2, steps 4",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    180_000,
   );
 
   it.live(
@@ -428,42 +655,22 @@ describe("spec 0032: real Alloy 6.2.0", () => {
           .split("\n")
           .find((line) => line.startsWith("check A7_TimeMonotonic "));
 
-        if (command === undefined) return assert.fail("model has no bounded monotonicity command");
+        const run = source.split("\n").find((line) => line.startsWith("run MembershipEnds "));
+
+        if (command === undefined || run === undefined)
+          return assert.fail("model has no bounded commands");
         yield* fs.writeFileString(
           model,
-          `${source}\nassert SuccessorGuardFires { always ((some ctx: Context0 | Clock.now' != Clock.now and Machine0.current0 = State0_0 and not Ordering0/lt[Ordering0/next[Clock.now], ctx.ctx0f1]) implies Machine0.current0' = State0_2) }\n${command.replace("A7_TimeMonotonic", "SuccessorGuardFires")}\n`,
+          `${source}\nassert SuccessorGuardFires { always (all entity: Machine0 | (Clock.now' != Clock.now and entity.current0 = State0_1 and not Ordering0/lt[Ordering0/next[Clock.now], entity.stored0f1]) implies entity.current0' = State0_2) }\npred TickWithoutContext { no Context0 and some entity: Machine0 | entity.current0 = State0_1 and Clock.now != Ordering0/last and Clock.now' = Ordering0/next[Clock.now] and not Ordering0/lt[Ordering0/next[Clock.now], entity.stored0f1] }\npred AdminExpiryWithoutContext { no Context0 and some Admin - Admin' and Clock.now != Ordering0/last and Clock.now' = Ordering0/next[Clock.now] }\n${command.replace("A7_TimeMonotonic", "SuccessorGuardFires")}\n${run.replace("MembershipEnds", "TickWithoutContext")}\n${run.replace("MembershipEnds", "AdminExpiryWithoutContext")}\n`,
         );
-        const output = path.join(directory, "successor-output");
-
-        const run = yield* alloyTool(directory, [
-          "exec",
-          "--quiet",
-          "--command",
-          "SuccessorGuardFires",
-          "--output",
-          output,
-          "--type",
-          "json",
-          "--repeat",
-          "1",
-          "-y",
-          "0",
-          model,
-        ]);
-
-        assert.strictEqual(run.code, 0, run.stdout + run.stderr);
-
-        const receipt = yield* decodeReceipt(
-          yield* fs.readFileString(path.join(output, "receipt.json")),
-        );
-
-        const checked = receipt.commands.SuccessorGuardFires;
-
-        if (checked === undefined) return assert.fail("Alloy omitted the successor guard check");
-        assert.strictEqual(checked.maxprefix, 4);
+        const checked = yield* boundedProbe(directory, model, "SuccessorGuardFires");
+        const witness = yield* boundedProbe(directory, model, "TickWithoutContext");
+        const expiry = yield* boundedProbe(directory, model, "AdminExpiryWithoutContext");
         assert.lengthOf(checked.solution ?? [], 0);
+        assert.isAbove(witness.solution?.length ?? 0, 0);
+        assert.isAbove(expiry.solution?.length ?? 0, 0);
         yield* printLines("stdout", [
-          `SuccessorGuardFires: Alloy exit ${run.code}; no counterexample at scope 1, steps 4`,
+          "SuccessorGuardFires: no counterexample; calculated tick and admin expiry both occur without a caller context at scope 1, steps 4",
         ]);
       }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
     60_000,
@@ -583,15 +790,17 @@ describe("spec 0032: real Alloy 6.2.0", () => {
   );
 
   it.live(
-    "a domain without admin-list commands or a clock reports A4 and A7 as not applicable",
+    "absent admin, membership, and clock bindings are not reported as passes",
     () =>
       Effect.gen(function* () {
-        const directory = yield* fixture("withoutAdminListOrClock");
+        const directory = yield* fixture("withoutOptionalBindings");
         yield* build(directory);
         const checked = yield* alloyCli(directory, ["models", "check"]);
         assert.strictEqual(checked.code, 0, checked.stdout + checked.stderr);
         assert.include(checked.stdout, "A4_AdminSelfChange NOT APPLICABLE");
         assert.notInclude(checked.stdout, "A4_AdminSelfChange PASS");
+        assert.include(checked.stdout, "A5_EndedMembership NOT APPLICABLE");
+        assert.notInclude(checked.stdout, "A5_EndedMembership PASS");
         assert.include(checked.stdout, "A7_TimeMonotonic NOT APPLICABLE");
         assert.notInclude(checked.stdout, "A7_TimeMonotonic PASS");
         assert.include(checked.stdout, "EFFX4311 warning");

@@ -65,7 +65,9 @@ const describeCounterexample = (snapshot: VectorSnapshot, symbols: AlloySymbols)
     (entry) => `${entry.principal}:${entry.permission}@${entry.target}`,
   );
 
-  const states = snapshot.machineStates.map((state) => `${state.machine}:${state.state}`);
+  const states = snapshot.machineStates.map(
+    (state) => `${state.machine}:${state.id}:${state.state}`,
+  );
 
   const declaredStates = symbols.machines.flatMap((machine) =>
     machine.states.map((state) => `${machine.name}:${state.name}`),
@@ -157,6 +159,7 @@ const checkReceipt = (receipt: AlloyReceipt, symbols: AlloySymbols) => {
   for (const check of checks) {
     if (
       (check.name === "A4_AdminSelfChange" && !symbols.adminApplicable) ||
+      (check.name === "A5_EndedMembership" && symbols.memberships === null) ||
       (check.name === "A7_TimeMonotonic" && symbols.clock === null)
     ) {
       lines.push(

@@ -88,7 +88,7 @@ export const DomainDiagnostics = {
     "EFFX4309",
     "A5 ended membership",
     "error",
-    "An ended membership contributes permission.",
+    "A membership outside the declared granting states contributes permission.",
   ),
   EFFX4310: diagnostic(
     "EFFX4310",
@@ -107,6 +107,12 @@ export const DomainDiagnostics = {
     "A7 clock monotonicity",
     "error",
     "The domain clock moves backward in a model trace.",
+  ),
+  EFFX4313: diagnostic(
+    "EFFX4313",
+    "Command effect not modelled precisely",
+    "warning",
+    "A declared stored-field write is modelled as any value in the field order, not as the command's precise effect.",
   ),
 } as const;
 

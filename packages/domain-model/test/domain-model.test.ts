@@ -20,11 +20,13 @@ const decodeDomain = Schema.decodeUnknownResult(DomainDescription);
 const DescriptionInput = Schema.Struct({
   name: Schema.String,
   clock: Schema.Boolean,
+  membership: Schema.Boolean,
   choices: Schema.Array(
     Schema.Struct({
       label: Schema.String,
       subject: Schema.Literals(["Self", "Admin", "System", "Membership", "Union"]),
       jobOnly: Schema.Boolean,
+      writes: Schema.Boolean,
       terminal: Schema.Boolean,
       active: Schema.Boolean,
       comparison: Schema.Literals(["effx/order/after", "effx/order/same"]),
@@ -63,7 +65,11 @@ const generatedDescription = (input: typeof DescriptionInput.Type): DomainDescri
     commands: input.choices.map((choice, index) => {
       const command = { name: `Command${index}`, kind: "Command" as const };
 
-      return choice.jobOnly ? { ...command, runBy: { job: "worker" } } : command;
+      const owned = choice.jobOnly ? { ...command, runBy: { job: "worker" } } : command;
+
+      return choice.writes
+        ? { ...owned, writes: [{ machine: `Machine${index}:${choice.label}`, path: ["end"] }] }
+        : owned;
     }),
     reads: input.choices.map((_, index) => ({ name: `Read${index}` })),
     principals: { Anonymous: {}, Person: {}, System: { jobs: ["worker"] } },
@@ -87,8 +93,12 @@ const generatedDescription = (input: typeof DescriptionInput.Type): DomainDescri
       const context = {
         name: contextName,
         fields: [
-          { path: ["current"], order: "Time" },
-          { path: ["end"], order: "Time" },
+          {
+            path: ["current"],
+            order: "Time",
+            kind: input.clock ? ("clock" as const) : ("parameter" as const),
+          },
+          { path: ["end"], order: "Time", kind: "stored" as const },
         ],
       };
 
@@ -111,7 +121,14 @@ const generatedDescription = (input: typeof DescriptionInput.Type): DomainDescri
     }),
   };
 
-  return input.clock ? { ...base, clock: { order: "Time" } } : base;
+  const clocked = input.clock ? { ...base, clock: { order: "Time" } } : base;
+
+  return input.membership && input.choices.length > 0
+    ? {
+        ...clocked,
+        memberships: { machine: `Machine0:${input.choices[0]!.label}`, grantingStates: ["Done"] },
+      }
+    : clocked;
 };
 
 describe("domain-model IR and schema", () => {
@@ -190,13 +207,66 @@ describe("domain-model IR and schema", () => {
             { name: "BadJob", kind: "Command", runBy: { job: "missing" } },
           ],
         },
+        {
+          ...domain,
+          commands: [
+            ...domain.commands,
+            {
+              name: "BadWrite",
+              kind: "Command",
+              writes: [{ machine: "missing", path: ["review", "end"] }],
+            },
+          ],
+        },
+        {
+          ...domain,
+          commands: [
+            ...domain.commands,
+            {
+              name: "BadWrite",
+              kind: "Command",
+              writes: [{ machine: "Review", path: ["missing"] }],
+            },
+          ],
+        },
+        {
+          ...domain,
+          commands: [
+            ...domain.commands,
+            {
+              name: "BadWrite",
+              kind: "Command",
+              writes: [{ machine: "Review", path: ["current"] }],
+            },
+          ],
+        },
+        {
+          ...domain,
+          machines: [
+            {
+              ...review,
+              context: {
+                ...review.context,
+                fields: review.context.fields.map((field) =>
+                  field.kind === "clock" ? { ...field, kind: "stored" } : field,
+                ),
+              },
+            },
+          ],
+        },
+        { ...domain, machines: [{ ...review, states: [...review.states, "[*]"] }] },
+        { ...domain, memberships: { machine: "missing", grantingStates: ["Open"] } },
+        { ...domain, memberships: { machine: "Review", grantingStates: ["missing"] } },
         { ...domain, adminList: { grant: "missing", revoke: "RevokeAdmin" } },
         {
           ...domain,
           machines: [
             {
               ...review,
-              context: { ...review.context, fields: [{ path: ["x"], order: "missing" }] },
+              context: {
+                ...review.context,
+                fields: [{ path: ["x"], order: "missing", kind: "stored" }],
+              },
             },
           ],
         },
@@ -410,8 +480,8 @@ describe("domain-model IR and schema", () => {
         });
 
         assert.deepStrictEqual(registered.unknownGuards, []);
-        assert.include(registered.source, "ctx.ctx0f1 = ctx.ctx0f0");
-        assert.include(registered.staticSource, "ctx.ctx0f1 = ctx.ctx0f0");
+        assert.include(registered.source, "ctx.entity0.stored0f1 = ctx.entity0.stored0f0");
+        assert.include(registered.staticSource, "ctx.entity0.stored0f1 = ctx.entity0.stored0f0");
 
         const nested = {
           ...changed,
@@ -456,6 +526,24 @@ describe("domain-model IR and schema", () => {
     }),
   );
 
+  it.effect("declared stored writes warn and remain nondeterministic", () =>
+    Effect.sync(() => {
+      const input = {
+        ...domain,
+        commands: domain.commands.map((command) =>
+          command.name === "AdvanceReview"
+            ? { ...command, writes: [{ machine: "Review", path: ["review", "end"] }] }
+            : command,
+        ),
+      };
+
+      const contribution = domainModel(input).contribute!({ declarations: [], diagnostics: [] });
+      const warning = contribution.diagnostics.find((entry) => entry.code === "EFFX4313");
+      assert.isDefined(warning);
+      assert.include(warning!.message, "effect on Review.review.end not modelled precisely");
+    }),
+  );
+
   it.effect("missing clock-bound calculated and expiry guards produce warnings", () =>
     Effect.sync(() => {
       const review = domain.machines[0];
@@ -480,6 +568,44 @@ describe("domain-model IR and schema", () => {
 
         assert.strictEqual(diagnostics.filter((entry) => entry.code === "EFFX4311").length, 2);
       }
+    }),
+  );
+
+  it.effect("calculated guards cannot silently depend on caller parameters", () =>
+    Effect.sync(() => {
+      const review = domain.machines[0];
+
+      const input = {
+        ...domain,
+        machines: [
+          {
+            ...review,
+            context: {
+              ...review.context,
+              fields: [
+                ...review.context.fields,
+                { path: ["requested"], order: "ReviewTime", kind: "parameter" as const },
+              ],
+            },
+            calculated: [
+              {
+                from: "Draft",
+                to: "Closed",
+                when: {
+                  context: "ReviewContext",
+                  representation: {
+                    id: "effx/order/same",
+                    payload: { left: ["current"], right: ["requested"] },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = domainModel(input).contribute!({ declarations: [], diagnostics: [] });
+      assert.strictEqual(result.diagnostics.filter((entry) => entry.code === "EFFX4311").length, 1);
     }),
   );
 

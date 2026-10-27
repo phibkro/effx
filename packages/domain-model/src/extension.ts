@@ -12,6 +12,7 @@ const DomainHeader = Schema.Struct({
   orders: DescriptionFields.fields.orders,
   clock: DescriptionFields.fields.clock,
   adminList: DescriptionFields.fields.adminList,
+  memberships: DescriptionFields.fields.memberships,
 });
 
 const decodeHeader = Schema.decodeUnknownResult(DomainHeader);
@@ -39,6 +40,8 @@ export const domainNodes = (domain: DomainDescription): ReadonlyArray<ExtensionN
   if (domain.adminList !== undefined) header.adminList = domain.adminList;
 
   if (domain.clock !== undefined) header.clock = domain.clock;
+
+  if (domain.memberships !== undefined) header.memberships = domain.memberships;
 
   const node = (kind: string, index: number, data: Schema.Json): ExtensionNode => ({
     _tag: "Extension",
@@ -164,6 +167,16 @@ export const domainModel = (input: Schema.Json, options: AlloyOptions = {}): Ext
         ),
         ...model.symbols.nondeterministic.map((detail) =>
           DomainDiagnostics.EFFX4311.emit({ domain: domain.name, detail, scope, steps }),
+        ),
+        ...domain.commands.flatMap((command) =>
+          (command.writes ?? []).map((write) =>
+            DomainDiagnostics.EFFX4313.emit({
+              domain: domain.name,
+              detail: `${command.name}: effect on ${write.machine}.${write.path.join(".")} not modelled precisely`,
+              scope,
+              steps,
+            }),
+          ),
         ),
       ]);
     },
