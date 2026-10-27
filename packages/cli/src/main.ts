@@ -21,6 +21,7 @@ import { liftCommand } from "./lift-command.ts";
 import { LiftForm } from "./lift.ts";
 import { lsp, type LspOptions } from "./lsp.ts";
 import { dev } from "./watch.ts";
+import { modelsCheck } from "./models.ts";
 
 class CommandExit extends Schema.TaggedError<CommandExit>()("CommandExit", { code: Schema.Int }) {
   override readonly [Runtime.errorReported] = false;
@@ -184,6 +185,15 @@ const surfaceCli = Command.make("surface").pipe(
   Command.withDescription("Surface manifest tools (spec 0021)"),
 );
 
+const modelsCheckCli = Command.make("check", {}, () =>
+  Effect.flatMap(selectedProject(), modelsCheck),
+).pipe(Command.withDescription("Check generated Alloy models and write conformance vectors"));
+
+const modelsCli = Command.make("models").pipe(
+  Command.withSubcommands([modelsCheckCli]),
+  Command.withDescription("Generated model tools (spec 0032)"),
+);
+
 const cedarCli = Command.make(
   "cedar",
   {
@@ -244,6 +254,7 @@ const command = root.pipe(
     graphCli,
     surfaceCli,
     cedarCli,
+    modelsCli,
     liftCli,
     explainCli,
   ]),

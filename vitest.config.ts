@@ -94,6 +94,8 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       "@effx/persistence": new URL("./packages/persistence/src/index.ts", import.meta.url).pathname,
+      "@effx/domain-model": new URL("./packages/domain-model/src/index.ts", import.meta.url)
+        .pathname,
       "@effx/cli/config": new URL("./packages/cli/src/config.ts", import.meta.url).pathname,
       "@effx/cli": new URL("./packages/cli/src/index.ts", import.meta.url).pathname,
     },

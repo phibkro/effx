@@ -69,6 +69,19 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
   `effx build --project <tsconfig>`. Do not edit it; change the declaration and
   rebuild.
 
+## Domain model checks
+
+Import `DomainDescription`, `domainModel` and `generateAlloy` from `@effx/domain-model`.
+Pass the description to `domainModel` in `effx.config.ts` and set `models: { alloy: true }`.
+`effx build` writes temporal and static Alloy models. `effx models check` checks them with Alloy 6.2.0.
+The default bound is scope 1, four steps and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
+The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic, including `atNow` and `afterTick` guards.
+Unknown guard ids produce warnings and the model omits those guards. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
+Register trusted pure guard compilers by representation ID with `domainModel`'s `guardCompilers` option. A compiler receives the JSON payload and declared-path lookup and returns an Alloy Boolean formula.
+A bounded reachability failure does not prove that a state is unreachable.
+Without the toggle, the compiler writes no models and starts no Alloy process.
+See `docs/specs/0032-domain-model-alloy-grants-machines.md` for fields, scope and limits.
+
 ## Compiler lift frontend boundary
 
 `LiftFrontend` is an abstract compiler capability, not a production layer. Its `analyze(project)` returns `Effect<StageResult<EffectModel>, CompilerFault>` (`packages/compiler/src/lift/frontend.ts`). A resolved target returns `Some(model)` with project diagnostics. An unresolved target returns `None` with the existing diagnostics. The model keeps its required target. The frontend supplies no fallback target or fake model. Unsupported source remains model data, and `CompilerFault` is reserved for IO or invariant failures. Call the pure `lift(model, input)` only for a present model.
@@ -94,6 +107,7 @@ Root records retain complete original composition under spec 0019 §0.8. The gen
 | `effx inspect <operation>` | show an operation's contract and exposures                            |
 | `effx graph [name]`        | print a Mermaid graph                                                 |
 | `effx lift --group <id>`   | suggest declarations for a pure Effect group; `--check` verifies them |
+| `effx models check`        | check generated Alloy models and write conformance vectors            |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
 `--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
@@ -2083,6 +2097,7 @@ Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `p
 | [EFFX1001](#EFFX1001) | Stable identity has conflicting content | error |
 | [EFFX1002](#EFFX1002) | Graph edge references an absent node | error |
 | [EFFX1003](#EFFX1003) | Extension node has no owner | error |
+| [EFFX1004](#EFFX1004) | Extension root has no children | error |
 | [EFFX1101](#EFFX1101) | No interpreter for annotation | error |
 | [EFFX1102](#EFFX1102) | Malformed or unlowerable annotation arguments | error |
 | [EFFX1103](#EFFX1103) | Annotation needs an operation | error |
@@ -2167,6 +2182,18 @@ Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `p
 | [EFFX4105](#EFFX4105) | Capability uses generic Cedar principal | info |
 | [EFFX4106](#EFFX4106) | Application Cedar policy validation warning | warning |
 | [EFFX4107](#EFFX4107) | No authorization facts to project | info |
+| [EFFX4301](#EFFX4301) | Invalid domain description | error |
+| [EFFX4302](#EFFX4302) | Guard not modelled | warning |
+| [EFFX4303](#EFFX4303) | Alloy 6.2.0 unavailable | error |
+| [EFFX4304](#EFFX4304) | Alloy execution or receipt invalid | error |
+| [EFFX4305](#EFFX4305) | A1 state reachability | error |
+| [EFFX4306](#EFFX4306) | A2 nonterminal exit | error |
+| [EFFX4307](#EFFX4307) | A3 command grant | error |
+| [EFFX4308](#EFFX4308) | A4 admin self-change | error |
+| [EFFX4309](#EFFX4309) | A5 ended membership | error |
+| [EFFX4310](#EFFX4310) | A6 system job authority | error |
+| [EFFX4311](#EFFX4311) | Nondeterministic time condition | warning |
+| [EFFX4312](#EFFX4312) | A7 clock monotonicity | error |
 | [EFFX9001](#EFFX9001) | Example Command lacks Audit annotation | warning |
 | [EFFX9002](#EFFX9002) | Example Audit annotation needs an operation | error |
 | [EFFX9101](#EFFX9101) | Example RateLimit requires HTTP exposure | error |
@@ -2286,7 +2313,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-Every Extension node needs an outgoing ExtensionOf edge to its semantic owner. An orphan extension cannot be safely interpreted or generated.
+Every non-root Extension node needs an outgoing ExtensionOf edge to its semantic owner. A declared project root instead must own at least one child. An orphan extension cannot be safely interpreted or generated.
 
 ### Example 1
 
@@ -2303,6 +2330,32 @@ Contribution.make([extensionNode], [{ kind: "ExtensionOf", from: extensionNode.i
 ```
 
 Contribute the owner edge with the extension node.
+
+## EFFX1004 — Extension root has no children [#EFFX1004]
+
+Owner: kernel
+
+Default severity: error
+
+Severity policy: Fixed
+
+A project-level Extension root must own at least one other Extension node through an incoming ExtensionOf edge. A self-edge is not a child.
+
+### Example 1
+
+Before:
+
+```ts
+Contribution.make([root], [])
+```
+
+After:
+
+```ts
+Contribution.make([root, child], [{ kind: "ExtensionOf", from: child.id, to: root.id }])
+```
+
+Contribute an owned child or remove the empty root.
 
 ## EFFX1101 — No interpreter for annotation [#EFFX1101]
 
@@ -4530,6 +4583,318 @@ After:
 ```
 
 Declare the intended capability/access facts before requesting a Cedar projection, or accept that nothing is written.
+
+## EFFX4301 — Invalid domain description [#EFFX4301]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The description does not decode or contains an unresolved domain reference.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4302 — Guard not modelled [#EFFX4302]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+No Alloy compiler is registered for a guard representation; the transition is modelled without that guard.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4303 — Alloy 6.2.0 unavailable [#EFFX4303]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The required Alloy executable is missing or reports a different version.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4304 — Alloy execution or receipt invalid [#EFFX4304]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The child failed, or its receipt is missing, malformed, or does not contain all expected commands.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4305 — A1 state reachability [#EFFX4305]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+No trace reached the named state from the initial state within the stated scope and step bound.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4306 — A2 nonterminal exit [#EFFX4306]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A state not declared terminal has no transition out.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4307 — A3 command grant [#EFFX4307]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A command has no applicable grant, or a job-only command is granted outside its job.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4308 — A4 admin self-change [#EFFX4308]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A principal outside the active admin set can change its own admin status.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4309 — A5 ended membership [#EFFX4309]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+An ended membership contributes permission.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4310 — A6 system job authority [#EFFX4310]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A system principal is permitted a different set of commands than its own job.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4311 — Nondeterministic time condition [#EFFX4311]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A calculated transition or expiry lacks a supported clock-bound guard, so its time condition is modelled nondeterministically.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
+
+## EFFX4312 — A7 clock monotonicity [#EFFX4312]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The domain clock moves backward in a model trace.
+
+### Example 1
+
+Before:
+
+```text
+A domain description or model that triggers this diagnostic
+```
+
+After:
+
+```text
+A corrected declaration and a new bounded model check
+```
+
+Correct the named input or condition and check the generated model again.
 
 ## EFFX9001 — Example Command lacks Audit annotation [#EFFX9001]
 

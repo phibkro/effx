@@ -362,6 +362,8 @@ export const loadProject = Effect.fn("loadProject")(function* (
     };
 
     if (problemIdentifier !== undefined) resolved.naming = { problemIdentifier };
+
+    if (config.models !== undefined) resolved.models = config.models;
     resolution = resolved;
   }
 

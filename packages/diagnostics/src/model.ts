@@ -84,6 +84,7 @@ const numericOwners = {
   "32": "lift",
   "34": "persistence",
   "41": "cedar",
+  "43": "domain-model",
 };
 
 const grandfatheredOwners = {

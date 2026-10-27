@@ -100,7 +100,11 @@ describe("executable RPC and CLI projections", () => {
       for (const generator of [rpcGenerator, cliGenerator]) {
         const generated = generator(ir, index, stable);
         expectTypeOf<Effect.Success<typeof generated>>().toEqualTypeOf<
-          ReadonlyArray<{ readonly path: string; readonly contents: string }>
+          ReadonlyArray<{
+            readonly path: string;
+            readonly contents: string;
+            readonly destination?: "model";
+          }>
         >();
         expectTypeOf<Effect.Error<typeof generated>>().toEqualTypeOf<CompilerFault>();
         expectTypeOf<Effect.Services<typeof generated>>().toEqualTypeOf<never>();

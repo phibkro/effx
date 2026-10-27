@@ -169,7 +169,11 @@ describe("external HTTP client projection", () => {
       const ir = graph(declaration("Profile.Read", "effx", "External", "GET", "/profile"));
       const generated = clientGenerator(ir, IRGraph.toGraph(ir));
       expectTypeOf<Effect.Success<typeof generated>>().toEqualTypeOf<
-        ReadonlyArray<{ readonly path: string; readonly contents: string }>
+        ReadonlyArray<{
+          readonly path: string;
+          readonly contents: string;
+          readonly destination?: "model";
+        }>
       >();
       expectTypeOf<Effect.Error<typeof generated>>().toEqualTypeOf<CompilerFault>();
       expectTypeOf<Effect.Services<typeof generated>>().toEqualTypeOf<never>();

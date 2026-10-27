@@ -5,14 +5,15 @@ import { Cause, Effect, Layer, Logger, Path, Runtime } from "effect";
 import { executableInventoryLayer } from "./executable-cache.ts";
 import { acquireLinuxLspIO } from "./lsp-linux.ts";
 import { liftCheckExecutionLayer, liftToolchainLayer } from "./lift-execution.ts";
+import { alloyExecutionLayer } from "./alloy-execution.ts";
 
-// EX-0033 / EX-0035 / EX-0034: only this process root selects native inventory, descriptor IO and the
-// lift-check child adapter. Acquisition stays suspended until a command asks for it; the LSP session
-// Scope owns IO, and each lift-check child is owned by its own scope.
+// EX-0033 / EX-0035 / EX-0034 / EX-0037: native capabilities are selected at the process root.
+// Acquisition stays suspended until a command asks; each child belongs to its calling scope.
 const Platform = Layer.mergeAll(
   executableInventoryLayer,
   liftCheckExecutionLayer,
   liftToolchainLayer,
+  alloyExecutionLayer,
   Layer.effect(
     LspPlatform,
     Effect.gen(function* () {

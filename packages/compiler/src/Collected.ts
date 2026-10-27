@@ -243,6 +243,7 @@ export const ProjectConfig = Schema.Struct({
   target: Schema.optionalKey(TargetProfile),
   emit: Schema.optionalKey(EmitMode),
   strictAccess: Schema.optionalKey(Schema.Boolean),
+  models: Schema.optionalKey(Schema.Struct({ alloy: Schema.optionalKey(Schema.Boolean) })),
   /**
    * The frozen inert lift facts (the data half of one `lift` call): rules, pinned names, an optional
    * `emptyInput`, the suggestion module and inert projection references. Executable hooks never enter the

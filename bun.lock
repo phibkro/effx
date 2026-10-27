@@ -66,6 +66,17 @@
         "unist-util-visit": "5.1.0",
       },
     },
+    "examples/domain-model": {
+      "name": "@effx-examples/domain-model",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effx/domain-model": "workspace:*",
+        "effect": "4.0.0",
+      },
+      "devDependencies": {
+        "@effx/cli": "workspace:*",
+      },
+    },
     "examples/extension-openapi-tags": {
       "name": "@effx-examples/extension-openapi-tags",
       "version": "0.0.0",
@@ -120,6 +131,7 @@
       "dependencies": {
         "@effx/compiler": "0.1.0",
         "@effx/diagnostics": "0.1.0",
+        "@effx/domain-model": "0.1.0",
         "@typescript/typescript6": "6.0.2",
         "vscode-jsonrpc": "9.0.3",
       },
@@ -150,6 +162,20 @@
       "version": "0.1.0",
       "devDependencies": {
         "effect": "4.0.6",
+      },
+      "peerDependencies": {
+        "effect": ">=4.0.0 <5",
+      },
+    },
+    "packages/domain-model": {
+      "name": "@effx/domain-model",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effx/compiler": "0.1.0",
+        "@effx/ir": "0.1.0",
+      },
+      "devDependencies": {
+        "effect": "4.0.0",
       },
       "peerDependencies": {
         "effect": ">=4.0.0 <5",
@@ -322,6 +348,8 @@
 
     "@effect/vitest": ["@effect/vitest@4.0.6", "", { "peerDependencies": { "effect": "^4.0.6", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-oKNbtyUHK5+0o730CXwojULEu7f3+c235pYFD4U5T//o+hHrJbYbZU4bRkcv936tPr5IOnmujeyQiC/LuJJjHw=="],
 
+    "@effx-examples/domain-model": ["@effx-examples/domain-model@workspace:examples/domain-model"],
+
     "@effx-examples/extension-openapi-tags": ["@effx-examples/extension-openapi-tags@workspace:examples/extension-openapi-tags"],
 
     "@effx-examples/persistence": ["@effx-examples/persistence@workspace:examples/persistence"],
@@ -335,6 +363,8 @@
     "@effx/diagnostics": ["@effx/diagnostics@workspace:packages/diagnostics"],
 
     "@effx/docs": ["@effx/docs@workspace:apps/docs"],
+
+    "@effx/domain-model": ["@effx/domain-model@workspace:packages/domain-model"],
 
     "@effx/frontend-ts": ["@effx/frontend-ts@workspace:packages/frontend-ts"],
 

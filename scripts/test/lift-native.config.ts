@@ -26,6 +26,7 @@ const aliases: Array<AliasEntry> = [
   { find: "@effx/compiler", replacement: src("packages/compiler/src/index.ts") },
   { find: "@effx/frontend-ts", replacement: src("packages/frontend-ts/src/index.ts") },
   { find: "@effx/persistence", replacement: src("packages/persistence/src/index.ts") },
+  { find: "@effx/domain-model", replacement: src("packages/domain-model/src/index.ts") },
   { find: "@effx/cli", replacement: src("packages/cli/src/index.ts") },
   { find: "@effx/runtime", replacement: src("packages/runtime/src/index.ts") },
   { find: "@effx/ir", replacement: src("packages/ir/src/index.ts") },

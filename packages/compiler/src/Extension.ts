@@ -70,6 +70,8 @@ export type Analysis = (
 export interface GeneratedFile {
   readonly path: string;
   readonly contents: string;
+  /** Model artifacts are rooted at .effx/models, not the generated source directory. */
+  readonly destination?: "model";
 }
 
 /** One method-call suffix of a generated endpoint (it starts with `.`, e.g. `.annotate(K, v)`). */
@@ -98,6 +100,7 @@ export interface GenerationContext {
   readonly allowImportingTsExtensions: boolean;
   readonly canonicalImportBase?: string;
   readonly outputDir?: string;
+  readonly models?: { readonly alloy?: boolean };
   /** Runtime-only target-project resolver; never part of serialized IR or project settings. */
   readonly resolveEffectModule?: (specifier: string) => boolean;
   /** Checker-proven concrete root groups, outside the IR and semantic hash. */
@@ -156,6 +159,8 @@ export interface Extension {
    * `implement({ lift })` interface is the one that exists.
    */
   readonly lifts?: ReadonlyArray<ExtensionLiftEntry>;
+  /** Project-level declarations contribute once, even when no source annotation exists. */
+  readonly contribute?: (collected: Collected) => Contribution;
   readonly interpreters: Readonly<Record<string, Interpreter>>;
   readonly analyses: ReadonlyArray<Analysis>;
   /**

@@ -97,6 +97,26 @@ const interpretRegistered = (
 
   contributions.push(Contribution.diagnostics(...expanded.diagnostics));
 
+  for (const extension of extensions) {
+    if (extension.contribute === undefined) continue;
+
+    const contribution = extension.contribute({
+      ...collected,
+      declarations: expanded.declarations,
+    });
+
+    contributions.push(
+      Contribution.make(
+        contribution.nodes,
+        contribution.edges,
+        validateDiagnostics(contribution.diagnostics, registry, extension.name, {
+          ...context,
+          phase: "interpret",
+        }),
+      ),
+    );
+  }
+
   for (const declaration of expanded.declarations) {
     const ctx = { operationId: operationIdOf(declaration) };
 
