@@ -35,6 +35,8 @@ A concept enters the IR only with at least one derivation and at least one check
 
 ### 3.1 New Extension nodes (`extension: "domain-model"`)
 
+Spec 0032 R1 adds optional `root: true` to an Extension node for a project-level root that owns at least one Extension child; absence is the default.
+
 | Node                   | Data (Json)                                                                                                                   | Derivations                                                                                        | Checks                                                                                                      |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `Entity`               | name, identity (`SchemaRef` of the branded id), schema (`SchemaRef`), aggregate root?, personal-data classification per field | `sig`, table, glossary entry                                                                       | every entity has an owner context, a lifetime and a purpose (Zachman who/when/why)                          |
