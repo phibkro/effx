@@ -173,6 +173,19 @@ exit 1. Missing, malformed and incomplete receipts each produced `EFFX4304`
 and exit 1; none was treated as a pass. The stopped child was reaped after
 the CLI was interrupted.
 
+An exact-commit pack produced seven distribution archives, including
+`@effx/domain-model`. The first lower-bound consumer smoke failed before the
+new model journey: its fresh resolver chose `@effect/platform-node-shared`
+4.0.6 alongside Effect and `@effect/platform-bun` 4.0.0, and Bun reported a
+missing `make` export from `effect/dist/Path.js`. Both packed consumer scripts
+now override the shared adapter to their declared platform-bun version.
+`nix shell .#alloy6 -c bun scripts/stable-v4-smoke.ts` then exited 0 and
+reported `stable installed consumer: checks, channels, HTTP, RPC, CLI, Alloy
+models, and RC rejection passed`. It checked both generated model files and
+43,040 vectors through the installed CLI at the Effect 4.0.0 lower bound.
+`bun scripts/watch-editor-smoke.ts 7e9ed6d43569398e642344fa3a77ed2ce9a7da6f`
+also exited 0 with `tarballs: 7` and `protocolErrorCount: 0`.
+
 ## Native child boundary: EX-0037 (open)
 
 - **Rules:** FX002, FX003, FX006, FX012 and `effecttsgo/unstable-api-usage`.

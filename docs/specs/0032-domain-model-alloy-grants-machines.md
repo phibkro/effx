@@ -84,3 +84,5 @@ A calculated transition fires on the tick whose successor clock value satisfies 
 The description does not require a target to exist. The static model includes configurations with no target; A6 compares job permissions for each target that does exist.
 
 The repository locks nixpkgs for Alloy in `flake.lock`; local tests and both CI gate jobs use `nix shell .#alloy6`. The check and separate release-gate jobs have only `contents: read` and no npm token. Publishing depends on the release gate and does not install Nix. The GitHub workflow changes cannot be observed until the operator pushes them.
+
+The packed-consumer gate includes the new package and exercises its generated models through the installed CLI. The lower-bound consumer keeps Effect and `@effect/platform-bun` at 4.0.0 and pins the transitive `@effect/platform-node-shared` to the same version. An unconstrained fresh install resolved that adapter to 4.0.6 and failed with a missing Effect 4.0.0 `Path.make` export.
