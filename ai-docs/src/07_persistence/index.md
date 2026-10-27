@@ -35,8 +35,8 @@ Type-side schema equality and compares failures as a multiset, preserving
 duplicate counts but ignoring concurrent order. Domain error scenarios and the
 rollback sentinel still expect one failure (spec 0022 §4 amendment).
 
-The reference example is `examples/persistence`: Effect SQL and patched
-`drizzle-orm@1.0.0-rc.4` adapters share the ambient Effect SQL transaction over
+The reference example is `examples/persistence`: Effect SQL and unpatched
+`drizzle-orm@1.0.0-rc.5` adapters share the ambient Effect SQL transaction over
 PGlite. PGlite runs the PostgreSQL engine in-process; it is not a mock. Its
 single-connection limit means concurrency-marked scenarios are skipped, not
 certified. Interruption outcomes are observations, not a cancellation guarantee

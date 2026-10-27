@@ -42,22 +42,26 @@ package manifest exposes shared schemas/services for the sibling
 `examples/persistence`, which includes the original operation source in its project. SQL statements and the Drizzle table belong to
 the example adapters, not generated output.
 
-## Drizzle patch provenance
+## Drizzle patch — retired 2026-10-27
 
-Pinned packages: `effect@4.0.0`, `@effect/sql-pglite@4.0.0`,
-`@electric-sql/pglite@0.5.8`, `drizzle-orm@1.0.0-rc.4`.
+Until this date the example pinned `drizzle-orm@1.0.0-rc.4`, whose Effect driver called
+`Schema.TaggedErrorClass`, an API stable Effect 4 does not export. A generated patch
+(`bunx @yielded/drizzle-effect-v4-patch@0.1.0-beta.14 patch`, MIT, upstream
+`yielded-dev/auth` commit `68a4679`, `patches/drizzle-orm@1.0.0-rc.4.patch`, 38,729 bytes,
+SHA-256 `bfb194db9b8294c35cfdc54a9cf9a56eb62899acbec7771203276030d3e2ac1d`) rewrote those
+calls to `Schema.TaggedError`.
 
-The patch was generated with
-`bunx @yielded/drizzle-effect-v4-patch@0.1.0-beta.14 patch` (exit 0). The tool is
-MIT-licensed; spec 0022 §5 identifies upstream `yielded-dev/auth` commit
-`68a4679`. The generated file is committed at
-`patches/drizzle-orm@1.0.0-rc.4.patch`, registered in `patchedDependencies`, and
-resolved in `bun.lock`. It adapts the named prerelease to stable Effect v4.
-Retire the patch when Drizzle ships a stable-v4-compatible effect driver;
-version changes reopen this compatibility decision.
-The generated patch is 38,729 bytes; SHA-256 is
-`bfb194db9b8294c35cfdc54a9cf9a56eb62899acbec7771203276030d3e2ac1d`
-(`wc -c` and `sha256sum`, exit 0).
+The final `drizzle-orm@1.0.0-rc.5` (published 2026-10-21) uses `Schema.TaggedError` itself
+and declares the peer `effect >=4.0.0`. The patch file and the `patchedDependencies` entry
+are deleted, and the example, the root and `bun.lock` pin `1.0.0-rc.5`.
+
+Current pins: `effect@4.0.6`, `@effect/sql-pglite@4.0.6`, `@electric-sql/pglite@0.5.12`,
+`drizzle-orm@1.0.0-rc.5`. The rc.5 breaking changes (query parameters omitted from errors,
+JSON parameter serialisation, the new RQB v2 query strategy, `undefined` in a relational
+`where` throwing, relational-query caching) do not reach the adapter: `UsersDrizzle.ts`
+uses `select`/`update ... returning` with `eq`, no relational queries, no JSON columns, and
+reads `EffectDrizzleQueryError.cause`, which rc.5 keeps. Version changes still reopen this
+compatibility decision.
 
 ## Scope limits
 
@@ -76,7 +80,7 @@ environment (the discovery command printed no names or executable path).
 - Reason and missing capability: spec 0022 mandates real Effect SQL and its PGlite driver, whose installed interfaces retain `@stability unstable` metadata (`@effect/sql-pglite/src/PgliteClient.ts:64–70`). There is no stable-tagged native PGlite SQL API in the pinned cohort.
 - Native alternatives examined: `effect/sql/SqlClient` supplies the required shared `withTransaction`; `@effect/sql-pglite/PgliteClient` supplies scoped real PostgreSQL WASM connections. Both are used, not replaced; an in-memory mock would erase the contract boundary. Drizzle effect-pglite delegates to the same ambient SQL transaction.
 - Verification contract: the focused persistence acceptance suite exercises generated G1–G4, mixed transactions, typed unique errors, interruption observations and named broken-adapter failures; strict Effect diagnostics covers the remaining code. Observed results are recorded below after the gates run.
-- Examined versions: `effect` 4.0.0, `@effect/sql-pglite` 4.0.0, `@effect/tsgo` 0.48.0, `drizzle-orm` 1.0.0-rc.4 with the provenance-pinned patch above.
+- Examined versions: `effect` 4.0.0, `@effect/sql-pglite` 4.0.0, `@effect/tsgo` 0.48.0, `drizzle-orm` 1.0.0-rc.4 with the provenance-pinned patch above. Re-examined 2026-10-27 with `effect` 4.0.6, `@effect/sql-pglite` 4.0.6, `@effect/tsgo` 0.48.0 and `drizzle-orm` 1.0.0-rc.5 without a patch (see "Re-examination with Effect 4.0.6 and Drizzle rc.5" at the end).
 - Retirement: remove the narrow directives when SQL/PGlite APIs lose unstable annotations; any change to the pinned cohort reopens the decision and reruns the conformance/transaction evidence.
 
 ## Exercised preliminary gate
@@ -255,3 +259,21 @@ The root gate now builds the persistence example beside its existing users
 preparation. This keeps generation, checks, diagnostics, the rc.116 fixture
 typecheck, documentation, packaging, and changeset status in one root command.
 The director requested the red first and approved this preparation step.
+
+## Re-examination with Effect 4.0.6 and Drizzle rc.5 — 2026-10-27
+
+Reopened by the pin change recorded under EX-0022 (`effect` 4.0.5 to 4.0.6, `drizzle-orm`
+1.0.0-rc.4 plus patch to unpatched 1.0.0-rc.5, `@electric-sql/pglite` 0.5.8 to 0.5.12 so one
+copy resolves). On the working tree with the new pins, after `bash scripts/install-public.sh .`
+and the example builds:
+
+| Check | Command | Observed result |
+| --- | --- | --- |
+| Persistence project | `bun --bun vitest run --project persistence-integration` | exit 0; 3 files, 34 tests passed (16 acceptance, 15 compiler, 3 syntax); 175 s |
+| Types | `bun run typecheck` | exit 0 |
+| Strict Effect diagnostics | `bun run effect:diagnostics` | exit 0; 422 files, 0 errors, warnings or messages |
+
+The acceptance count equals the 16 of the "Verified candidate" table above: both real PGlite
+adapters, the shared `EmailTaken` scenario, mixed SQL/Drizzle commit and rollback, and the
+interruption observations still pass without a patch. No adapter source change was needed
+for rc.5.
