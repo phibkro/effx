@@ -183,12 +183,21 @@ export const copyLiftCorpus = Effect.fnUntraced(function* () {
       yield* fs.readFileString(path.join(directory, "packages/domain/package.json")),
     );
 
+    // Resolve the actual effx source against the same lower-bound Effect as the corpus.
+    // Absolute paths into the workspace would load a second, incompatible Effect copy.
+    const localPackages = path.join(directory, "effx-packages");
+
+    for (const name of ["runtime", "diagnostics"]) {
+      yield* fs.copy(
+        path.join(repositoryRoot, "packages", name, "src"),
+        path.join(localPackages, name, "src"),
+      );
+    }
+
     const paths: Record<string, ReadonlyArray<string>> = {};
-    paths["@effx/runtime"] = [path.join(repositoryRoot, "packages/runtime/src/index.ts")];
-    paths["@effx/runtime/diagnostics"] = [
-      path.join(repositoryRoot, "packages/runtime/src/diagnostics.ts"),
-    ];
-    paths["@effx/diagnostics"] = [path.join(repositoryRoot, "packages/diagnostics/src/index.ts")];
+    paths["@effx/runtime"] = [path.join(localPackages, "runtime/src/index.ts")];
+    paths["@effx/runtime/diagnostics"] = [path.join(localPackages, "runtime/src/diagnostics.ts")];
+    paths["@effx/diagnostics"] = [path.join(localPackages, "diagnostics/src/index.ts")];
 
     for (const [key, value] of Object.entries(domain.exports))
       paths[key === "." ? "@vektorprogrammet/domain" : `@vektorprogrammet/domain/${key.slice(2)}`] =

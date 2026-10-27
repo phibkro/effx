@@ -6,6 +6,7 @@ Snapshot: installed `effect@4.0.0`, `@effect/platform-bun@4.0.0`, and `@effect/v
 
 - `Crypto.Crypto.randomUUIDv4` and `randomUUIDv7` changed from Effect properties in 4.0.0 to methods in 4.0.5 (`src/Crypto.ts`). Output custody needs an opaque random token, not a UUID; it now encodes 16 bytes from `randomBytes` using `Schema.Uint8ArrayFromHex`, APIs present in both versions.
 - `HttpApiClient.Client.Response` changed from a non-distributive conditional in 4.0.0 to a distributive conditional in 4.0.5 (`src/http-api/HttpApiClient.ts:139`), and the generic method default changed from all modes to `decoded-only` (`:197`). Generic method return extraction therefore includes all response modes. Generated calls select `decoded-only` explicitly and SDK success types derive from those calls. Both versions accept that mode.
+- The two Effect versions have incompatible `Context` and `SchemaAST` types. The lower-bound lift corpus copies the actual effx runtime and diagnostics sources into its scoped consumer so both the app and those sources resolve its pinned Effect 4.0.0; it does not suppress those incompatibilities or change the pin.
 
 ### EX-0037 — native platform and test APIs
 
