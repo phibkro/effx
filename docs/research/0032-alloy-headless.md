@@ -236,6 +236,11 @@ watch command exited 0. The separately installed Effect 4.0.0 consumer checked
 both models and 28,072 vectors; watch reported seven tarballs, 14 cycles and
 zero protocol errors.
 
+After the registry-root repair, the same pack and two smoke commands exited 0
+at `e2c72cbac02b6ed90be4202d1be4db2cf9b3f667`: the Effect 4.0.0 consumer
+checked both models and 28,072 vectors; watch reported seven tarballs, 14
+cycles and zero protocol errors.
+
 An interim no-opt-in comparison archived `aa72a792` and `cd9632a` into the
 same disposable source path with Effect 4.0.0 dependencies. The existing
 `scripts/identity-snapshot.ts` ran 190 cases per side and `cmp` reported the
