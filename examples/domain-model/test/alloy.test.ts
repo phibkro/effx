@@ -640,6 +640,38 @@ describe("spec 0032: real Alloy 6.2.0", () => {
   );
 
   it.live(
+    "a write without a machine transition may affect multiple entities",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fixture("withUnboundWrite", true, 4, 2);
+        const built = yield* alloyCli(directory, ["build"]);
+        assert.strictEqual(built.code, 0, built.stdout + built.stderr);
+        assert.include(built.stdout, "EFFX4313 warning");
+
+        const source = yield* fs.readFileString(
+          path.join(directory, ".effx/models/alloy/community.als"),
+        );
+
+        const run = source.split("\n").find((line) => line.startsWith("run MembershipEnds "));
+
+        if (run === undefined) return assert.fail("missing bounded model command");
+        const model = path.join(directory, "unbound-write-probe.als");
+        yield* fs.writeFileString(
+          model,
+          `${source}\nfact NarrowUnboundWorld { one Person and one System and one Target and one Department and one Team and (some disj m,n: MembershipRecord | MembershipRecord = m + n) }\npred UnboundWriteCanAffectBoth { some disj a,b: Machine0 | some p: System, t: Target | stepCommand5[p,t] and a.stored0f1' != a.stored0f1 and b.stored0f1' != b.stored0f1 and stored0f0' = stored0f0 }\n${run.replace("MembershipEnds", "UnboundWriteCanAffectBoth")}\n`,
+        );
+        const witness = yield* boundedProbe(directory, model, "UnboundWriteCanAffectBoth");
+        assert.isAbove(witness.solution?.length ?? 0, 0);
+        yield* printLines("stdout", [
+          "unbound write: two membership entities may change at scope 2, steps 4; EFFX4313 warns",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    180_000,
+  );
+
+  it.live(
     "a calculated guard fires on the tick whose successor satisfies it",
     () =>
       Effect.gen(function* () {

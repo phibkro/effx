@@ -152,6 +152,11 @@ active membership before and none after.
 exited 0: successive commands chose different caller values while stored
 fields stayed fixed for one entity at scope 2 and four steps.
 
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "declared writes over|write without a machine transition"`
+exited 0 with two tests: a selected entity could change while others were
+framed; without a machine transition, two membership entities could both
+change. Both cases reported `EFFX4313` at scope 2 and four steps.
+
 `nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "A5 detects"`
 exited 0: Alloy returned a counterexample where the same membership/machine
 atom was outside `grantingStates` but its `term: "any"` subject contributed
@@ -192,6 +197,13 @@ exit 1. Missing, malformed and incomplete receipts each produced `EFFX4304`
 and exit 1; none was treated as a pass. The stopped child was reaped after
 the CLI was interrupted.
 
+After the membership binding,
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "toggle off|Alloy receipt|Alloy executable|interrupting the real CLI|model output cannot escape"`
+exited 0 with eight tests. The disabled toggle left the fake-tool marker absent;
+missing and wrong-version tools returned `EFFX4303`, while missing, malformed
+and incomplete receipts returned `EFFX4304` and exit 1. The interrupted CLI
+reaped its stopped child.
+
 An exact-commit pack produced seven distribution archives, including
 `@effx/domain-model`. The first lower-bound consumer smoke failed before the
 new model journey: its fresh resolver chose `@effect/platform-node-shared`
@@ -205,6 +217,12 @@ models, and RC rejection passed`. It checked both generated model files and
 before the per-entity revision.
 `bun scripts/watch-editor-smoke.ts 7e9ed6d43569398e642344fa3a77ed2ce9a7da6f`
 also exited 0 with `tarballs: 7` and `protocolErrorCount: 0`.
+
+On committed `52373d7d09e0aad3098053eae25f54b420fc46d0`,
+`bun run pack && nix shell .#alloy6 -c bun scripts/stable-v4-smoke.ts && bun scripts/watch-editor-smoke.ts "$(git rev-parse HEAD)"`
+exited 0. The lower-bound installed CLI checked both membership-bound models
+and 28,072 vectors; the watch smoke reported seven tarballs and zero protocol
+errors.
 
 An interim no-opt-in comparison archived `aa72a792` and `cd9632a` into the
 same disposable source path with Effect 4.0.0 dependencies. The existing

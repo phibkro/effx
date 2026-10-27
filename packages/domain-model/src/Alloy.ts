@@ -673,31 +673,25 @@ export const generateAlloy = (
 
   const commandStored = (commandName: string, activeMachine?: number): string => {
     const writes = domain.commands.find((command) => command.name === commandName)?.writes ?? [];
-    const holders: Array<string> = [];
     const frames: Array<string> = [];
 
     for (const [machineIndex, machine] of domain.machines.entries()) {
       const machineWrites = writes.filter((write) => write.machine === machine.name);
-      const holder = activeMachine === machineIndex ? "entity" : `affected${machineIndex}`;
-
-      if (machineWrites.length > 0 && activeMachine !== machineIndex)
-        holders.push(`affected${machineIndex}: Machine${machineIndex}`);
 
       for (const [fieldIndex, field] of machine.context.fields.entries()) {
         if (field.kind !== "stored") continue;
         const symbol = `stored${machineIndex}f${fieldIndex}`;
         const changed = machineWrites.some((write) => pathKey(write.path) === pathKey(field.path));
-        frames.push(
-          changed
-            ? `(all other: Machine${machineIndex} - ${holder} | other.${symbol}' = other.${symbol})`
-            : `${symbol}' = ${symbol}`,
-        );
+
+        if (!changed) frames.push(`${symbol}' = ${symbol}`);
+        else if (activeMachine === machineIndex)
+          frames.push(
+            `(all other: Machine${machineIndex} - entity | other.${symbol}' = other.${symbol})`,
+          );
       }
     }
 
-    const body = conjunction(frames);
-
-    return holders.length === 0 ? body : `(some ${holders.join(", ")} | ${body})`;
+    return conjunction(frames);
   };
 
   const stepPredicates: Array<string> = [];

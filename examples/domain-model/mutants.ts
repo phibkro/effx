@@ -51,6 +51,14 @@ export const mutants = {
         : command,
     ),
   },
+  withUnboundWrite: {
+    ...domain,
+    commands: domain.commands.map((command) =>
+      command.name === "RefreshDirectory"
+        ? { ...command, writes: [{ machine: "Review", path: ["review", "end"] }] }
+        : command,
+    ),
+  },
   withRemoval: {
     ...domain,
     machines: [
