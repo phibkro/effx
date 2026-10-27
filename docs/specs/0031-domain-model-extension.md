@@ -58,6 +58,10 @@ Spec 0032 R1 adds optional `root: true` to an Extension node for a project-level
 
 `Writes` and `Reads` let the client generator derive `reactivityKeys` for `effect/reactivity` (`Reactivity.mutation`, `AtomRpc`) instead of hand-written keys.
 
+### 3.2a Resource and method on every operation (added 2026-10-27, operator decision)
+
+Each `Operation` gains a `resource` (a path pattern over entity ids, e.g. `teams/{team}/memberships`) and a `method`: `get`, `list`, `create`, `update`, `delete` (AIP-131 to AIP-135) or `custom` with a verb (AIP-136). The operation stays the unit of grant, audit and transition; the HTTP binding is derived, not declared: `get`/`list` → `GET`, `create` → `POST` on the collection, `update` → `PATCH` with `If-Match` (stale → `412`), `delete` → `DELETE`, custom → `POST {resource}:{verb}`; a transition from the wrong state → `409`. Checks: an operation without resource and method is a diagnostic; `create` must be a transition from `[*]`, `delete` a transition to `[*]`, `update` must change no machine state; two operations may not derive the same method and path. An existing explicit `@Http.*` binding wins and is reported when it disagrees with the derived one. Consumer: Vektorprogrammet ADR 0010.
+
 ### 3.3 What stays as is
 
 - `Query` and `Command` remain the only operation kinds. An Alloy/Quint _action_ is a projection of a Command, never a separate declaration (ADR 0006).
