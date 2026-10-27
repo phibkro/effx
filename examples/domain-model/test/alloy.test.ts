@@ -822,6 +822,28 @@ describe("spec 0032: real Alloy 6.2.0", () => {
   );
 
   it.live(
+    "an unknown guard is warned and reported as unmodelled",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* fixture("withUnknownGuard");
+        yield* build(directory);
+        const checked = yield* alloyCli(directory, ["models", "check"]);
+        assert.strictEqual(checked.code, 0, checked.stdout + checked.stderr);
+        assert.include(checked.stdout, "EFFX4302 warning");
+        assert.include(checked.stdout, "unmodelled guards: example/unregistered");
+        yield* printLines(
+          "stdout",
+          checked.stdout
+            .split("\n")
+            .filter(
+              (line) => line.includes("EFFX4302 warning") || line.includes("unmodelled guards:"),
+            ),
+        );
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    900_000,
+  );
+
+  it.live(
     "absent admin, membership, and clock bindings are not reported as passes",
     () =>
       Effect.gen(function* () {

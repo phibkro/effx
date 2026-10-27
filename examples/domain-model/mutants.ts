@@ -59,6 +59,24 @@ export const mutants = {
         : command,
     ),
   },
+  withUnknownGuard: {
+    ...domain,
+    machines: [
+      {
+        ...review,
+        transitions: [
+          {
+            ...review.transitions[0],
+            guard: {
+              context: "ReviewContext",
+              representation: { id: "example/unregistered", payload: null },
+            },
+          },
+          ...review.transitions.slice(1),
+        ],
+      },
+    ],
+  },
   withRemoval: {
     ...domain,
     machines: [

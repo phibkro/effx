@@ -231,6 +231,18 @@ two snapshots byte-identical. Its subsequent summary command failed because
 `jq` was not available in that shell, so this run did not establish the fault
 count or snapshot hash. It predates the per-entity revision and upgrade.
 
+The corrected comparison archived `aa72a792` and `1e6d974` into the same
+disposable path, ran `bun scripts/identity-snapshot.ts` for each and compared
+their bytes with `cmp`. It exited 0: 190 cases, zero faults, 190 IR results
+and 93 generated files per side. Both snapshot SHA-256 values were
+`cf819ea19ed2890db4b528f7046bffb0a84fd0d229b1a05eb42d6af331e0b246`.
+This run used Effect 4.0.0 on both sides.
+
+The real-tool unsupported-guard test,
+`nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "unknown guard is warned"`,
+exited 0 with one test passed and reported `EFFX4302 warning` plus
+`unmodelled guards: example/unregistered (scope 1, steps 4)`.
+
 ## Native child boundary: EX-0037 (open)
 
 - **Rules:** FX002, FX003, FX006, FX012 and `effecttsgo/unstable-api-usage`.
