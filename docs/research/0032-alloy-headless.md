@@ -294,6 +294,12 @@ sides. `cmp` reported byte-identical snapshots: each had 190 cases, zero
 faults, 190 IR results and 93 generated files. Both snapshot SHA-256 values
 were `ea3109f38ba98e79148b9f7bc7bf049259490560f1a77c3af03af006ae4a9f2b`.
 
+After the diagnostic-root repair, candidate `e84de46` produced the same
+result on Effect 4.0.6 against `3419f263`: 190 cases, zero faults, 190 IR
+results, 93 files and byte-identical snapshots with SHA-256
+`6eeaca3bae002b0a3f07b486b72fd72b3328cf01018a596ec0ecab8cf8597cbd` on
+both sides.
+
 The real-tool unsupported-guard test,
 `nix shell .#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "unknown guard is warned"`,
 exited 0 with one test passed and reported `EFFX4302 warning` plus
