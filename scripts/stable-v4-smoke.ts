@@ -51,7 +51,6 @@ const run = Effect.fnUntraced(function* (cwd: string, args: ReadonlyArray<string
   const child = yield* acquireCommand(cwd, "bun", args);
   yield* child.eof;
   const result = yield* child.finish;
-
   yield* requireThat(result.code === 0, step);
 
   return result.text;
@@ -131,7 +130,8 @@ const smoke = Effect.gen(function* () {
       private: true,
       type: "module",
       dependencies: Object.fromEntries(dependencies),
-      overrides: workspaceOverrides(dependencies),
+      // platform-bun 4.0.0 permits newer node-shared releases, which require newer Effect APIs.
+      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.0.0" },
       devDependencies: { typescript: "7.0.2", "@types/bun": "1.4.2" },
     }),
   );
