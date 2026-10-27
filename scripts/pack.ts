@@ -7,6 +7,7 @@ import { Console, Effect, Schema } from "effect";
 import cliPackage from "../packages/cli/package.json";
 import compilerPackage from "../packages/compiler/package.json";
 import diagnosticsPackage from "../packages/diagnostics/package.json";
+import domainModelPackage from "../packages/domain-model/package.json";
 import irPackage from "../packages/ir/package.json";
 import persistencePackage from "../packages/persistence/package.json";
 import runtimePackage from "../packages/runtime/package.json";
@@ -56,6 +57,8 @@ const compilerName = `effx-compiler-${compilerPackage.version}-${revision}.tgz`;
 
 const persistenceName = `effx-persistence-${persistencePackage.version}-${revision}.tgz`;
 
+const domainModelName = `effx-domain-model-${domainModelPackage.version}-${revision}.tgz`;
+
 const cliName = `effx-cli-${cliPackage.version}-${revision}.tgz`;
 
 const packageTarballs = [
@@ -64,6 +67,7 @@ const packageTarballs = [
   { packageName: irPackage.name, filename: irName },
   { packageName: compilerPackage.name, filename: compilerName },
   { packageName: persistencePackage.name, filename: persistenceName },
+  { packageName: domainModelPackage.name, filename: domainModelName },
   { packageName: cliPackage.name, filename: cliName },
 ];
 
@@ -83,7 +87,15 @@ const cliConfigTypes = join(root, "packages/cli/dist/config.d.ts");
 
 const cliHasConfig = Object.keys(cliPackage.exports).includes("./config");
 
-const bundles = [diagnosticsBundle, runtimeBundle, irBundle, compilerBundle, cliBundle];
+const bundles = [
+  diagnosticsBundle,
+  runtimeBundle,
+  irBundle,
+  compilerBundle,
+  cliBundle,
+  join(root, "packages/domain-model/dist/index.js"),
+  join(root, "packages/domain-model/dist/index.d.ts"),
+];
 
 for (const entry of ["index", "syntax", "compiler"]) {
   bundles.push(join(root, `packages/persistence/dist/${entry}.js`));
@@ -230,6 +242,29 @@ try {
     .cwd(persistenceStage)
     .quiet();
 
+  const domainModelStage = join(stage, "domain-model");
+  await mkdir(domainModelStage);
+  await cp(join(root, "packages/domain-model/dist"), join(domainModelStage, "dist"), {
+    recursive: true,
+  });
+  await cp(join(root, "packages/domain-model/LICENSE"), join(domainModelStage, "LICENSE"));
+  await copyPackageDocs("packages/domain-model", domainModelStage);
+  await writePackage(domainModelStage, {
+    name: domainModelPackage.name,
+    version: domainModelPackage.version,
+    repository: domainModelPackage.repository,
+    license: domainModelPackage.license,
+    type: "module",
+    files: ["dist", "AGENTS.md", "ai-docs/**/*", "LICENSE"],
+    exports: packageExports,
+    dependencies: domainModelPackage.dependencies,
+    peerDependencies: domainModelPackage.peerDependencies,
+    publishConfig: domainModelPackage.publishConfig,
+  });
+  await $`bun pm pack --filename ${join(artifacts, domainModelName)} --quiet`
+    .cwd(domainModelStage)
+    .quiet();
+
   // The CLI bundle includes the private TypeScript frontend; config declarations reuse public compiler types.
   const cliStage = join(stage, "cli");
   const cliDist = join(cliStage, "dist");
@@ -267,6 +302,7 @@ try {
     dependencies: {
       "@effx/compiler": compilerPackage.version,
       "@effx/diagnostics": diagnosticsPackage.version,
+      "@effx/domain-model": domainModelPackage.version,
       "@typescript/typescript6": "6.0.2",
     },
     peerDependencies: cliPackage.peerDependencies,

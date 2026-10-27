@@ -137,10 +137,19 @@ const smoke = Effect.gen(function* () {
     ["vscode-jsonrpc", "9.0.3"],
   ]);
 
-  const packages = ["diagnostics", "runtime", "ir", "compiler", "persistence", "cli"];
+  const packages = [
+    "diagnostics",
+    "runtime",
+    "ir",
+    "compiler",
+    "persistence",
+    "domain-model",
+    "cli",
+  ];
+
   yield* requireThat(
     Object.keys(manifest.sha256s).length === packages.length,
-    "six distribution artifacts",
+    "seven distribution artifacts",
   );
 
   for (const name of packages) {

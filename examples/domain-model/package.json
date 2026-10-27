@@ -1,0 +1,17 @@
+{
+  "name": "@effx-examples/domain-model",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "effx:build": "bun ../../scripts/effx.ts build",
+    "models:check": "bun ../../scripts/effx.ts models check"
+  },
+  "dependencies": {
+    "@effx/domain-model": "workspace:*",
+    "effect": "4.0.6"
+  },
+  "devDependencies": {
+    "@effx/cli": "workspace:*"
+  }
+}

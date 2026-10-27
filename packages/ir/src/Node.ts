@@ -64,7 +64,13 @@ export const Node = Schema.TaggedUnion({
   },
   Focus: { id: StableId, root: StableId, path: Schema.Array(Schema.String) },
   Exposure: { id: StableId, operation: StableId, transport: Transport },
-  Extension: { id: StableId, extension: Schema.String, tag: Schema.String, data: Schema.Json },
+  Extension: {
+    id: StableId,
+    extension: Schema.String,
+    tag: Schema.String,
+    data: Schema.Json,
+    root: Schema.optionalKey(Schema.Literal(true)),
+  },
 }).check(
   Schema.makeFilter((node) => {
     if (node._tag !== "Operation") return undefined;

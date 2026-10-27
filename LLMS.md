@@ -69,6 +69,22 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
   `effx build --project <tsconfig>`. Do not edit it; change the declaration and
   rebuild.
 
+## Domain model checks
+
+Import `DomainDescription`, `domainModel` and `generateAlloy` from `@effx/domain-model`.
+Pass the description to `domainModel` in `effx.config.ts` and set `models: { alloy: true }`.
+`effx build` writes temporal and static Alloy models. `effx models check` checks them with Alloy 6.2.0.
+The default bound is scope 1, four steps and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
+The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic. They name entity IDs, stored values, context owners and `atNow` / `afterTick` guard outcomes.
+Context fields have kind `stored` (per entity), `parameter` (per command), or `clock`. A declared `writes` path is over-approximated and reported as a warning.
+Bind membership records to a machine and `grantingStates` with `memberships`; without that declaration, A5 is not applicable.
+A granted membership subject with `term: "any"` can violate A5 outside those states.
+Unknown guard ids produce warnings and the model omits those guards. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
+Register trusted pure guard compilers by representation ID with `domainModel`'s `guardCompilers` option. A compiler receives the JSON payload and declared-path lookup and returns an Alloy Boolean formula.
+A bounded reachability failure does not prove that a state is unreachable.
+Without the toggle, the compiler writes no models and starts no Alloy process.
+See `docs/specs/0032-domain-model-alloy-grants-machines.md` for fields, scope and limits.
+
 ## Compiler lift frontend boundary
 
 `LiftFrontend` is an abstract compiler capability, not a production layer. Its `analyze(project)` returns `Effect<StageResult<EffectModel>, CompilerFault>` (`packages/compiler/src/lift/frontend.ts`). A resolved target returns `Some(model)` with project diagnostics. An unresolved target returns `None` with the existing diagnostics. The model keeps its required target. The frontend supplies no fallback target or fake model. Unsupported source remains model data, and `CompilerFault` is reserved for IO or invariant failures. Call the pure `lift(model, input)` only for a present model.
@@ -94,6 +110,7 @@ Root records retain complete original composition under spec 0019 §0.8. The gen
 | `effx inspect <operation>` | show an operation's contract and exposures                            |
 | `effx graph [name]`        | print a Mermaid graph                                                 |
 | `effx lift --group <id>`   | suggest declarations for a pure Effect group; `--check` verifies them |
+| `effx models check`        | check generated Alloy models and write conformance vectors            |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
 `--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).
@@ -2083,6 +2100,7 @@ Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `p
 | [EFFX1001](#EFFX1001) | Stable identity has conflicting content | error |
 | [EFFX1002](#EFFX1002) | Graph edge references an absent node | error |
 | [EFFX1003](#EFFX1003) | Extension node has no owner | error |
+| [EFFX1004](#EFFX1004) | Extension root has no children | error |
 | [EFFX1101](#EFFX1101) | No interpreter for annotation | error |
 | [EFFX1102](#EFFX1102) | Malformed or unlowerable annotation arguments | error |
 | [EFFX1103](#EFFX1103) | Annotation needs an operation | error |
@@ -2167,6 +2185,19 @@ Source: spec 0018 §5, `packages/cli/src/lsp-transport.ts`, `watch-files.ts`, `p
 | [EFFX4105](#EFFX4105) | Capability uses generic Cedar principal | info |
 | [EFFX4106](#EFFX4106) | Application Cedar policy validation warning | warning |
 | [EFFX4107](#EFFX4107) | No authorization facts to project | info |
+| [EFFX4301](#EFFX4301) | Invalid domain description | error |
+| [EFFX4302](#EFFX4302) | Guard not modelled | warning |
+| [EFFX4303](#EFFX4303) | Alloy 6.2.0 unavailable | error |
+| [EFFX4304](#EFFX4304) | Alloy execution or receipt invalid | error |
+| [EFFX4305](#EFFX4305) | A1 state reachability | error |
+| [EFFX4306](#EFFX4306) | A2 nonterminal exit | error |
+| [EFFX4307](#EFFX4307) | A3 command grant | error |
+| [EFFX4308](#EFFX4308) | A4 admin self-change | error |
+| [EFFX4309](#EFFX4309) | A5 ended membership | error |
+| [EFFX4310](#EFFX4310) | A6 system job authority | error |
+| [EFFX4311](#EFFX4311) | Nondeterministic time condition | warning |
+| [EFFX4312](#EFFX4312) | A7 clock monotonicity | error |
+| [EFFX4313](#EFFX4313) | Command effect not modelled precisely | warning |
 | [EFFX9001](#EFFX9001) | Example Command lacks Audit annotation | warning |
 | [EFFX9002](#EFFX9002) | Example Audit annotation needs an operation | error |
 | [EFFX9101](#EFFX9101) | Example RateLimit requires HTTP exposure | error |
@@ -2286,7 +2317,7 @@ Default severity: error
 
 Severity policy: Fixed
 
-Every Extension node needs an outgoing ExtensionOf edge to its semantic owner. An orphan extension cannot be safely interpreted or generated.
+Every non-root Extension node needs an outgoing ExtensionOf edge to its semantic owner. A declared project root instead must own at least one child. An orphan extension cannot be safely interpreted or generated.
 
 ### Example 1
 
@@ -2303,6 +2334,32 @@ Contribution.make([extensionNode], [{ kind: "ExtensionOf", from: extensionNode.i
 ```
 
 Contribute the owner edge with the extension node.
+
+## EFFX1004 — Extension root has no children [#EFFX1004]
+
+Owner: kernel
+
+Default severity: error
+
+Severity policy: Fixed
+
+A project-level Extension root must own at least one other Extension node through an incoming ExtensionOf edge. A self-edge is not a child.
+
+### Example 1
+
+Before:
+
+```ts
+Contribution.make([root], [])
+```
+
+After:
+
+```ts
+Contribution.make([root, child], [{ kind: "ExtensionOf", from: child.id, to: root.id }])
+```
+
+Contribute an owned child or remove the empty root.
 
 ## EFFX1101 — No interpreter for annotation [#EFFX1101]
 
@@ -4530,6 +4587,387 @@ After:
 ```
 
 Declare the intended capability/access facts before requesting a Cedar projection, or accept that nothing is written.
+
+## EFFX4301 — Invalid domain description [#EFFX4301]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The description does not decode or contains an unresolved domain reference.
+
+### Example 1
+
+Before:
+
+```text
+domainModel({ ...domain, grants: [...domain.grants, { subject: "Board", permits: ["StartReview"], scope: "all" }] })
+// community: Invalid domain description: unknown subject set Board
+```
+
+After:
+
+```text
+domainModel({
+  ...domain,
+  subjectSets: [
+    ...domain.subjectSets,
+    {
+      name: "Board",
+      expression: { _tag: "Membership", function: "board", position: "leader", department: "target", term: "active" },
+    },
+  ],
+  grants: [...domain.grants, { subject: "Board", permits: ["StartReview"], scope: "all" }],
+})
+```
+
+Names resolve on decode: a grant names a declared subject set, and a transition, write, job, order or state names a declared one. Declare the missing name or correct the reference.
+
+## EFFX4302 — Guard not modelled [#EFFX4302]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+No Alloy compiler is registered for a guard representation; the transition is modelled without that guard.
+
+### Example 1
+
+Before:
+
+```text
+{ command: "StartReview", from: ["[*]"], to: "Draft",
+  guard: { context: "ReviewContext", representation: { id: "example/unregistered", payload: null } } }
+// community: Guard not modelled: example/unregistered
+```
+
+After:
+
+```text
+{ command: "StartReview", from: ["[*]"], to: "Draft",
+  guard: {
+    context: "ReviewContext",
+    representation: { id: "effx/order/same", payload: { left: ["current"], right: ["review", "start"] } },
+  } }
+// or register a trusted compiler for the id: domainModel(domain, { guardCompilers: { "example/unregistered": compile } })
+```
+
+The built-in representation ids are effx/order/after, effx/order/same, effx/guard/not and effx/guard/or. An unknown id is a warning and the model omits the guard, so the transition is over-approximated until the id is compiled.
+
+## EFFX4303 — Alloy 6.2.0 unavailable [#EFFX4303]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The required Alloy executable is missing or reports a different version.
+
+### Example 1
+
+Before:
+
+```text
+$ effx models check
+community: Alloy 6.2.0 unavailable (scope 1, steps 4): expected 6.2.0; observed 5.1.0 (exit 0)
+```
+
+After:
+
+```text
+$ nix shell .#alloy6 -c effx models check
+community A1_Reachability Review:Open PASS (scope 1, steps 4, ...)
+```
+
+The check runs the executable named alloy6 and requires its version output to be exactly 6.2.0. Put that pinned build on PATH; an unavailable or different build never counts as a pass.
+
+## EFFX4304 — Alloy execution or receipt invalid [#EFFX4304]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The child failed, or its receipt is missing, malformed, or does not contain all expected commands.
+
+### Example 1
+
+Before:
+
+```text
+$ effx models check
+community: Alloy execution or receipt invalid (scope 1, steps 4): missing or invalid check A3_CommandGrant
+```
+
+After:
+
+```text
+# the child must exit 0 and write receipt.json with every generated command at the generated bounds
+$ nix shell .#alloy6 -c effx models check
+```
+
+alloy6 exec exits 0 even for a counterexample, so effx reads the JSON receipt. A missing, malformed or incomplete receipt, or one whose command names or bounds differ from the generated model, is an error. Rebuild the model with effx build and run the real pinned tool.
+
+## EFFX4305 — A1 state reachability [#EFFX4305]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+No trace reached the named state from the initial state within the stated scope and step bound.
+
+### Example 1
+
+Before:
+
+```text
+machines: [{ ...review, states: ["Draft", "Open", "Closed", "Lost"], terminal: ["Closed", "Lost"] }]
+// community: A1 state reachability: Review:Lost not reached within 4 steps at scope 1
+```
+
+After:
+
+```text
+machines: [{ ...review, states: ["Draft", "Open", "Closed", "Lost"], terminal: ["Closed", "Lost"],
+  transitions: [...review.transitions, { command: "AdvanceReview", from: ["Draft"], to: "Lost" }] }]
+```
+
+Each declared state needs a trace from the initial state within the stated scope and steps. Add the missing transition, or raise scope and steps if the trace is longer than the bound; a failed bounded run does not prove the state is unreachable.
+
+## EFFX4306 — A2 nonterminal exit [#EFFX4306]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A state not declared terminal has no transition out.
+
+### Example 1
+
+Before:
+
+```text
+machines: [{ ...review, states: ["Draft", "Open", "Closed", "Stuck"],
+  transitions: [...review.transitions, { command: "AdvanceReview", from: ["Draft"], to: "Stuck" }] }]
+// community: A2 nonterminal exit: Review:Stuck has no transition out
+```
+
+After:
+
+```text
+machines: [{ ...review, states: ["Draft", "Open", "Closed", "Stuck"], terminal: ["Closed", "Stuck"],
+  transitions: [...review.transitions, { command: "AdvanceReview", from: ["Draft"], to: "Stuck" }] }]
+// or add a transition out of Stuck
+```
+
+A state that is not listed in terminal must have a transition out. Declare the state terminal or give it an exit.
+
+## EFFX4307 — A3 command grant [#EFFX4307]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A command has no applicable grant, or a job-only command is granted outside its job.
+
+### Example 1
+
+Before:
+
+```text
+commands: [...domain.commands, { name: "Unassigned", kind: "Command" }]
+// community: A3 command grant: Unassigned has no applicable grant
+```
+
+After:
+
+```text
+commands: [...domain.commands, { name: "Unassigned", kind: "Command" }],
+grants: [...domain.grants, { subject: "Admin", permits: ["Unassigned"], scope: "all" }]
+```
+
+Every command is granted to some subject set, and a command with runBy is granted only to its own job. Add the grant row, or remove the command.
+
+## EFFX4308 — A4 admin self-change [#EFFX4308]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A principal outside the active admin set can change its own admin status.
+
+### Example 1
+
+Before:
+
+```text
+grants: [...domain.grants, { subject: "Self", permits: ["GrantAdmin"], scope: "own" }]
+// community: A4 admin self-change: a principal outside the admin set can change its own admin status
+```
+
+After:
+
+```text
+grants: domain.grants // only the Admin subject set is granted GrantAdmin and RevokeAdmin
+```
+
+With adminList declared, only the admin set may run the grant and revoke commands. Do not grant them to Self or to a membership set.
+
+## EFFX4309 — A5 ended membership [#EFFX4309]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A membership outside the declared granting states contributes permission.
+
+### Example 1
+
+Before:
+
+```text
+{ name: "Recruiter", expression: { _tag: "Membership", function: "recruitment", position: "member", department: "any", term: "any" } }
+// community: A5 ended membership: a membership outside grantingStates contributes permission
+```
+
+After:
+
+```text
+{ name: "Recruiter", expression: { _tag: "Membership", function: "recruitment", position: "member", department: "any", term: "active" } }
+```
+
+memberships.grantingStates names the machine states that count as active. A granted membership subject with term any also admits ended memberships; use term active, or widen grantingStates deliberately.
+
+## EFFX4310 — A6 system job authority [#EFFX4310]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+A system principal is permitted a different set of commands than its own job.
+
+### Example 1
+
+Before:
+
+```text
+principals: { ...domain.principals, System: { jobs: ["directory", "cleanup"] } },
+commands: [...domain.commands, { name: "CleanDirectory", kind: "Command", runBy: { job: "cleanup" } }],
+grants: [...domain.grants, { subject: "DirectoryJob", permits: ["CleanDirectory"], scope: "all" }]
+// community: A6 system job authority: the directory job is permitted CleanDirectory, a command of job cleanup
+```
+
+After:
+
+```text
+subjectSets: [...domain.subjectSets, { name: "CleanupJob", expression: { _tag: "System", job: "cleanup" } }],
+grants: [...domain.grants, { subject: "CleanupJob", permits: ["CleanDirectory"], scope: "all" }]
+```
+
+A System principal is permitted exactly the commands that name its own job in runBy. Grant a job-only command to that job's own subject set.
+
+## EFFX4311 — Nondeterministic time condition [#EFFX4311]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A calculated transition or expiry lacks a supported clock-bound guard, so its time condition is modelled nondeterministically.
+
+### Example 1
+
+Before:
+
+```text
+calculated: [{ from: "Open", to: "Closed" }]
+// community: Nondeterministic time condition: machine Review calculated transition 0 cannot be determined from stored fields and clock
+```
+
+After:
+
+```text
+calculated: [{ from: "Open", to: "Closed", when: expired }]
+// expired: { context: "ReviewContext", representation: { id: "effx/guard/not", payload: { id: "effx/order/after", payload: { left: ["review", "end"], right: ["current"] } } } }
+```
+
+A calculated transition or admin expiry needs a guard over the context's declared clock path and no caller parameter. Without one the model lets the time condition hold at any tick, which over-approximates the behavior.
+
+## EFFX4312 — A7 clock monotonicity [#EFFX4312]
+
+Owner: domain-model
+
+Default severity: error
+
+Severity policy: Fixed
+
+The domain clock moves backward in a model trace.
+
+### Example 1
+
+Before:
+
+```text
+// A7_TimeMonotonic counterexample: Clock.now' is neither Clock.now nor a later value
+// (reachable only if the generated model was edited or the generator is defective)
+```
+
+After:
+
+```text
+$ effx build && nix shell .#alloy6 -c effx models check
+community A7_TimeMonotonic PASS (scope 1, steps 4, ...)
+```
+
+Generated steps keep the declared clock fixed or move it to its successor. A counterexample means the .als file no longer matches the description. Regenerate it with effx build and report a defect if it persists.
+
+## EFFX4313 — Command effect not modelled precisely [#EFFX4313]
+
+Owner: domain-model
+
+Default severity: warning
+
+Severity policy: Fixed
+
+A declared stored-field write is modelled as any value in the field order, not as the command's precise effect.
+
+### Example 1
+
+Before:
+
+```text
+{ name: "AdvanceReview", kind: "Command", writes: [{ machine: "Review", path: ["review", "end"] }] }
+// community: Command effect not modelled precisely: AdvanceReview: effect on Review.review.end not modelled precisely
+```
+
+After:
+
+```text
+// accepted: the warning stays while the write is over-approximated to any value of the field's order.
+// Remove the writes entry if the command does not change the stored field.
+{ name: "AdvanceReview", kind: "Command" }
+```
+
+A declared write lets the model choose any value of the field's order. The warning marks the over-approximation; precise command effects belong to a later slice.
 
 ## EFFX9001 — Example Command lacks Audit annotation [#EFFX9001]
 

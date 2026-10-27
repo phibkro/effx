@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true,
+    "types": [],
+    "paths": {
+      "@effx/compiler": ["../compiler/dist/index.d.ts"],
+      "@effx/ir": ["../ir/dist/index.d.ts"],
+      "@effx/runtime": ["../runtime/dist/index.d.ts"],
+      "@effx/diagnostics": ["../diagnostics/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["test", "dist"]
+}

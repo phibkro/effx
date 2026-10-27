@@ -53,6 +53,13 @@ export { LiftForm, LiftJsonReport, LiftUsageError, type LiftRunParams } from "./
 export { ExecutableInventory } from "./config-runtime.ts";
 
 export {
+  AlloyExecution,
+  AlloyExecutionError,
+  type AlloyRunReceipt,
+  type AlloyRunRequest,
+} from "./alloy-boundary.ts";
+
+export {
   acquireLspTransport,
   RpcFailure,
   TransportError,

@@ -7,6 +7,8 @@ export interface EffxConfig {
   readonly emit?: EmitMode;
   readonly target?: TargetProfile;
   readonly strictAccess?: boolean;
+  /** Optional model projections; disabled unless explicitly enabled. */
+  readonly models?: { readonly alloy?: boolean };
   /** Semantic input: use the same pattern in contract and handlers passes. */
   readonly naming?: { readonly problemIdentifier?: string };
   /** Complete logical executable routes relative to this config; observation, not a sandbox. */

@@ -43,6 +43,7 @@ export {
   CoreDiagnostics,
   HttpDiagnostics,
   LiftDiagnostics,
+  DomainDiagnostics,
 } from "./diagnostics/index.ts";
 
 export { ProjectConfig, ProjectResolution, EmitMode, TargetProfile } from "./Collected.ts";

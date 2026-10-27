@@ -45,6 +45,7 @@
   "dependencies": {
     "@effx/compiler": "0.1.0",
     "@effx/diagnostics": "0.1.0",
+    "@effx/domain-model": "0.1.0",
     "@typescript/typescript6": "6.0.2",
     "vscode-jsonrpc": "9.0.3"
   },

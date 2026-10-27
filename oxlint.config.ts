@@ -44,7 +44,7 @@ export const effectConfig = {
   strictness: "strict",
   groups: [
     {
-      files: ["packages/{ir,compiler,runtime,cli}/src/**/*.ts"],
+      files: ["packages/{ir,compiler,runtime,cli,domain-model}/src/**/*.ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "strict",
@@ -57,7 +57,7 @@ export const effectConfig = {
       strictness: "strict",
     },
     {
-      files: ["examples/*/src/**/*.ts"],
+      files: ["examples/*/src/**/*.ts", "examples/domain-model/*.ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "strict",

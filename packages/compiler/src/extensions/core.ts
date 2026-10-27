@@ -398,13 +398,25 @@ const missingTargets: Analysis = (_ir, index) =>
     CoreDiagnostics.EFFX1002.emit({ kind: edge.kind, from: edge.from, to: edge.to, missing }),
   );
 
-/** Every extension node needs a graph-visible owner; an orphan cannot be generated safely. */
+/** Project roots own children; every other extension has a graph-visible owner. */
 const orphanExtensions: Analysis = (ir, index) =>
-  ir.nodes.flatMap((node) =>
-    node._tag === "Extension" && IRGraph.outgoing(index, node.id, "ExtensionOf").length === 0
+  ir.nodes.flatMap((node): ReadonlyArray<Diagnostic> => {
+    if (node._tag !== "Extension") return [];
+
+    if (node.root === true) {
+      const children = IRGraph.incoming(index, node.id, "ExtensionOf").some((edge) => {
+        const child = IRGraph.nodeOf(index, edge.from);
+
+        return edge.from !== node.id && Option.isSome(child) && child.value._tag === "Extension";
+      });
+
+      return children ? [] : [CoreDiagnostics.EFFX1004.emit({ id: node.id })];
+    }
+
+    return IRGraph.outgoing(index, node.id, "ExtensionOf").length === 0
       ? [CoreDiagnostics.EFFX1003.emit({ id: node.id })]
-      : [],
-  );
+      : [];
+  });
 
 /** Cached IR can bypass source collection; reject invalid binding/handler pairs there too. */
 const invalidOperationBinding: Analysis = (ir) =>

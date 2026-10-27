@@ -102,6 +102,7 @@ const ConfigFields = Schema.Struct({
   emit: Schema.optionalKey(EmitMode),
   target: Schema.optionalKey(TargetProfile),
   strictAccess: Schema.optionalKey(Schema.Boolean),
+  models: ProjectConfig.fields.models,
   naming: Schema.optionalKey(Naming),
   extensions: Schema.optionalKey(Schema.Unknown),
   executableCoverage: Schema.optionalKey(
@@ -163,6 +164,7 @@ const validExtensions = (value: unknown): value is ReadonlyArray<Extension> =>
       entry.generators.every(Predicate.isFunction) &&
       (entry.annotations === undefined ||
         (Array.isArray(entry.annotations) && entry.annotations.every(validDefinition))) &&
+      (entry.contribute === undefined || Predicate.isFunction(entry.contribute)) &&
       (entry.expand === undefined || Predicate.isFunction(entry.expand)) &&
       (entry.fragments === undefined ||
         (Array.isArray(entry.fragments) && entry.fragments.every(Predicate.isFunction))),
@@ -393,6 +395,8 @@ const resolveSavedProject = Effect.fnUntraced(function* (
 
   if (problemIdentifier !== undefined) resolved.naming = { problemIdentifier };
 
+  if (config?.models !== undefined) resolved.models = config.models;
+
   if (config?.lift !== undefined) resolved.lift = config.lift;
 
   return {
@@ -475,8 +479,48 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
   yield* assertOutputOwner(owner, { generatedDir, effxDir: project.effxDir });
   const canonicalGeneratedDir = yield* canonicalOutputPath(generatedDir);
 
+  const modelDir = path.join(project.effxDir, "models");
+  const canonicalModelDir = yield* canonicalOutputPath(modelDir);
+  const canonicalEffxDir = yield* canonicalOutputPath(project.effxDir);
+  const modelRelative = path.relative(canonicalEffxDir, canonicalModelDir);
+
+  if (
+    files.some((file) => file.destination === "model") &&
+    (modelRelative === "" ||
+      modelRelative === ".." ||
+      modelRelative.startsWith(".." + path.sep) ||
+      path.isAbsolute(modelRelative))
+  ) {
+    return yield* new CompilerFault({
+      stage: "generate",
+      message: "model directory escapes .effx",
+    });
+  }
+
+  const destinationOf = (file: (typeof files)[number]) =>
+    path.join(file.destination === "model" ? modelDir : generatedDir, file.path);
+
+  for (const file of files) {
+    if (file.destination !== "model") continue;
+    const destination = yield* canonicalOutputPath(destinationOf(file));
+    const relative = path.relative(canonicalModelDir, destination);
+
+    if (
+      relative === "" ||
+      relative === ".." ||
+      relative.startsWith(".." + path.sep) ||
+      path.isAbsolute(relative) ||
+      destination !== path.resolve(canonicalModelDir, file.path)
+    ) {
+      return yield* new CompilerFault({
+        stage: "generate",
+        message: "model output escapes .effx/models: " + file.path,
+      });
+    }
+  }
+
   const generated = files.map((file) =>
-    path.relative(project.effxDir, path.join(generatedDir, file.path)).split(path.sep).join("/"),
+    path.relative(project.effxDir, destinationOf(file)).split(path.sep).join("/"),
   );
 
   const currentFiles = new Set<string>();
@@ -512,6 +556,23 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
       );
     });
 
+    const relativeModel = path.relative(canonicalModelDir, canonicalFile);
+
+    const ownedModel =
+      relativeModel !== "" &&
+      relativeModel !== ".." &&
+      !relativeModel.startsWith(".." + path.sep) &&
+      !path.isAbsolute(relativeModel);
+
+    if (
+      project.config.models?.alloy === true &&
+      ownedModel &&
+      path.extname(file) === ".als" &&
+      !currentFiles.has(canonicalFile)
+    ) {
+      obsolete.push(file);
+    }
+
     if (owned && path.extname(file) === ".ts" && !currentFiles.has(canonicalFile)) {
       if (!canonicalFile.split(path.sep).includes(".effx")) {
         const relative = path.relative(canonicalGeneratedDir, canonicalFile);
@@ -539,7 +600,11 @@ export const writeCompileResult = Effect.fn("writeCompileResult")(function* (
       yield* fs.makeDirectory(project.effxDir, { recursive: true });
 
       for (const file of files) {
-        yield* fs.writeFileString(path.join(generatedDir, file.path), file.contents);
+        const destination = destinationOf(file);
+
+        if (file.destination === "model")
+          yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+        yield* fs.writeFileString(destination, file.contents);
       }
 
       for (const file of obsolete) yield* fs.remove(file, { force: true });

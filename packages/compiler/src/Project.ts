@@ -28,6 +28,7 @@ export const ProjectResolution = Schema.Struct({
   target: TargetProfile,
   emit: EmitMode,
   strictAccess: Schema.optionalKey(Schema.Boolean),
+  models: Schema.optionalKey(Schema.Struct({ alloy: Schema.optionalKey(Schema.Boolean) })),
   allowImportingTsExtensions: Schema.Boolean,
   /** One output-independent base for local symbols in canonical IR. */
   canonicalImportBase: Schema.String,

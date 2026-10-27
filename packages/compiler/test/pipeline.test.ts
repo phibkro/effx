@@ -123,6 +123,36 @@ describe("pipeline", () => {
     }),
   );
 
+  it.effect("project roots require a distinct Extension child", () =>
+    Effect.sync(() => {
+      const root = {
+        _tag: "Extension",
+        id: StableId.make("ext", "example/root"),
+        extension: "example",
+        tag: "Root",
+        data: {},
+        root: true,
+      } as const;
+
+      const child = {
+        _tag: "Extension",
+        id: StableId.make("ext", "example/child"),
+        extension: "example",
+        tag: "Child",
+        data: {},
+      } as const;
+
+      const empty = make([root], []);
+      assert.include(codes(analyze(empty, IRGraph.toGraph(empty), Extensions.builtin)), "EFFX1004");
+      const self = make([root], [{ kind: "ExtensionOf", from: root.id, to: root.id }]);
+      assert.include(codes(analyze(self, IRGraph.toGraph(self), Extensions.builtin)), "EFFX1004");
+      const owned = make([root, child], [{ kind: "ExtensionOf", from: child.id, to: root.id }]);
+      const diagnostics = codes(analyze(owned, IRGraph.toGraph(owned), Extensions.builtin));
+      assert.notInclude(diagnostics, "EFFX1003");
+      assert.notInclude(diagnostics, "EFFX1004");
+    }),
+  );
+
   it.effect("generators are deterministic and expose server/client entrypoints", () =>
     Effect.gen(function* () {
       const first = yield* compileCollected(decoratorStyle, Extensions.builtin);

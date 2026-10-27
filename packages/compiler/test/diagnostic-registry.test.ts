@@ -6,6 +6,7 @@ import {
   DiagnosticDefinitions,
   CoreDiagnostics,
   HttpDiagnostics,
+  DomainDiagnostics,
   composeRegistry,
 } from "@effx/compiler";
 import { inspectDiagnosticSource } from "./fixtures/diagnostic-conformance.ts";
@@ -43,7 +44,11 @@ describe("diagnostic registry conformance", () => {
         );
       }
 
-      for (const [code, definition] of Object.entries({ ...CoreDiagnostics, ...HttpDiagnostics })) {
+      for (const [code, definition] of Object.entries({
+        ...CoreDiagnostics,
+        ...HttpDiagnostics,
+        ...DomainDiagnostics,
+      })) {
         assert.strictEqual(
           Object.entries(DiagnosticDefinitions).find(([key]) => key === code)?.[1],
           definition,
@@ -51,6 +56,19 @@ describe("diagnostic registry conformance", () => {
       }
     }),
   );
+
+  it("domain diagnostics render their own title and bounds", () => {
+    for (const definition of Object.values(DomainDiagnostics)) {
+      const finding = definition.emit({ domain: "example", detail: "detail", scope: 2, steps: 4 });
+
+      assert.strictEqual(finding.code, definition.entry.code);
+      assert.strictEqual(finding.severity, definition.entry.severity);
+      assert.strictEqual(
+        finding.message,
+        `example: ${definition.entry.title} (scope 2, steps 4): detail`,
+      );
+    }
+  });
 
   it.effect("duplicate roots fail before a keyed projection can overwrite them", () =>
     Effect.gen(function* () {

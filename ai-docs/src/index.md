@@ -69,6 +69,22 @@ from v3 (for example `Context.Service`, `Effect.fn`, `Effect.catch`,
   `effx build --project <tsconfig>`. Do not edit it; change the declaration and
   rebuild.
 
+## Domain model checks
+
+Import `DomainDescription`, `domainModel` and `generateAlloy` from `@effx/domain-model`.
+Pass the description to `domainModel` in `effx.config.ts` and set `models: { alloy: true }`.
+`effx build` writes temporal and static Alloy models. `effx models check` checks them with Alloy 6.2.0.
+The default bound is scope 1, four steps and two atoms per declared order; `domainModel` accepts `scope` and `steps` options.
+The check writes bounded conformance vectors for the consumer to compare with its own authorization and machine logic. They name entity IDs, stored values, context owners and `atNow` / `afterTick` guard outcomes.
+Context fields have kind `stored` (per entity), `parameter` (per command), or `clock`. A declared `writes` path is over-approximated and reported as a warning.
+Bind membership records to a machine and `grantingStates` with `memberships`; without that declaration, A5 is not applicable.
+A granted membership subject with `term: "any"` can violate A5 outside those states.
+Unknown guard ids produce warnings and the model omits those guards. Missing clock-bound calculated or expiry guards are reported as nondeterministic.
+Register trusted pure guard compilers by representation ID with `domainModel`'s `guardCompilers` option. A compiler receives the JSON payload and declared-path lookup and returns an Alloy Boolean formula.
+A bounded reachability failure does not prove that a state is unreachable.
+Without the toggle, the compiler writes no models and starts no Alloy process.
+See `docs/specs/0032-domain-model-alloy-grants-machines.md` for fields, scope and limits.
+
 ## Compiler lift frontend boundary
 
 `LiftFrontend` is an abstract compiler capability, not a production layer. Its `analyze(project)` returns `Effect<StageResult<EffectModel>, CompilerFault>` (`packages/compiler/src/lift/frontend.ts`). A resolved target returns `Some(model)` with project diagnostics. An unresolved target returns `None` with the existing diagnostics. The model keeps its required target. The frontend supplies no fallback target or fake model. Unsupported source remains model data, and `CompilerFault` is reserved for IO or invariant failures. Call the pure `lift(model, input)` only for a present model.
@@ -94,6 +110,7 @@ Root records retain complete original composition under spec 0019 §0.8. The gen
 | `effx inspect <operation>` | show an operation's contract and exposures                            |
 | `effx graph [name]`        | print a Mermaid graph                                                 |
 | `effx lift --group <id>`   | suggest declarations for a pure Effect group; `--check` verifies them |
+| `effx models check`        | check generated Alloy models and write conformance vectors            |
 
 Shared flags: `--project <tsconfig>`, `--config <effx.config.ts>`; compile flags: `--strict-access`,
 `--target`, `--emit`, `--out-dir` (`scripts/effx.ts`).

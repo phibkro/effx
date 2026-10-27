@@ -131,7 +131,7 @@ const d1003 = defineDiagnostic(
     "EFFX1003",
     "kernel",
     "Extension node has no owner",
-    "Every Extension node needs an outgoing ExtensionOf edge to its semantic owner. An orphan extension cannot be safely interpreted or generated.",
+    "Every non-root Extension node needs an outgoing ExtensionOf edge to its semantic owner. A declared project root instead must own at least one child. An orphan extension cannot be safely interpreted or generated.",
     "Contribution.make([extensionNode], [])",
     'Contribution.make([extensionNode], [{ kind: "ExtensionOf", from: extensionNode.id, to: operationId }])',
     "Contribute the owner edge with the extension node.",
@@ -139,6 +139,21 @@ const d1003 = defineDiagnostic(
   ),
   Schema.Struct({ id: Schema.String }),
   ({ id }) => `extension ${id} has no ExtensionOf owner edge`,
+);
+
+const d1004 = defineDiagnostic(
+  entry(
+    "EFFX1004",
+    "kernel",
+    "Extension root has no children",
+    "A project-level Extension root must own at least one other Extension node through an incoming ExtensionOf edge. A self-edge is not a child.",
+    "Contribution.make([root], [])",
+    'Contribution.make([root, child], [{ kind: "ExtensionOf", from: child.id, to: root.id }])',
+    "Contribute an owned child or remove the empty root.",
+    "error",
+  ),
+  Schema.Struct({ id: Schema.String }),
+  ({ id }) => `extension root ${id} has no ExtensionOf child`,
 );
 
 const d1101 = defineDiagnostic(
@@ -1159,6 +1174,7 @@ export const coreEntries = [
   d1001.entry,
   d1002.entry,
   d1003.entry,
+  d1004.entry,
   d1101.entry,
   d1102.entry,
   d1103.entry,
@@ -1215,6 +1231,7 @@ export const CoreDiagnostics = {
   [d1001.entry.code]: d1001,
   [d1002.entry.code]: d1002,
   [d1003.entry.code]: d1003,
+  [d1004.entry.code]: d1004,
   [d1101.entry.code]: d1101,
   [d1102.entry.code]: d1102,
   [d1103.entry.code]: d1103,
