@@ -10,7 +10,7 @@ import {
   type GenerationContext,
   type Generator,
 } from "@effx/compiler";
-import { conformanceBody } from "./conformance.ts";
+import { conformanceBody, schemaType } from "./conformance.ts";
 import { portFile, portsOf, type PersistencePort } from "./ports.ts";
 
 const header = (port: PersistencePort): ReadonlyArray<string> => [
@@ -39,16 +39,17 @@ const filesOf = (
   imports.reserve(name, "input");
   imports.add("effect", "Context");
   imports.add("effect", "Effect");
+  imports.add("effect", "Schema");
 
   const methods = port.methods.map(({ name: method, operation }) => {
     const input = schemaExpr(imports, operation.input);
     const success = schemaExpr(imports, operation.success);
 
     const errors =
-      operation.errors.values.map((ref) => `typeof ${schemaExpr(imports, ref)}.Type`).join(" | ") ||
+      operation.errors.values.map((ref) => schemaType(schemaExpr(imports, ref))).join(" | ") ||
       "never";
 
-    return `  readonly ${JSON.stringify(method)}: (input: typeof ${input}.Type) => Effect.Effect<typeof ${success}.Type, ${errors}>;`;
+    return `  readonly ${JSON.stringify(method)}: (input: ${schemaType(input)}) => Effect.Effect<${schemaType(success)}, ${errors}>;`;
   });
 
   const portContents = renderGenerated(header(port), imports, [

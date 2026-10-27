@@ -1,3 +1,4 @@
+/** @effect-diagnostics newPromise:off -- EX-0030: the maintained vscode-jsonrpc stdio Promise ABI; the file has exactly two `new Promise` sites, each with its EX-0030 control-flow suppression. */
 // EX-0030: maintained JSON-RPC ABI; native authority is injected by the root.
 import { Cause, Context, Effect, Exit, Fiber, Predicate, Result, Schema, Semaphore } from "effect";
 import {
@@ -384,7 +385,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
           outputBytes += bytes.byteLength;
 
-          // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
+          // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
           return new Promise<void>((resolve, reject) => {
             const cancel = () => {
               if (item.started || isClosed()) return;
@@ -702,7 +703,7 @@ export const acquireLspTransport = Effect.fnUntraced(function* <E, R, RH>(
 
     if (token.isCancellationRequested) fiber.interruptUnsafe();
 
-    // oxlint-disable-next-line effect/no-native-promise-control-flow, effecttsgo/new-promise -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
+    // oxlint-disable-next-line effect/no-native-promise-control-flow -- EX-0030: maintained stdio Promise ABI has one scoped owner and guarded late settlements.
     return new Promise<Schema.Json | ResponseError<Schema.Json>>((resolve) => {
       fiber.addObserver((exit) => {
         handlerFibers.delete(fiber);

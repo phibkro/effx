@@ -164,3 +164,7 @@ Fixture: `examples/users`'s operations reused verbatim, plus a sibling example (
 - New package `packages/persistence` (`@effx/persistence`): `syntax` (the `Annotation.define` half, runtime-importable) and `compiler` (implement/read/analyze/write); depends on `@effx/compiler`, `@effx/runtime`, `@effx/ir`; **core imports nothing from it**. Adapter helper packages (`makeTx`-style helpers, error mappers) are separate and out of the compiler's dependency graph.
 - It needs from 0020: `Annotation.define` with `target: "operation"` accepting a declaration-only builder operation via `.with(...)`; `Annotation.implement` with a free `write: Generator`; `Annotation.extension` for `defineConfig` registration. Start is coordinated with the 0020 owner (`lift-design`) and the 0015 config owner (`monoweb-gap`); no file owned by them is edited before their merge.
 - Update `docs/specs/0008-sql-projection-extension.md` status to _superseded in scope by 0022_ at implementation time.
+
+## Revisions
+
+- R1 (2026-10-27, [spec 0033](0033-effect-diagnostics-as-errors.md)): the generated port and conformance suite write a schema's decoded type as `Schema.Schema.Type<typeof X>`, not `typeof X.Type`. The Effect language service rewrites the latter to `X` when `X` is a class, and the generator cannot tell a class from a struct; the former is correct for both. §3's snippet shows the earlier spelling; the behaviour is unchanged.

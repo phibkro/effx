@@ -11,7 +11,8 @@
   "type": "module",
   "scripts": {
     "effect:setup": "effect-tsgo patch --typescript --oxlint",
-    "effect:diagnostics": "effect-tsgo diagnostics --project tsconfig.json --strict",
+    "effect:diagnostics": "bash scripts/effect-diagnostics.sh",
+    "effect:sync": "bun scripts/sync-effect-policy.ts && oxfmt tsconfig.effect-stability.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives .",
     "fmt": "oxfmt .",

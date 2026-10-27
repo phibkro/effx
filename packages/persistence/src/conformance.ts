@@ -9,7 +9,13 @@ import type { PersistencePort, PortMethod } from "./ports.ts";
 
 const quote = JSON.stringify;
 
-const typeOf = (expression: string): string => `typeof ${expression}.Type`;
+/**
+ * The decoded type of a schema expression. `Schema.Schema.Type<typeof X>` holds for a struct, a
+ * class and a union alike; `typeof X.Type` is replaceable by `X` when `X` is a class, which the
+ * generator cannot tell from the expression.
+ */
+export const schemaType = (expression: string): string =>
+  `Schema.Schema.Type<typeof ${expression}>`;
 
 const pairsOf = (
   commands: ReadonlyArray<PortMethod>,
@@ -117,11 +123,11 @@ export const conformanceBody = (
 
   const methodTypes = methodSchemas.flatMap((method) => [
     `    readonly ${quote(method.name)}: {`,
-    `      readonly success: NonEmpty<DomainCase<${typeOf(method.input)}, ${typeOf(method.success)}, E, ${service} | R>>;`,
+    `      readonly success: NonEmpty<DomainCase<${schemaType(method.input)}, ${schemaType(method.success)}, E, ${service} | R>>;`,
     "      readonly errors: {",
     ...method.members.map(
       (error) =>
-        `        readonly ${quote(error.key)}: NonEmpty<DomainCase<${typeOf(method.input)}, ${typeOf(error.expression)}, E, ${service} | R>>;`,
+        `        readonly ${quote(error.key)}: NonEmpty<DomainCase<${schemaType(method.input)}, ${schemaType(error.expression)}, E, ${service} | R>>;`,
     ),
     "      };",
     "    };",
@@ -131,7 +137,7 @@ export const conformanceBody = (
     const a = schemaExpr(imports, first.operation.input);
     const b = schemaExpr(imports, second.operation.input);
 
-    return `    readonly ${quote(`${first.name}+${second.name}`)}: NonEmpty<TransactionCase<${typeOf(a)}, ${typeOf(b)}, E, ${service} | R>>;`;
+    return `    readonly ${quote(`${first.name}+${second.name}`)}: NonEmpty<TransactionCase<${schemaType(a)}, ${schemaType(b)}, E, ${service} | R>>;`;
   });
 
   const constants = methodSchemas.flatMap((method) => [
