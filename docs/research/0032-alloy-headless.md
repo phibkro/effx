@@ -316,6 +316,15 @@ tools returned `EFFX4303`, and missing, malformed and incomplete receipts
 returned `EFFX4304`. `bun run docs:api` also exited 0 (90 compiler, 11 IR and
 12 runtime modules).
 
+The committed-tree gate on `8c89238` reached all Alloy assertions, all six
+mutants and the vector/interpreter comparison, but the repository test run
+failed: 136 files and 1,570 tests passed, one diagnostic-registry test failed.
+Its source scanner could not see the codes hidden behind the domain catalogue's
+wrapper factory. The repair follows the existing direct `defineDiagnostic(entry(...))`
+pattern and keeps each title as data. The registry identity and rendering tests
+and the production source scanner then passed in the 65-test selection:
+`bun --bun vitest run packages/compiler/test/diagnostic-registry.test.ts packages/domain-model/test/domain-model.test.ts tools/conventions/tests --reporter verbose`.
+
 ## Effect 4.0.6 lookup coverage
 
 The installed `ai-docs/src` examples contain no exact use of these APIs used
