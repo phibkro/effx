@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { defineDiagnostic, type DiagnosticEntry } from "@effx/diagnostics";
+import { defineDiagnostic, type DiagnosticEntry, type DiagnosticExample } from "@effx/diagnostics";
 
 const Params = Schema.Struct({
   domain: Schema.String,
@@ -8,18 +8,12 @@ const Params = Schema.Struct({
   steps: Schema.Int,
 });
 
-interface Example {
-  readonly before: string;
-  readonly after: string;
-  readonly explanation: string;
-}
-
 const entry = <const Code extends string, const Severity extends "error" | "warning">(
   code: Code,
   title: string,
   severity: Severity,
   explanation: string,
-  example: Example,
+  example: DiagnosticExample,
 ) =>
   ({
     code,
@@ -175,7 +169,7 @@ community A7_TimeMonotonic PASS (scope 1, steps 4, ...)`,
     explanation:
       "A declared write lets the model choose any value of the field's order. The warning marks the over-approximation; precise command effects belong to a later slice.",
   },
-} as const satisfies Record<string, Example>;
+} as const satisfies Record<string, DiagnosticExample>;
 
 export const DomainDiagnostics = {
   EFFX4301: defineDiagnostic(
