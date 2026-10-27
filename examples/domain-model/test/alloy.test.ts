@@ -1,6 +1,18 @@
 import { BunServices } from "@effect/platform-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Fiber, FileSystem, Path, Result, Schedule, Schema } from "effect";
+import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Path,
+  Result,
+  Schedule,
+  Schema,
+  Stdio,
+  Stream,
+} from "effect";
 import effectPackage from "effect/package.json";
 import {
   AlloyReceiptJson,
@@ -17,11 +29,24 @@ import {
   killOwnedGroup,
   testToolPath,
 } from "../../../scripts/test/alloy-cli.ts";
-import { printLines } from "@effx/cli";
 import { encodeJsonString, testDirectory } from "../../../tools/testing/projects.ts";
 import { domain } from "../domain.ts";
 import { mutants, withoutDirectoryGrant } from "../mutants.ts";
 import { authorize, machineCan } from "./interpreter.ts";
+
+/** Progress lines go through the process `Stdio` sink, as the CLI's own output owner does. */
+const printLines = (stream: "stdout" | "stderr", lines: ReadonlyArray<string>) =>
+  lines.length === 0
+    ? Effect.void
+    : Effect.flatMap(Stdio.Stdio, (stdio) =>
+        Stream.make(`${lines.join("\n")}\n`).pipe(
+          Stream.run(
+            stream === "stdout"
+              ? stdio.stdout({ endOnDone: false })
+              : stdio.stderr({ endOnDone: false }),
+          ),
+        ),
+      );
 
 const fixtureTsconfig = new URL("../tsconfig.json", import.meta.url).pathname;
 

@@ -59,8 +59,6 @@ export {
   type AlloyRunRequest,
 } from "./alloy-boundary.ts";
 
-export { printLines, printOut, printErr } from "./output.ts";
-
 export {
   acquireLspTransport,
   RpcFailure,
