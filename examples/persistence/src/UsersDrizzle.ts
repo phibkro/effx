@@ -23,8 +23,8 @@ const users = pgTable(
 
 const isUniqueViolation = Schema.is(SqlError.UniqueViolation);
 
-/** The pinned stable-Effect patch is required at this foreign ORM boundary.
- * Retire the patch when Drizzle's native Effect adapter supports Effect 4.0.0.
+/** Drizzle's native Effect adapter (`drizzle-orm/effect-pglite`, 1.0.0-rc.5) runs on stable
+ * Effect without a patch. Re-examine this boundary when Drizzle 1.0 leaves its release candidate.
  * Methods never open a runtime or acquire another connection.
  */
 export const UsersDrizzle = Layer.unwrap(
