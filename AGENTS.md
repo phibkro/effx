@@ -80,7 +80,7 @@ suites `scripts/test/lift-*.test.ts` (they import no unstable API and carry no d
 child. It grants no Node imports/types, process authority or global resolver hooks in packages and makes
 no sandbox claim. Rules, exact APIs, examined versions, verification and the retirement trigger live in
 `docs/research/0019-implementation-design.md` (S6 native child custody).
-EX-0037 owns the Alloy child boundary in `scripts/alloy-execution.ts` and its real-child test adapter.
+EX-0038 owns the Alloy child boundary in `scripts/alloy-execution.ts` and its real-child test adapter.
 Portable packages use `AlloyExecution`; the root owns process scopes. The record is in `docs/research/0032-alloy-headless.md`.
 
 ## Commands

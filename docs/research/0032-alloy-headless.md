@@ -25,7 +25,7 @@ default. The publish job depends on the gate, retains its existing write
 authority, and installs no Nix. These workflow changes are unverified on
 GitHub because this branch has not been pushed. Local `actionlint` from that
 same nixpkgs revision exited 0 for both workflow files.
-The effx worktree now uses Effect 4.0.5; its initial implementation used 4.0.0.
+The effx worktree now uses Effect 4.0.6; the initial implementation used 4.0.0.
 Consumer check representations cross the boundary as JSON, not runtime objects.
 
 `alloy6 help`, `alloy6 help commands`, and `alloy6 help exec` expose the
@@ -244,11 +244,11 @@ and 93 generated files per side. Both snapshot SHA-256 values were
 `cf819ea19ed2890db4b528f7046bffb0a84fd0d229b1a05eb42d6af331e0b246`.
 This run used Effect 4.0.0 on both sides.
 
-Falsifier 1 isolates this slice from the Effect upgrade. The authoritative
-post-rebase baseline is `57521a84`; both archives use Effect 4.0.5.
-The Effect 4.0.0 comparison above is pre-rebase evidence.
+Falsifier 1 isolates this slice from Effect upgrades. The current authoritative
+baseline is `3419f263` and both archives use Effect 4.0.6. The 4.0.0 and
+4.0.5 comparisons below are pre-rebase evidence.
 
-The same-version corpus comparison command, run from the worktree root after
+The pre-rebase 4.0.5 corpus comparison command, run from the worktree root after
 `bun install`, uses a disposable directory and the repository snapshot harness:
 
 ```bash
@@ -298,11 +298,11 @@ tools returned `EFFX4303`; missing, malformed and incomplete receipts returned
 `EFFX4304`; interruption reaped the stopped child. Scope-2 parameter and write
 checks passed, and the unknown guard reported `EFFX4302`.
 
-## Effect 4.0.5 lookup coverage
+## Effect 4.0.6 lookup coverage
 
 The installed `ai-docs/src` examples contain no exact use of these APIs used
 by this slice. Their signatures and source documentation were checked in the
-installed Effect 4.0.5 source:
+installed Effect 4.0.6 source:
 
 - `Cause.hasInterrupts`, `Cause.pretty`; `Effect.all`, `Effect.cached`, `Effect.raceFirst`, `Effect.result`, `Effect.timeout`.
 - `Exit.isFailure`, `Exit.isSuccess`; `Fiber.await`, `Fiber.interrupt`; `Option.getOrThrow`.
@@ -310,16 +310,16 @@ installed Effect 4.0.5 source:
 - `Schema.Json`, `Schema.NonEmptyArray`, `Schema.Record`, `Schema.TaggedStruct`, `Schema.TaggedUnion`, `Schema.Tuple`, `Schema.decodeEffect`, `Schema.decodeUnknownResult`, `Schema.fromJsonString`, `Schema.isGreaterThan`, `Schema.make`, `Schema.makeFilter`, `Schema.makeFilterGroup`, `Schema.optionalKey`.
 - `SchemaRepresentation.fromJson`, `SchemaRepresentation.fromRepresentation`, `SchemaRepresentation.isFiniteReviver`, `SchemaRepresentation.makeReviverFilter`, `SchemaRepresentation.toJson`, `SchemaRepresentation.toRepresentation`; `Stream.mkString`.
 
-## Native child boundary: EX-0037 (open)
+## Native child boundary: EX-0038 (open)
 
 - **Rules:** FX002, FX003, FX006, FX012 and `effecttsgo/unstable-api-usage`.
 - **Owner:** repository root (`AGENTS.md`). The production adapter is `scripts/alloy-execution.ts`. The real-child test adapter is `scripts/test/alloy-cli.ts`.
 - **Scope:** The portable CLI uses `AlloyExecution`. Only the adapters import unstable `effect/process`. The process root selects the implementation.
-- **Reason:** Effect 4.0.0 and 4.0.5 expose child process custody through the unstable `ChildProcess` and `ChildProcessSpawner` APIs. No stable equivalent is installed.
+- **Reason:** Effect 4.0.0, 4.0.5 and 4.0.6 expose child process custody through the unstable `ChildProcess` and `ChildProcessSpawner` APIs. No stable equivalent is installed.
 - **Alternatives:** `@effect/platform-bun` supplies the native spawner. It is used instead of `Bun.spawn` or `node:child_process`. `Bun.which` resolves `alloy6` only at the root.
 - **Ownership:** Each call owns a child scope. The child receives an empty environment and a forced-kill grace. Two streams drain concurrently and retain at most 8 KiB each.
 - **Data boundary:** The CLI checks the version, exit code and decoded receipt. Its scope owns the temporary output directory. The adapter makes no sandbox claim.
-- **Examined versions:** Effect `4.0.0` and `4.0.5`, `@effect/platform-bun` `4.0.0` and `4.0.5`, `@effect/vitest` `4.0.0` and `4.0.5`, Bun `1.3.13`, Alloy `6.2.0`.
+- **Examined versions:** Effect `4.0.0`, `4.0.5` and `4.0.6`, `@effect/platform-bun` and `@effect/vitest` `4.0.0`, `4.0.5` and `4.0.6`, Bun `1.3.13`, Alloy `6.2.0`.
 - **Verification at Effect 4.0.0:** `nix shell nixpkgs#alloy6 -c bun --bun vitest run examples/domain-model/test/alloy.test.ts -t "interrupting the real CLI"` exited 0 (one test). The test interrupted the CLI after a stopped child reported its PID and observed that the child was reaped. The parent test grants five seconds for the CLI to complete its one-second child escalation.
 - **Verification at Effect 4.0.5:** The 16-test pinned-tool selection above exited 0 and included the real interruption and receipt checks.
 - **Receipt checks:** The `-t "Alloy receipt"` selection exited 0 (three tests). Missing, malformed and incomplete receipts each produced `EFFX4304`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/** @effect-diagnostics unstableApiUsage:off -- EX-0037: Alloy's scoped native child process at the process root. */
+/** @effect-diagnostics unstableApiUsage:off -- EX-0038: Alloy's scoped native child process at the process root. */
 import {
   AlloyExecution,
   AlloyExecutionError,

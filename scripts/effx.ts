@@ -7,7 +7,7 @@ import { acquireLinuxLspIO } from "./lsp-linux.ts";
 import { liftCheckExecutionLayer, liftToolchainLayer } from "./lift-execution.ts";
 import { alloyExecutionLayer } from "./alloy-execution.ts";
 
-// EX-0033 / EX-0035 / EX-0034 / EX-0037: native capabilities are selected at the process root.
+// EX-0033 / EX-0035 / EX-0034 / EX-0038: native capabilities are selected at the process root.
 // Acquisition stays suspended until a command asks; each child belongs to its calling scope.
 const Platform = Layer.mergeAll(
   executableInventoryLayer,

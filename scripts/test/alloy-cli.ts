@@ -1,4 +1,4 @@
-/** @effect-diagnostics unstableApiUsage:off -- EX-0037: scoped real-process acceptance for Alloy models. */
+/** @effect-diagnostics unstableApiUsage:off -- EX-0038: scoped real-process acceptance for Alloy models. */
 import { AlloyExecutionError } from "@effx/cli";
 import { Duration, Effect, Path, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
