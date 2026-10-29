@@ -25,7 +25,7 @@
         "@types/bun": "1.4.2",
         "@typescript/typescript6": "6.0.2",
         "drizzle-orm": "1.0.0-rc.5",
-        "foldkit": "0.165.0",
+        "foldkit": "0.170.0",
         "oxfmt": "0.71.0",
         "oxlint": "1.90.0",
         "oxlint-tsgolint": "7.0.2005",
@@ -154,7 +154,7 @@
         "effect": "4.1.0",
       },
       "peerDependencies": {
-        "effect": ">=4.1.0 <5",
+        "effect": ">=4.1.0 <4.2.0",
       },
     },
     "packages/diagnostics": {
@@ -178,7 +178,7 @@
         "effect": "4.1.0",
       },
       "peerDependencies": {
-        "effect": ">=4.1.0 <5",
+        "effect": ">=4.1.0 <4.2.0",
       },
     },
     "packages/frontend-ts": {
@@ -200,7 +200,7 @@
         "effect": "4.1.0",
       },
       "peerDependencies": {
-        "effect": ">=4.1.0 <5",
+        "effect": ">=4.1.0 <4.2.0",
       },
     },
     "packages/persistence": {
@@ -215,7 +215,7 @@
         "effect": "4.1.0",
       },
       "peerDependencies": {
-        "effect": ">=4.1.0 <5",
+        "effect": ">=4.1.0 <4.2.0",
       },
     },
     "packages/runtime": {
@@ -1053,7 +1053,7 @@
 
     "fill-range": ["fill-range@2.2.4", "", { "dependencies": { "is-number": "^2.1.0", "isobject": "^2.0.0", "randomatic": "^3.0.0", "repeat-element": "^1.1.2", "repeat-string": "^1.5.2" } }, "sha512-cnrcCbj01+j2gTG921VZPnHbjmdAf8oQV/iGeV2kZxGSyfYjjTyY79ErsK1WJWMpw6DaApEX72binqJE+/d+5Q=="],
 
-    "foldkit": ["foldkit@0.165.0", "", { "dependencies": { "parse5": "^8.0.1" }, "peerDependencies": { "@effect/platform-browser": "4.0.0", "effect": "4.0.0" } }, "sha512-ue0DVJvRtb6PnF4SbW/qWJIEuseXxaPHEiQX1iiG1Nk2n5BUMD0KYjsm741HsboAJlJPojzSvyG9HXwzpVUQmw=="],
+    "foldkit": ["foldkit@0.170.0", "", { "dependencies": { "parse5": "^8.0.1" }, "peerDependencies": { "@effect/platform-browser": "~4.1.0", "effect": "~4.1.0" } }, "sha512-H/MRQe/IZ/LqpgPi+Zy1S1OXQ8o12e2S/6U+phQu3WmoHSm7Vase/dEnOvrq9YZfqxK44/oVq6wE9oqXzEIaig=="],
 
     "for-in": ["for-in@1.0.2", "", {}, "sha512-7EwmXrOjyL+ChxMhmG5lnW9MPt1aIeZEwKhQzoBUdTV0N3zuwWDZYVJatDvZ2OyzPUvdIAZDsCetk3coyMfcnQ=="],
 
