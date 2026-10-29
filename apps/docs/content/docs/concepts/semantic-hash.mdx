@@ -35,7 +35,7 @@ Encoding is derived from the IR Schema (`Schema.toCodecJson`), so no hand-writte
 
 ## Hash
 
-`semanticHash(ir)` is an Effect that needs the `Crypto` service. It takes the SHA-256 digest of the UTF-8 bytes of `canonical(ir)` and hex-encodes it. The CLI provides `Crypto` from the Bun platform layer.
+`semanticHash(ir)` is an Effect that needs the `Digest` service of `effect/crypto` (Effect 4.1 and later). It takes the SHA-256 digest of the UTF-8 bytes of `canonical(ir)` and hex-encodes it. The CLI provides `Digest` from the Bun platform layer (`BunCrypto.layerDigest`). Effect 4.1 no longer bundles crypto into the runtime services, so a program that calls `semanticHash` provides a `Digest` layer itself.
 
 `effx build` writes the canonical text to `.effx/ir.json` and the hash to `semanticHash` in `.effx/manifest.json` ([effx build](/docs/cli/build)).
 
