@@ -13,11 +13,10 @@ export class ProfileAccessAnnotation extends Context.Service<
 export const profileAccessAnnotations = (spec: HttpAccessAnnotationSpec) =>
   Context.make(ProfileAccessAnnotation, spec);
 
-export class CredentialMissing extends Schema.TaggedError<CredentialMissing>()(
-  "CredentialMissing",
-  { message: Schema.String },
-  { httpApiStatus: 401 },
-) {}
+export class CredentialMissing extends Schema.TaggedError<
+  CredentialMissing,
+  { readonly brand: unique symbol }
+>()("CredentialMissing", { message: Schema.String }, { httpApiStatus: 401 }) {}
 
 /** The tuple preserves the concrete 401 type in HttpApiClient's error channel. */
 export const ProfileProblemResponses = (_identifier: string, codes: ReadonlyArray<string>) => {

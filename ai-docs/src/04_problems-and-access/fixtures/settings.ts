@@ -22,16 +22,15 @@ export const WriteHeaders = Schema.Struct({
 // Domain errors. `@Http.Problems({ map })` keys are these classes' `_tag`s.
 // ---------------------------------------------------------------------------
 
-export class SettingsNotFound extends Schema.TaggedError<SettingsNotFound>()(
-  "SettingsNotFound",
-  {},
-) {}
+export class SettingsNotFound extends Schema.TaggedError<
+  SettingsNotFound,
+  { readonly brand: unique symbol }
+>()("SettingsNotFound", {}) {}
 
-export class AccessDenied extends Schema.TaggedError<AccessDenied>()(
-  "AccessDenied",
-  { message: Schema.String },
-  { httpApiStatus: 403 },
-) {}
+export class AccessDenied extends Schema.TaggedError<
+  AccessDenied,
+  { readonly brand: unique symbol }
+>()("AccessDenied", { message: Schema.String }, { httpApiStatus: 403 }) {}
 
 // ---------------------------------------------------------------------------
 // Application-owned access pieces. effx records them as symbols.

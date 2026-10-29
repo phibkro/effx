@@ -1,4 +1,5 @@
-import { Crypto, Effect, FileSystem, Option, Path, Result, Runtime, Schema, Stdio } from "effect";
+import { Effect, FileSystem, Option, Path, Result, Runtime, Schema, Stdio } from "effect";
+import { Digest } from "effect/crypto";
 import {
   CompilerFault,
   Diagnostic,
@@ -44,7 +45,10 @@ import {
  */
 
 /** The process exit code of a finished command; the report has already been printed. */
-export class LiftExit extends Schema.TaggedError<LiftExit>()("LiftExit", { code: Schema.Int }) {
+export class LiftExit extends Schema.TaggedError<LiftExit, { readonly brand: unique symbol }>()(
+  "LiftExit",
+  { code: Schema.Int },
+) {
   override readonly [Runtime.errorReported] = false;
 
   override get [Runtime.errorExitCode]() {
@@ -53,10 +57,10 @@ export class LiftExit extends Schema.TaggedError<LiftExit>()("LiftExit", { code:
 }
 
 /** The project could not be analyzed at all: its diagnostics are the only report. */
-export class LiftAnalysisFailed extends Schema.TaggedError<LiftAnalysisFailed>()(
-  "LiftAnalysisFailed",
-  { diagnostics: Schema.Array(Diagnostic) },
-) {}
+export class LiftAnalysisFailed extends Schema.TaggedError<
+  LiftAnalysisFailed,
+  { readonly brand: unique symbol }
+>()("LiftAnalysisFailed", { diagnostics: Schema.Array(Diagnostic) }) {}
 
 /** What one lift is asked to lift. */
 export interface LiftSelection {
@@ -156,7 +160,7 @@ export const liftCommand = Effect.fn("lift")(function* (
   CompilerFault | LiftExit,
   | FileSystem.FileSystem
   | Path.Path
-  | Crypto.Crypto
+  | Digest.Digest
   | Stdio.Stdio
   | LiftFrontend
   | LiftCheckExecution

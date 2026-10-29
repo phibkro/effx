@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
   Extensions,
@@ -19,7 +19,7 @@ import { app, corpusGroups, inputOf } from "./lift-corpus-input.ts";
 requireLiftCorpusRuntime();
 
 const Services = Layer.mergeAll(LiftTsSourceFrontend.layer, TsSourceFrontend.layer).pipe(
-  Layer.provideMerge(BunServices.layer),
+  Layer.provideMerge(NativePlatform),
 );
 
 const registry = liftRegistryOf(Extensions.builtin);

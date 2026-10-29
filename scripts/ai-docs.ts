@@ -52,7 +52,10 @@ const packagesRoot = "packages";
 /** Files every publishable package must ship (npm `files` entries). */
 const packageFiles = ["AGENTS.md", "ai-docs/**/*"] as const;
 
-export class AiDocsError extends Schema.TaggedError<AiDocsError>()("AiDocsError", {
+export class AiDocsError extends Schema.TaggedError<
+  AiDocsError,
+  { readonly brand: unique symbol }
+>()("AiDocsError", {
   message: Schema.String,
 }) {}
 

@@ -1,5 +1,5 @@
 import { copyStableV4Fixture, copyUsersFixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { ManifestJson, build, resolveProject } from "@effx/cli";
@@ -11,8 +11,8 @@ import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependen
 requireStableV4FixtureDependencies(new URL("./fixtures/stable-v4/", import.meta.url).pathname);
 
 const Services = Layer.mergeAll(
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
-  BunServices.layer,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
+  NativePlatform,
 );
 
 const errors = (result: CompileResult) => result.diagnostics.filter((d) => d.severity === "error");

@@ -1,18 +1,8 @@
 import { assert, describe, it } from "@effect/vitest";
-import {
-  Cause,
-  Crypto,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  Option,
-  Path,
-  Schema,
-  Stdio,
-} from "effect";
+import { Cause, Effect, Exit, FileSystem, Layer, Option, Path, Schema, Stdio } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
 import { bundledDiagnosticEntries, compile, SourceFrontend } from "@effx/compiler";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import {
   copyStableV4Fixture,
@@ -79,7 +69,8 @@ describe("LSP method boundary and projection", () => {
     expectTypeOf<Effect.Error<typeof program>>().toEqualTypeOf<TransportError>();
     expectTypeOf<Effect.Error<typeof program>>().not.toEqualTypeOf<never>();
     expectTypeOf<Effect.Services<typeof program>>().toEqualTypeOf<
-      | Crypto.Crypto
+      | Digest.Digest
+      | SecureRandom.SecureRandom
       | FileSystem.FileSystem
       | Path.Path
       | SourceFrontend
@@ -380,7 +371,7 @@ const published = Effect.fnUntraced(function* (peer: Peer, uri: string, version?
 const liveProject = <A, E, R>(program: Effect.Effect<A, E, R>) =>
   program.pipe(
     Effect.scoped,
-    Effect.provide(Layer.provideMerge(TsSourceFrontend.layer, BunServices.layer)),
+    Effect.provide(Layer.provideMerge(TsSourceFrontend.layer, NativePlatform)),
   );
 
 const clientParameters = {

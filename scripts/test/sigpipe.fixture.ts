@@ -13,7 +13,10 @@ import {
   SigpipeReceipt,
 } from "./sigpipe.contract.ts";
 
-class SignalFixtureFault extends Schema.TaggedError<SignalFixtureFault>()("SignalFixtureFault", {
+class SignalFixtureFault extends Schema.TaggedError<
+  SignalFixtureFault,
+  { readonly brand: unique symbol }
+>()("SignalFixtureFault", {
   stage: Schema.Literals(["target", "integrity", "condition", "write", "restore", "release"]),
 }) {}
 

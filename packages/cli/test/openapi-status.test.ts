@@ -6,7 +6,7 @@
  * Verification: this suite and bun run effect:diagnostics.
  * Examined: effect 4.0.0, @effect/tsgo 0.48.0; retire when HttpApi/OpenApi stabilize.
  */
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -20,8 +20,8 @@ const repoRoot = new URL("../../../", import.meta.url).pathname;
 const runtime = new URL("../../runtime/src/index.ts", import.meta.url).pathname;
 
 const Services = Layer.mergeAll(
-  BunServices.layer,
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  NativePlatform,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
 );
 
 interface GeneratedContract {

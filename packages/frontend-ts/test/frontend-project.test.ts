@@ -1,5 +1,5 @@
 import { copyUsersFixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { type ProjectConfig, Extensions, SourceFrontend, compile } from "@effx/compiler";
 import { canonical, semanticHash } from "@effx/ir";
@@ -9,9 +9,9 @@ import { loadProject, readTsconfigEffx, targetProfileFromVersion } from "../src/
 
 const tsconfigPath = new URL("./fixtures/users/tsconfig.json", import.meta.url).pathname;
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 const encodePackagePin = Schema.encodeEffect(
   Schema.fromJsonString(
@@ -57,7 +57,7 @@ describe("frontend target project", () => {
           },
         ],
       );
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect(
@@ -123,7 +123,7 @@ describe("frontend target project", () => {
         assert.deepStrictEqual(explicit.rootNames, [
           path.join(fixtureRoot, "src", "operations.ts"),
         ]);
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+      }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("keeps canonical IR and hash independent of output directory and mode", () =>
@@ -247,7 +247,7 @@ describe("frontend target project", () => {
           },
         ],
       );
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("reports EFFX2701 with tsconfig location for a missing or unsupported package", () =>

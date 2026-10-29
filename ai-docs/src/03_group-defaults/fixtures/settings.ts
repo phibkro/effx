@@ -56,11 +56,10 @@ export const SettingsRename = Schema.Struct({ name: Schema.String });
 /** The concrete root the group belongs to (external bindings need a symbol, not a string). */
 export const SettingsApi = HttpApi.make("settings-api");
 
-export class SessionDenied extends Schema.TaggedError<SessionDenied>()(
-  "SessionDenied",
-  { message: Schema.String },
-  { httpApiStatus: 401 },
-) {}
+export class SessionDenied extends Schema.TaggedError<
+  SessionDenied,
+  { readonly brand: unique symbol }
+>()("SessionDenied", { message: Schema.String }, { httpApiStatus: 401 }) {}
 
 /** A security marker: it declares the credential scheme and implements no authorization. */
 export class SessionSecurity extends HttpApiMiddleware.Service<SessionSecurity>()(

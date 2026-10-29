@@ -1,7 +1,6 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
-  Crypto,
   Cause,
   Deferred,
   Effect,
@@ -15,6 +14,7 @@ import {
   Schema,
   Result,
 } from "effect";
+import { SecureRandom } from "effect/crypto";
 import type { PlatformError } from "effect/PlatformError";
 import { isPlatformError } from "effect/PlatformError";
 import { expectTypeOf } from "vitest";
@@ -51,9 +51,11 @@ const root = new URL("../../../", import.meta.url).pathname;
 
 const ownerModule = new URL("../src/output-owner.ts", import.meta.url).pathname;
 
+const platformModule = new URL("../../../scripts/native-platform.ts", import.meta.url).pathname;
+
 const lockName = ".effx-output-owner.lock";
 
-const frontend = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
+const frontend = TsSourceFrontend.layer.pipe(Layer.provideMerge(NativePlatform));
 
 const versions = { effx: "test", effect: "4.0.0", typescript: "6" };
 
@@ -67,14 +69,15 @@ const resourcesAt = (directory: string): OutputResources => ({
 // resource. Completion is witnessed by child exit, never a timed sleep.
 const competingProcess = Effect.fnUntraced(function* (resources: OutputResources) {
   const code = `
-import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { BunRuntime } from "@effect/platform-bun";
 import { Console, Effect } from "effect";
+import { NativePlatform } from ${yield* encodeJsonString(platformModule)};
 import { acquireOutputOwner } from ${yield* encodeJsonString(ownerModule)};
 BunRuntime.runMain(Effect.scoped(acquireOutputOwner({
   generatedDir: ${yield* encodeJsonString(resources.generatedDir)},
   effxDir: ${yield* encodeJsonString(resources.effxDir)}
 })).pipe(Effect.andThen(Console.log("ADMITTED")),
-Effect.catchTag("OutputBusy", () => Console.log("REFUSED")), Effect.provide(BunServices.layer)));
+Effect.catchTag("OutputBusy", () => Console.log("REFUSED")), Effect.provide(NativePlatform)));
 `;
 
   return yield* subprocess(["bun", "-e", code], root);
@@ -107,7 +110,7 @@ describe("normal build result writer and cross-process custody", () => {
         Effect.Effect<
           OutputOwner,
           OutputBusy | PlatformError,
-          FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+          FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom | Scope.Scope
         >
       >();
     }),
@@ -138,7 +141,7 @@ describe("normal build result writer and cross-process custody", () => {
       }
 
       yield* assertOutputOwner(owner, resources);
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("new output suffixes resolve through physical symlink parents", () =>
@@ -159,7 +162,7 @@ describe("normal build result writer and cross-process custody", () => {
         generatedDir: directory + "/physical/new/generated",
         effxDir: directory + "/physical/new",
       });
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("scope success, failure, and interruption release custody", () =>
@@ -200,7 +203,7 @@ describe("normal build result writer and cross-process custody", () => {
       assert.isTrue(Exit.isFailure(yield* Fiber.await(fiber)));
       yield* Effect.scoped(acquireOutputOwner(resources));
       assert.isFalse(yield* fs.exists(resources.effxDir + "/" + lockName));
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("failed set acquisition rolls back earlier locks and never removes another token", () =>
@@ -232,7 +235,7 @@ describe("normal build result writer and cross-process custody", () => {
         yield* fs.readFileString(other.effxDir + "/" + lockName),
         "replacement-owner",
       );
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.live("actual second process refuses canonical aliases, then acquires after release", () =>
@@ -259,7 +262,7 @@ describe("normal build result writer and cross-process custody", () => {
       assert.strictEqual(admitted.code, 0, admitted.text);
       assert.include(admitted.text, "ADMITTED");
       assert.isFalse(yield* fs.exists(resources.effxDir + "/" + lockName));
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("manifest file aliases share custody even before their target exists", () =>
@@ -284,7 +287,7 @@ describe("normal build result writer and cross-process custody", () => {
       );
 
       assert.strictEqual(error._tag, "OutputBusy");
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.live("copied fixture writer preserves normal bytes without recompiling accepted result", () =>
@@ -447,7 +450,7 @@ describe("normal build result writer and cross-process custody", () => {
         assert.include(released.text, "ADMITTED");
         assert.isFalse(yield* fs.exists(old.generatedDir + "/" + lockName));
         assert.isTrue(yield* fs.exists(target.generatedDir + "/" + lockName));
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+      }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect(
@@ -472,7 +475,11 @@ describe("normal build result writer and cross-process custody", () => {
           Effect.Effect<
             { readonly owner: OutputOwner; readonly value: never },
             CompilerFault | OutputBusy | PlatformError,
-            SourceFrontend | FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+            | SourceFrontend
+            | FileSystem.FileSystem
+            | Path.Path
+            | SecureRandom.SecureRandom
+            | Scope.Scope
           >
         >();
         assert.isFalse(yield* fs.exists(target.generatedDir));
@@ -551,7 +558,7 @@ describe("normal build result writer and cross-process custody", () => {
           after._tag === "Open" ? (after.finalizers?.size ?? 1) : 0,
           initialFinalizers,
         );
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+      }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("copied fixture migration prunes only held old manifest files after admission", () =>
@@ -983,6 +990,6 @@ describe("normal build result writer and cross-process custody", () => {
           );
           assert.isFalse(yield* fs.exists(other.effxDir + "/" + lockName));
         }
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+      }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 });

@@ -1,6 +1,8 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
-import { Crypto, Effect, FileSystem, Schema } from "effect";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, FileSystem, Schema } from "effect";
+import { Digest } from "effect/crypto";
 import {
   compareVersions,
   NativeAssetManifest,
@@ -14,15 +16,12 @@ const decodeManifest = Schema.decodeUnknownEffect(Schema.fromJsonString(NativeAs
   onExcessProperty: "error",
 });
 
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-
 /** Offline artifact tests: no compiler, subprocess, dlopen, descriptor or host qualification. */
 describe("build-time LSP native artifact", () => {
   it.effect("detects source or ELF byte drift rather than trusting copied metadata", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const crypto = yield* Crypto.Crypto;
+      const digest = yield* Digest.Digest;
 
       const manifest = yield* decodeManifest(
         yield* fs.readFileString(`${root}packages/cli/native/lsp-readiness.json`),
@@ -31,15 +30,15 @@ describe("build-time LSP native artifact", () => {
       const source = yield* fs.readFile(`${root}${manifest.source.file}`);
       const bytes = yield* fs.readFile(`${root}packages/cli/native/${manifest.library}`);
       assert.strictEqual(source.length, manifest.source.byteLength);
-      assert.strictEqual(hex(yield* crypto.digest("SHA-256", source)), manifest.source.sha256);
+      assert.strictEqual(yield* digest.digestHex(Digest.sha256, source), manifest.source.sha256);
       assert.strictEqual(bytes.length, manifest.byteLength);
       assert.strictEqual(manifest.abiVersion, 2);
       assert.deepStrictEqual(manifest.abi, nativeSymbols);
       assert.deepStrictEqual(manifest.exportedFunctions, nativeAssetSymbols);
-      assert.strictEqual(hex(yield* crypto.digest("SHA-256", bytes)), manifest.sha256);
+      assert.strictEqual(yield* digest.digestHex(Digest.sha256, bytes), manifest.sha256);
       const changed = bytes.slice();
       changed[changed.length - 1] = (changed[changed.length - 1] ?? 0) ^ 1;
-      assert.notStrictEqual(hex(yield* crypto.digest("SHA-256", changed)), manifest.sha256);
+      assert.notStrictEqual(yield* digest.digestHex(Digest.sha256, changed), manifest.sha256);
       assert.strictEqual(bytes[4], 2);
       assert.strictEqual(bytes[5], 1);
       assert.strictEqual(
@@ -53,7 +52,7 @@ describe("build-time LSP native artifact", () => {
         [...manifest.glibcVersions].sort(compareVersions).at(-1),
         manifest.minimumGlibc,
       );
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("rejects unapproved evidence fields at every manifest level", () =>

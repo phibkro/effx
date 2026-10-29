@@ -12,10 +12,16 @@ export const UserPublic = Schema.Struct({ id: UserId, displayName: Schema.String
 
 export const UserSelf = Schema.Struct({ id: UserId, email: Email, displayName: Schema.String });
 
-export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
+export class UserNotFound extends Schema.TaggedError<
+  UserNotFound,
+  { readonly brand: unique symbol }
+>()("UserNotFound", {
   id: UserId,
 }) {}
 
-export class EmailTaken extends Schema.TaggedError<EmailTaken>()("EmailTaken", {
-  email: Email,
-}) {}
+export class EmailTaken extends Schema.TaggedError<EmailTaken, { readonly brand: unique symbol }>()(
+  "EmailTaken",
+  {
+    email: Email,
+  },
+) {}

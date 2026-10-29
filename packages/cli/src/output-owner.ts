@@ -1,10 +1,15 @@
-import { Crypto, Effect, Exit, FileSystem, Path, Schema, Scope } from "effect";
+import { Effect, Exit, FileSystem, Path, Schema, Scope } from "effect";
+import { SecureRandom } from "effect/crypto";
+import { Hex } from "effect/encoding";
 import type { PlatformError } from "effect/PlatformError";
 
-export class OutputBusy extends Schema.TaggedError<OutputBusy>()("OutputBusy", {
-  resource: Schema.String,
-  message: Schema.String,
-}) {}
+export class OutputBusy extends Schema.TaggedError<OutputBusy, { readonly brand: unique symbol }>()(
+  "OutputBusy",
+  {
+    resource: Schema.String,
+    message: Schema.String,
+  },
+) {}
 
 export interface OutputResources {
   readonly generatedDir: string;
@@ -24,8 +29,6 @@ export interface OutputOwner {
   readonly resources: ReadonlyArray<string>;
   readonly generatedDirs: ReadonlyArray<string>;
 }
-
-const encodeToken = Schema.encodeEffect(Schema.Uint8ArrayFromHex);
 
 const lockName = ".effx-output-owner.lock";
 
@@ -85,14 +88,14 @@ const ownerOf = (
 const acquireDirectories = Effect.fnUntraced(function* (directories: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const parent = yield* Scope.Scope;
   const leases: Array<OutputLease> = [];
 
   return yield* Effect.gen(function* () {
     for (const directory of directories) {
-      // Encoding random bytes cannot fail; a codec failure is an invariant defect.
-      const token = yield* encodeToken(yield* crypto.randomBytes(16)).pipe(Effect.orDie);
+      // A 16-byte hex token is opaque: output custody needs unguessable bytes, not a UUID.
+      const token = Hex.encode(yield* random.randomBytes(16));
       const scope = yield* Scope.fork(parent);
       const lock = path.join(directory, lockName);
       leases.push({ directory, token, scope });
@@ -144,7 +147,7 @@ export const acquireOutputOwner = Effect.fnUntraced(function* (
 ): Effect.fn.Return<
   OutputOwner,
   OutputBusy | PlatformError,
-  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+  FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom | Scope.Scope
 > {
   const directories = yield* resourceSet(resources);
   const generatedDir = yield* canonicalOutputPath(resources.generatedDir);
@@ -201,7 +204,7 @@ export const migrateOutputOwner = Effect.fnUntraced(function* <A, E, R>(
 ): Effect.fn.Return<
   { readonly owner: OutputOwner; readonly value: A },
   E | OutputBusy | PlatformError,
-  R | FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+  R | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom | Scope.Scope
 > {
   if (owner.generatedDirs.length !== 1) {
     return yield* new OutputBusy({

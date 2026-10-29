@@ -4,11 +4,10 @@ import { GetUserInput } from "./schemas.ts";
 import { User } from "./user.ts";
 import { ContractParams } from "./contract-support.ts";
 
-export class StatusConflict extends Schema.TaggedError<StatusConflict>()(
-  "StatusConflict",
-  { message: Schema.String },
-  { httpApiStatus: 409 },
-) {}
+export class StatusConflict extends Schema.TaggedError<
+  StatusConflict,
+  { readonly brand: unique symbol }
+>()("StatusConflict", { message: Schema.String }, { httpApiStatus: 409 }) {}
 
 export const StatusProblemResponses = (_identifier: string, codes: ReadonlyArray<string>) => {
   if (codes.length !== 1 || codes[0] !== "status.conflict") {

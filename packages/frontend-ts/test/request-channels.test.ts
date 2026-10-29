@@ -1,5 +1,5 @@
 import { copyUsersFixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import {
@@ -19,9 +19,9 @@ import { canonical, semanticHash } from "@effx/ir";
  * declarations compile to the same IR, hash and generated files.
  */
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 /** Writes only into this case's scoped users copy. */
 const temp = Effect.fnUntraced(function* (fixtureRoot: string, name: string, contents: string) {

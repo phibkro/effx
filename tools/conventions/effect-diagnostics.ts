@@ -98,12 +98,33 @@ const ruleNames = (...presets: ReadonlyArray<{ readonly rules?: object | undefin
   ...new Set(presets.flatMap((preset) => Object.keys(preset.rules ?? {}))),
 ];
 
+/**
+ * `effectNative` rules that effx does not adopt (spec 0034 §3). `@effect/tsgo` 0.63.0 added the three
+ * `prefer-effect-*` rules to the preset: they ask for `effect/Array`, `effect/String` and `effect/Record`
+ * in place of native array, string and `Object` members, each with a documented semantic caveat, and
+ * reported 3,338 sites in this repository. A rule leaves this list when the repository adopts it or the
+ * preset drops it; the conventions test fails if a name here is no longer in the preset.
+ */
+export const declinedNativeRules: ReadonlyArray<string> = [
+  "effecttsgo/prefer-effect-array",
+  "effecttsgo/prefer-effect-record",
+  "effecttsgo/prefer-effect-string",
+];
+
+/** Every rule the `effectNative` preset lists. */
+export const installedNativeRules: ReadonlyArray<string> = ruleNames(effectNative);
+
+/** The `effectNative` rules effx adopts, in their Oxlint names. */
+export const adoptedNativeRules: ReadonlyArray<string> = installedNativeRules.filter(
+  (rule) => !declinedNativeRules.includes(rule),
+);
+
 const policy = derivePolicy(
   {
     defaults: schema.definitions.effectLanguageServicePluginDiagnosticSeverityDefinition.properties,
     lintRules: Object.keys(oxlintSchema.definitions.DummyRuleMap.properties),
   },
-  { global: ruleNames(recommended, correctness), native: ruleNames(effectNative) },
+  { global: ruleNames(recommended, correctness), native: adoptedNativeRules },
 );
 
 export const defaultOnDiagnostics: ReadonlyArray<string> = policy.defaultOn;

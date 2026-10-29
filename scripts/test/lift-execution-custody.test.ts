@@ -9,7 +9,10 @@ import {
 import { liftCheckExecutionLayer } from "../lift-execution.ts";
 import process from "node:process";
 
-class ProbeMarkerMissing extends Schema.TaggedError<ProbeMarkerMissing>()("ProbeMarkerMissing", {
+class ProbeMarkerMissing extends Schema.TaggedError<
+  ProbeMarkerMissing,
+  { readonly brand: unique symbol }
+>()("ProbeMarkerMissing", {
   path: Schema.String,
 }) {}
 

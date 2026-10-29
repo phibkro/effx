@@ -2,10 +2,10 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Config, Effect, Path, Schema, Stdio } from "effect";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
 
-class PublicInstallFailure extends Schema.TaggedError<PublicInstallFailure>()(
-  "PublicInstallFailure",
-  { exitCode: Schema.Int },
-) {
+class PublicInstallFailure extends Schema.TaggedError<
+  PublicInstallFailure,
+  { readonly brand: unique symbol }
+>()("PublicInstallFailure", { exitCode: Schema.Int }) {
   override get message() {
     return `public install exited ${this.exitCode}`;
   }

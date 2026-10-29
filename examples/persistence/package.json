@@ -7,16 +7,16 @@
     "start": "bun src/server-main.ts"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.6",
-    "@effect/sql-pglite": "4.0.6",
+    "@effect/platform-bun": "4.1.0",
+    "@effect/sql-pglite": "4.1.0",
     "@effx-examples/users": "workspace:*",
     "@effx/persistence": "workspace:*",
     "@effx/runtime": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.6"
+    "effect": "4.1.0"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.6",
+    "@effect/vitest": "4.1.0",
     "@effx/cli": "workspace:*"
   }
 }

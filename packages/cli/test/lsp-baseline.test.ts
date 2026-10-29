@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, FileSystem, Option, Path } from "effect";
 import { awaitCoverageBaseline } from "../src/lsp.ts";
@@ -84,6 +84,6 @@ describe("LSP coverage baseline before publication", () => {
       const changed = yield* watch.poll;
       assert.deepStrictEqual(Option.getOrThrow(changed).changedPaths, [reference]);
       assert.deepStrictEqual(yield* watch.takeChanges, { dirty: true, executableDirty: false });
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 });

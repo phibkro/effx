@@ -18,9 +18,11 @@
  * cancels children and removes build directories. No retries or durable state.
  * Only the closed manifest projection is written; tool output and causes are not.
  */
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Schema, Stream } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect, FileSystem, Schema, Stream } from "effect";
+import { Digest } from "effect/crypto";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { NativePlatform } from "./native-platform.ts";
 import { compareVersions, toolchainNarHash } from "./lsp-native-manifest.ts";
 import {
   SigpipeAssetManifest as NativeAssetManifest,
@@ -42,23 +44,23 @@ const ToolchainSource = Schema.Struct({
   locked: Schema.Struct({ narHash: Schema.Literal(toolchainNarHash) }),
 });
 
-export class NativeBuildFailure extends Schema.TaggedError<NativeBuildFailure>()(
-  "NativeBuildFailure",
-  {
-    stage: Schema.Literals([
-      "toolchain",
-      "spawn",
-      "collect",
-      "exit",
-      "reproducibility",
-      "elf",
-      "symbols",
-      "dependencies",
-      "projection",
-      "io",
-    ]),
-  },
-) {}
+export class NativeBuildFailure extends Schema.TaggedError<
+  NativeBuildFailure,
+  { readonly brand: unique symbol }
+>()("NativeBuildFailure", {
+  stage: Schema.Literals([
+    "toolchain",
+    "spawn",
+    "collect",
+    "exit",
+    "reproducibility",
+    "elf",
+    "symbols",
+    "dependencies",
+    "projection",
+    "io",
+  ]),
+}) {}
 
 /** No raw command output, command arguments or foreign failures are reported. */
 const toolOutput = Effect.fnUntraced(function* (
@@ -103,12 +105,9 @@ const toolOutput = Effect.fnUntraced(function* (
   return output.trim();
 }, Effect.scoped);
 
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
   const metadata = yield* toolOutput("nix", ["flake", "metadata", "--json", "nixpkgs"], "nixpkgs");
 
   // This transient decode strips metadata not needed for the build. The path is
@@ -283,11 +282,11 @@ const program = Effect.gen(function* () {
     glibcVersions,
     neededLibraries,
     byteLength: bytes.length,
-    sha256: hex(yield* crypto.digest("SHA-256", bytes)),
+    sha256: yield* digest.digestHex(Digest.sha256, bytes),
     source: {
       file: sourceFile,
       byteLength: source.length,
-      sha256: hex(yield* crypto.digest("SHA-256", source)),
+      sha256: yield* digest.digestHex(Digest.sha256, source),
     },
     compiler: { family: "gcc", version: compilerVersion, target: compilerTarget },
     toolchain: { sourceNarHash: toolchainSource.locked.narHash, binutilsVersion, patchelfVersion },
@@ -313,7 +312,7 @@ if (import.meta.main) {
         Schema.is(NativeBuildFailure)(error) ? error : new NativeBuildFailure({ stage: "io" }),
       ),
       Effect.tapError((error) => Effect.logError({ stage: error.stage })),
-      Effect.provide(BunServices.layer),
+      Effect.provide(NativePlatform),
     ),
     { disableErrorReporting: true },
   );

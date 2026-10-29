@@ -1,4 +1,5 @@
-import { Crypto, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import { Digest } from "effect/crypto";
 import {
   CompilerFault,
   Diagnostic,
@@ -25,7 +26,10 @@ import { count, report, summary } from "./report.ts";
  * same result as one Schema-encoded document.
  */
 
-export class LiftUsageError extends Schema.TaggedError<LiftUsageError>()("LiftUsageError", {
+export class LiftUsageError extends Schema.TaggedError<
+  LiftUsageError,
+  { readonly brand: unique symbol }
+>()("LiftUsageError", {
   message: Schema.String,
 }) {
   override readonly _tag = "LiftUsageError";
@@ -341,7 +345,7 @@ export const writeSuggestion = Effect.fn("lift.writeSuggestion")(function* (
 export const renderRefactorPatch = Effect.fn("lift.renderRefactorPatch")(function* (
   result: LiftResult,
   context: PatchContext,
-): Effect.fn.Return<string, CompilerFault, FileSystem.FileSystem | Crypto.Crypto> {
+): Effect.fn.Return<string, CompilerFault, FileSystem.FileSystem | Digest.Digest> {
   return yield* renderPatch({
     refactors: result.refactors,
     files: context.files,

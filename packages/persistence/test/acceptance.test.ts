@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
   Cause,
@@ -32,7 +32,7 @@ import { subprocess } from "./process.ts";
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 
-const Services = TsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
+const Services = TsSourceFrontend.layer.pipe(Layer.provideMerge(NativePlatform));
 
 const extensions = [...Extensions.builtin, persistenceExtension];
 
@@ -344,7 +344,7 @@ describe("spec 0022 subprocess custody", () => {
 
       if (unavailable._tag === "PlatformError")
         assert.strictEqual(unavailable.reason._tag, "NotFound");
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.live("streams readiness and awaits real child cleanup on caller interruption", () =>
@@ -393,7 +393,7 @@ BunRuntime.runMain(Effect.scoped(Effect.gen(function* () {
       if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause));
       // Without scoped process ownership the signal never reaches the real child finalizer.
       assert.strictEqual(yield* fs.readFileString(released), "released-once");
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 });
 

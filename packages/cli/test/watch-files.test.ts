@@ -1,7 +1,6 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
-  Crypto,
   Deferred,
   Effect,
   Exit,
@@ -12,6 +11,7 @@ import {
   PlatformError,
   Scope,
 } from "effect";
+import { Digest } from "effect/crypto";
 import { TestClock } from "effect/testing";
 import { expectTypeOf } from "vitest";
 import {
@@ -33,7 +33,7 @@ const fixture = Effect.fnUntraced(
     return yield* use(fs, path, dir);
   },
   Effect.scoped,
-  Effect.provide(BunServices.layer),
+  Effect.provide(NativePlatform),
 );
 
 const observe = Effect.fnUntraced(function* (watch: WatchFiles) {
@@ -50,7 +50,7 @@ describe("explicit native project observation (EX-0031)", () => {
       Effect.Effect<
         WatchFiles,
         WatchLimit,
-        FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+        FileSystem.FileSystem | Path.Path | Digest.Digest | Scope.Scope
       >
     >();
     expectTypeOf(value).not.toEqualTypeOf<Effect.Effect<WatchFiles, WatchLimit>>();

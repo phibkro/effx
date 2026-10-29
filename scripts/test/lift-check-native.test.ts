@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { SchemaArg, type AnnotationArg, type ProjectConfig } from "@effx/compiler";
@@ -32,7 +32,7 @@ const services = Layer.mergeAll(
   LiftTsSourceFrontend.layer,
   liftCheckExecutionLayer,
   liftToolchainLayer,
-).pipe(Layer.provideMerge(BunServices.layer));
+).pipe(Layer.provideMerge(NativePlatform));
 
 interface Lifted {
   readonly project: Project;

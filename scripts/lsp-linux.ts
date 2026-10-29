@@ -13,7 +13,10 @@ import { NativeAssetManifest, compareVersions, nativeSymbols } from "./lsp-nativ
 
 const positive = Schema.Int.check(Schema.isGreaterThan(0));
 
-export class LinuxLspError extends Schema.TaggedError<LinuxLspError>()("LinuxLspError", {
+export class LinuxLspError extends Schema.TaggedError<
+  LinuxLspError,
+  { readonly brand: unique symbol }
+>()("LinuxLspError", {
   reason: Schema.Literals([
     "Target",
     "Libc",

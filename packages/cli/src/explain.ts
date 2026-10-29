@@ -6,7 +6,10 @@ import { printErr, printOut } from "./output.ts";
 import { formatDiagnostic } from "./report.ts";
 
 /** A lookup/usage outcome already rendered at the CLI boundary, never a compiler diagnostic. */
-export class ExplainFailed extends Schema.TaggedError<ExplainFailed>()("ExplainFailed", {
+export class ExplainFailed extends Schema.TaggedError<
+  ExplainFailed,
+  { readonly brand: unique symbol }
+>()("ExplainFailed", {
   exitCode: Schema.Literals([1, 2]),
 }) {
   override readonly [Runtime.errorReported] = false;

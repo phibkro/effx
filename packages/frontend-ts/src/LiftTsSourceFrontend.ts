@@ -1,5 +1,5 @@
-import { Crypto, Effect, type FileSystem, Layer, Path, Predicate } from "effect";
-import { Hex } from "effect/encoding";
+import { Effect, type FileSystem, Layer, Path, Predicate } from "effect";
+import { Digest } from "effect/crypto";
 import {
   CompilerFault,
   LiftFrontend,
@@ -21,7 +21,7 @@ const isCompilerFault = Predicate.isTagged("CompilerFault");
  * Analyze a real TypeScript Program without importing or executing application modules.
  *
  * Construction is inert. Each run owns transient checker state; it retains no Program after returning.
- * The caller owns FileSystem, Path, and Crypto. Their failures and compiler API invariant failures are
+ * The caller owns FileSystem, Path, and Digest. FileSystem and Path failures and compiler API invariant failures are
  * CompilerFault; missing/unsupported Effect profiles return None with the existing project diagnostics.
  * Cancellation propagates through the services. A synchronous TypeScript compiler call cannot be
  * preempted, but starts only during execution and acquires no persistent resource. No retries or writes.
@@ -31,10 +31,10 @@ export const analyze = Effect.fn("LiftTsSourceFrontend.analyze")(function* (
 ): Effect.fn.Return<
   StageResult<EffectModel>,
   CompilerFault,
-  FileSystem.FileSystem | Path.Path | Crypto.Crypto
+  FileSystem.FileSystem | Path.Path | Digest.Digest
 > {
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
 
   const project = yield* loadProject(config).pipe(
     Effect.mapError((cause) =>
@@ -62,16 +62,10 @@ export const analyze = Effect.fn("LiftTsSourceFrontend.analyze")(function* (
         message: "source closure and file inventory differ",
       });
 
-    const digest = yield* crypto
-      .digest("SHA-256", utf8.encode(source.text))
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new CompilerFault({ stage: "lift", message: `cannot hash ${file.file}`, cause }),
-        ),
-      );
-
-    files.push({ ...file, sha256: Hex.encode(digest) });
+    files.push({
+      ...file,
+      sha256: yield* digest.digestHex(Digest.sha256, utf8.encode(source.text)),
+    });
   }
 
   return StageResult.succeed(finishModel(draft, files), project.diagnostics);
@@ -81,11 +75,11 @@ export const analyze = Effect.fn("LiftTsSourceFrontend.analyze")(function* (
 export const layer: Layer.Layer<
   LiftFrontend,
   never,
-  FileSystem.FileSystem | Path.Path | Crypto.Crypto
+  FileSystem.FileSystem | Path.Path | Digest.Digest
 > = Layer.effect(
   LiftFrontend,
   Effect.gen(function* () {
-    const context = yield* Effect.context<FileSystem.FileSystem | Path.Path | Crypto.Crypto>();
+    const context = yield* Effect.context<FileSystem.FileSystem | Path.Path | Digest.Digest>();
 
     return LiftFrontend.of({ analyze: (config) => analyze(config).pipe(Effect.provide(context)) });
   }),

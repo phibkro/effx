@@ -1,5 +1,5 @@
-import { Array as Arr, Crypto, Effect, Order, Result } from "effect";
-import { Hex } from "effect/encoding";
+import { Array as Arr, Effect, Order, Result } from "effect";
+import { Digest } from "effect/crypto";
 import { CompilerFault } from "../CompilerFault.ts";
 import { printTerm, refKey, type NameOf, type RefLike, type Term } from "../generate/term.ts";
 import { unifiedDiff } from "./diff.ts";
@@ -185,18 +185,8 @@ const utf8 = new TextEncoder();
 
 /** Verifies that the text is the one the refactors were planned against. */
 const verified = Effect.fn("verifyAnalyzedText")(function* (target: FileEdits) {
-  const crypto = yield* Crypto.Crypto;
-
-  const digest = yield* crypto
-    .digest("SHA-256", utf8.encode(target.text))
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new CompilerFault({ stage: "lift", message: `cannot hash ${target.file.file}`, cause }),
-      ),
-    );
-
-  const actual = Hex.encode(digest);
+  const digest = yield* Digest.Digest;
+  const actual = yield* digest.digestHex(Digest.sha256, utf8.encode(target.text));
 
   const stale = target.refactors.find((refactor) => refactor.sourceSha256 !== actual);
 
@@ -214,7 +204,7 @@ interface AppliedSourceText {
 
 const applySourceTexts = Effect.fnUntraced(function* (
   input: PatchInput,
-): Effect.fn.Return<ReadonlyArray<AppliedSourceText>, CompilerFault, Crypto.Crypto> {
+): Effect.fn.Return<ReadonlyArray<AppliedSourceText>, CompilerFault, Digest.Digest> {
   const byFile = Arr.groupBy(input.refactors, (refactor) => refactor.file);
   const patched: Array<AppliedSourceText> = [];
 

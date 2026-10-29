@@ -19,7 +19,10 @@ import { StreamMessageWriter, type NotificationMessage } from "vscode-languagese
 import { Effect, Schema } from "effect";
 import { LinuxFixtureReceipt, LinuxPeerFault, LinuxPeerResult } from "./lsp-linux.contract.ts";
 
-class PeerFault extends Schema.TaggedError<PeerFault>()("PeerFault", LinuxPeerFault.fields) {}
+class PeerFault extends Schema.TaggedError<PeerFault, { readonly brand: unique symbol }>()(
+  "PeerFault",
+  LinuxPeerFault.fields,
+) {}
 
 const decodeLaunch = Schema.decodeUnknownEffect(
   Schema.Struct({

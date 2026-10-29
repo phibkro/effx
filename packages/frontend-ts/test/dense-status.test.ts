@@ -1,5 +1,5 @@
 import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -12,8 +12,8 @@ const fixtureRoot = new URL("./fixtures/stable-v4/", import.meta.url).pathname;
 requireStableV4FixtureDependencies(fixtureRoot);
 
 const Services = Layer.mergeAll(
-  BunServices.layer,
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  NativePlatform,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
 );
 
 const dataObject = Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json));

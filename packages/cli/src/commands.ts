@@ -36,20 +36,26 @@ type ManifestDraft = { -readonly [K in keyof Manifest]: Manifest[K] };
 type ProjectConfigDraft = { -readonly [K in keyof ProjectConfig]: ProjectConfig[K] };
 
 /*
- * The four commands as portable Effects over FileSystem/Path/Crypto/SourceFrontend and the
+ * The four commands as portable Effects over FileSystem/Path/Digest/SecureRandom/SourceFrontend and the
  * Console reference. `main.ts` binds them to `effect/cli` and the Bun platform.
  */
 
 /** Exit 1 after the diagnostics have already been printed: nothing left to report (`Runtime.errorReported`). */
-export class CheckFailed extends Schema.TaggedError<CheckFailed>()("CheckFailed", {
+export class CheckFailed extends Schema.TaggedError<
+  CheckFailed,
+  { readonly brand: unique symbol }
+>()("CheckFailed", {
   errors: Schema.Int,
 }) {
   override readonly [Runtime.errorReported] = false;
 }
 
 /** Same as `CheckFailed` for a name that resolves to nothing; the message is printed by the command. */
-export class UnknownName extends Schema.TaggedError<UnknownName>()("UnknownName", {
-  name: Schema.String,
+export class UnknownName extends Schema.TaggedError<
+  UnknownName,
+  { readonly brand: unique symbol }
+>()("UnknownName", {
+  subject: Schema.String,
 }) {
   override readonly [Runtime.errorReported] = false;
 }
@@ -717,7 +723,7 @@ export const inspectCommand = Effect.fn("inspect")(function* (project: Project, 
   if (Option.isNone(text)) {
     yield* printOut(`error: no operation named ${name}`);
 
-    return yield* new UnknownName({ name });
+    return yield* new UnknownName({ subject: name });
   }
 
   yield* printOut(text.value);
@@ -733,7 +739,7 @@ export const graphCommand = Effect.fn("graph")(function* (
   if (Option.isNone(text)) {
     yield* printOut(`error: no node named ${Option.getOrElse(name, () => "")}`);
 
-    return yield* new UnknownName({ name: Option.getOrElse(name, () => "") });
+    return yield* new UnknownName({ subject: Option.getOrElse(name, () => "") });
   }
 
   yield* printOut(text.value);

@@ -6,7 +6,10 @@ class Backend extends Context.Service<Backend, { readonly value: string }>()(
   "binding-test/Backend",
 ) {}
 
-class Denied extends Schema.TaggedError<Denied>()("Denied", {}) {}
+class Denied extends Schema.TaggedError<Denied, { readonly brand: unique symbol }>()(
+  "Denied",
+  {},
+) {}
 
 const work: Effect.Effect<string, Denied, Backend> = Effect.gen(function* () {
   const backend = yield* Backend;

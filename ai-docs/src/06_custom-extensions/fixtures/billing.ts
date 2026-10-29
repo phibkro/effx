@@ -8,7 +8,10 @@ export const RefundInput = Schema.Struct({
 
 export const RefundResult = Schema.Struct({ refundId: Schema.String });
 
-export class RefundRejected extends Schema.TaggedError<RefundRejected>()("RefundRejected", {
+export class RefundRejected extends Schema.TaggedError<
+  RefundRejected,
+  { readonly brand: unique symbol }
+>()("RefundRejected", {
   reason: Schema.String,
 }) {}
 

@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { compile, Extensions } from "@effx/compiler";
@@ -8,8 +8,8 @@ import { copyUsersFixture } from "../../../tools/testing/projects.ts";
 import { ts, tryTs } from "../src/ts.ts";
 
 const Services = Layer.mergeAll(
-  BunServices.layer,
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  NativePlatform,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
 );
 
 const declarations = `

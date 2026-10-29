@@ -20,10 +20,10 @@ import {
   extraBodyForPrefill,
 } from "./lsp-linux-extra.contract.ts";
 
-class ExtraPeerError extends Schema.TaggedError<ExtraPeerError>()(
-  "ExtraPeerError",
-  ExtraPeerFault.fields,
-) {}
+class ExtraPeerError extends Schema.TaggedError<
+  ExtraPeerError,
+  { readonly brand: unique symbol }
+>()("ExtraPeerError", ExtraPeerFault.fields) {}
 
 const decodeLaunch = Schema.decodeUnknownEffect(
   Schema.Struct({

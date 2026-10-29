@@ -14,11 +14,10 @@ export class ProfileAccessAnnotation extends Context.Service<
 export const profileAccessAnnotations = (spec: HttpAccessAnnotationSpec) =>
   Context.make(ProfileAccessAnnotation, spec);
 
-export class AccessDenied extends Schema.TaggedError<AccessDenied>()(
-  "AccessDenied",
-  { message: Schema.String },
-  { httpApiStatus: 403 },
-) {}
+export class AccessDenied extends Schema.TaggedError<
+  AccessDenied,
+  { readonly brand: unique symbol }
+>()("AccessDenied", { message: Schema.String }, { httpApiStatus: 403 }) {}
 
 export const ProfileProblemResponses = (_identifier: string, codes: ReadonlyArray<string>) =>
   codes.map((code) => {

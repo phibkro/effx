@@ -9,7 +9,7 @@
  * `extra-cases.json` is `[{ name, tsconfigPath, entry?, emit?, target?, strictAccess?, naming? }]` (the mono-web
  * baseline declarations are built this way through a throwaway tsconfig).
  */
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "./native-platform.ts";
 import { Console, Effect, FileSystem, Layer, Path, Schema, Stdio } from "effect";
 import {
   type Collected,
@@ -31,8 +31,8 @@ const root = new URL("../", import.meta.url).pathname;
 const sha256 = (text: string): string => new Bun.CryptoHasher("sha256").update(text).digest("hex");
 
 const Services = Layer.mergeAll(
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
-  BunServices.layer,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
+  NativePlatform,
 );
 
 const discover = Effect.gen(function* () {

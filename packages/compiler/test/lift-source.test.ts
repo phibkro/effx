@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option, Result, Schema } from "effect";
 import { IRArbitrary, StableId } from "@effx/ir";
@@ -50,7 +50,7 @@ const patchOf = (files: ReadonlyArray<SourceFile>, result: LiftResult) =>
     files: modelOf(files, sourceUniverse).files,
     texts: new Map(files.map((entry) => [entry.path, entry.contents] as const)),
     allowImportingTsExtensions: false,
-  }).pipe(Effect.provide(BunServices.layer));
+  }).pipe(Effect.provide(NativePlatform));
 
 describe("the Profile group lowered from source text", () => {
   it("lifts the read as written and the patch with its refactors", () => {
@@ -199,7 +199,7 @@ describe("refactors are patches that a person can apply", () => {
           files: model.files,
           texts: new Map([["src/profile.ts", texts.get("src/profile.ts") ?? ""]]),
           allowImportingTsExtensions: false,
-        }).pipe(Effect.provide(BunServices.layer)),
+        }).pipe(Effect.provide(NativePlatform)),
       );
 
       assert.include(failure.message, "src/endpoint-problems.ts");

@@ -18,10 +18,10 @@ export interface PackedCommand {
   readonly interrupt: Effect.Effect<void, PlatformError>;
 }
 
-export class PackedCommandError extends Schema.TaggedError<PackedCommandError>()(
-  "PackedCommandError",
-  { message: Schema.String },
-) {}
+export class PackedCommandError extends Schema.TaggedError<
+  PackedCommandError,
+  { readonly brand: unique symbol }
+>()("PackedCommandError", { message: Schema.String }) {}
 
 /**
  * The caller's scope owns the process, stdin, and serial output reader. One reader

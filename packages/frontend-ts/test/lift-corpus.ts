@@ -1,6 +1,6 @@
 import { BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
-import { Hex } from "effect/encoding";
+import { Effect, FileSystem, Path, Schema } from "effect";
+import { Digest } from "effect/crypto";
 import { beforeAll } from "vitest";
 import { CompilerFault } from "@effx/compiler";
 import { testDirectory } from "../../../tools/testing/projects.ts";
@@ -96,11 +96,11 @@ export const blobPath = (path: Path.Path, snapshot: CorpusSnapshot, file: Corpus
     `${file.path}.source`,
   );
 
-/** The lowercase hex SHA-256 of exact bytes, from the platform's own Crypto service. */
+/** The lowercase hex SHA-256 of exact bytes, from the platform's own Digest service. */
 export const sha256Of = Effect.fnUntraced(function* (bytes: Uint8Array) {
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
 
-  return Hex.encode(yield* crypto.digest("SHA-256", bytes));
+  return yield* digest.digestHex(Digest.sha256, bytes);
 });
 
 /**

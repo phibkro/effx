@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
   Extensions,
@@ -33,7 +33,7 @@ const RateLimit = Annotation.define({
 const repo = new URL("../../../", import.meta.url).pathname;
 
 const services = Layer.mergeAll(TsSourceFrontend.layer, LiftTsSourceFrontend.layer).pipe(
-  Layer.provideMerge(BunServices.layer),
+  Layer.provideMerge(NativePlatform),
 );
 
 const selected = [...Extensions.builtin, extension("app", [implement(RateLimit)])];
