@@ -62,5 +62,8 @@
     "vitest": "5.0.3",
     "vscode-languageserver-protocol": "3.18.4"
   },
+  "overrides": {
+    "@effect/tsgo": "0.63.0"
+  },
   "packageManager": "bun@1.3.13"
 }

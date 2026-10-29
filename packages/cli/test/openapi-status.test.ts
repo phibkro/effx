@@ -4,7 +4,7 @@
  * Scope/owner: packages/cli/test/openapi-status.test.ts, generatedDocument.
  * HttpApi/OpenApi have no stable equivalent; source-text assertions do not prove generated OpenAPI.
  * Verification: this suite and bun run effect:diagnostics.
- * Examined: effect 4.0.0, @effect/tsgo 0.48.0; retire when HttpApi/OpenApi stabilize.
+ * Examined: effect 4.0.0 and 4.1.0, @effect/tsgo 0.63.0; retire when HttpApi/OpenApi stabilize.
  */
 import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
