@@ -34,7 +34,7 @@ EX-0037 covers the native platform/test APIs named in `docs/research/effect-4.0-
 Since Effect 4.1 no `*Services` layer carries crypto: a program that hashes or draws random bytes requires
 `Digest.Digest` or `SecureRandom.SecureRandom` (`effect/crypto`), and every root and test takes both from
 `NativePlatform` in `scripts/native-platform.ts` (spec 0034). `@effx/ir`, `compiler`, `domain-model` and
-`persistence` peer `effect >=4.1.0 <5`; `runtime` and `diagnostics` keep `>=4.0.0 <5`; the Effect version of an
+`persistence` peer `effect >=4.1.0 <4.2.0`; `runtime` and `diagnostics` keep `>=4.0.0 <5`; the Effect version of an
 analysed project stays `>=4.0.0 <5`.
 EX-0039 (same file) lets generated `.effx/` output use the unstable modules it is made of (24 named modules of `effect/cli`, `effect/http`,
 `effect/http-api`, `effect/net`, `effect/rpc`) through one scoped override; hand-written source does not.
