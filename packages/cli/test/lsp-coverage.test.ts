@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { compileCollected, Extensions } from "@effx/compiler";
 import { Deferred, Effect, FileSystem, Path, type PlatformError, Semaphore } from "effect";
@@ -113,7 +113,7 @@ describe("LSP coverage protocol", () => {
 
         assert.strictEqual(done.compiles, 1);
         assert.strictEqual(h.compiles(), 1);
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+      }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 
   it.effect("an edit between the compile's read and the new baseline still republishes", () =>
@@ -129,6 +129,6 @@ describe("LSP coverage protocol", () => {
       // The first analysis is superseded; the published one compiled the edited text.
       assert.strictEqual(done.compiles, 2);
       assert.deepStrictEqual(h.seen, ["v1", "v2"]);
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(NativePlatform)),
   );
 });

@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { readManifest, readVerifiedBlob, sha256Of } from "./lift-corpus.ts";
@@ -72,7 +72,7 @@ describe("0019 stable corpus migration laws", () => {
 
         assert.strictEqual(migrateStableEffect(once), once);
       }
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("derives each stable snapshot exactly from the historical bytes it names", () =>
@@ -143,7 +143,7 @@ describe("0019 stable corpus migration laws", () => {
       }
 
       assert.deepStrictEqual(problems, []);
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("leaves no unstable entry point or removed spelling in a stable snapshot", () =>
@@ -157,7 +157,7 @@ describe("0019 stable corpus migration laws", () => {
             if (text.includes(stale)) found.push(`${snapshot.name}/${path}: ${stale}`);
 
       assert.deepStrictEqual(found, []);
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("records the digest of every snapshot's sorted path and hash list", () =>
@@ -170,6 +170,6 @@ describe("0019 stable corpus migration laws", () => {
           snapshot.snapshotSha256,
           snapshot.name,
         );
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 });

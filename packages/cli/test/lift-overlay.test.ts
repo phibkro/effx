@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { digestTree, testDirectory } from "../../../tools/testing/projects.ts";
@@ -173,7 +173,7 @@ describe("the scoped lift-check overlay (spec 0019 §2.4 steps 1-3)", () => {
       // The scope owns the overlay and the original is byte-identical, links and all.
       assert.isFalse(yield* fs.exists(root));
       assert.deepStrictEqual(yield* digestTree(directory), before);
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("reports a refactored file outside the project root as data, not an IO fault", () =>
@@ -197,7 +197,7 @@ describe("the scoped lift-check overlay (spec 0019 §2.4 steps 1-3)", () => {
         assert.include(failure.detail, "outside the project root");
 
       assert.deepStrictEqual(yield* digestTree(directory), before);
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("extends a tsconfig that lives outside the project root by its absolute path", () =>
@@ -225,6 +225,6 @@ describe("the scoped lift-check overlay (spec 0019 §2.4 steps 1-3)", () => {
       assert.strictEqual(compile.extends, base);
       assert.strictEqual(path.dirname(overlay.tsconfigPath), overlay.projectRoot);
       assert.deepStrictEqual(compile.files, ["src/profile.effx.ts"]);
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 });

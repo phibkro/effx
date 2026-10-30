@@ -99,7 +99,9 @@ describe("A.fromSchema accepted shapes", () => {
   });
 
   it("Opaque leaves no AST trace, so it is its underlying struct", () => {
-    class Opaque extends Schema.Opaque<Opaque>()(Schema.Struct({ a: Schema.String })) {}
+    class Opaque extends Schema.Opaque<Opaque, { readonly brand: unique symbol }>()(
+      Schema.Struct({ a: Schema.String }),
+    ) {}
 
     assert.deepStrictEqual(planOf(Opaque), A.struct({ a: A.string }).plan);
   });
@@ -131,7 +133,9 @@ describe("A.fromSchema accepted shapes", () => {
   });
 });
 
-class Klass extends Schema.Class<Klass>("Klass")({ a: Schema.String }) {}
+class Klass extends Schema.Class<Klass, { readonly brand: unique symbol }>("Klass")({
+  a: Schema.String,
+}) {}
 
 type Rejection = readonly [name: string, schema: Schema.Top, path: string, kind: string];
 

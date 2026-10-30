@@ -1,5 +1,5 @@
-import { Crypto, Effect, Schema, flow } from "effect";
-import { Hex } from "effect/encoding";
+import { Effect, Schema, flow } from "effect";
+import { Digest } from "effect/crypto";
 import { ApplicationIR } from "./ApplicationIR.ts";
 import { canonicalJson } from "./jcs.ts";
 import { ApplicationIRV1, migrate } from "./migrate.ts";
@@ -40,10 +40,9 @@ export const canonical = (ir: ApplicationIR): string => canonicalJson(encode(nor
 
 const utf8 = new TextEncoder();
 
-/** Lowercase hex sha-256 of the canonical UTF-8 bytes, via the platform `Crypto` service. */
+/** Lowercase hex sha-256 of the canonical UTF-8 bytes, via the `Digest` service. */
 export const semanticHash = Effect.fn("semanticHash")(function* (ir: ApplicationIR) {
-  const crypto = yield* Crypto.Crypto;
-  const digest = yield* crypto.digest("SHA-256", utf8.encode(canonical(ir)));
+  const digest = yield* Digest.Digest;
 
-  return Hex.encode(digest);
+  return yield* digest.digestHex(Digest.sha256, utf8.encode(canonical(ir)));
 });

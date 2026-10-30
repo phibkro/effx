@@ -31,6 +31,11 @@ Rules: native Effect first; pure total transformations stay plain functions; no 
 no `JSON.parse` outside a Schema codec; no node builtins in packages; `BunServices` only at
 composition roots. Unstable Effect APIs (`Arbitrary`, `cli`, `rpc`) stay behind adapters;
 EX-0037 covers the native platform/test APIs named in `docs/research/effect-4.0-api-notes.md`.
+Since Effect 4.1 no `*Services` layer carries crypto: a program that hashes or draws random bytes requires
+`Digest.Digest` or `SecureRandom.SecureRandom` (`effect/crypto`), and every root and test takes both from
+`NativePlatform` in `scripts/native-platform.ts` (spec 0034). `@effx/ir`, `compiler`, `domain-model` and
+`persistence` peer `effect >=4.1.0 <4.2.0`; `runtime` and `diagnostics` keep `>=4.0.0 <5`; the Effect version of an
+analysed project stays `>=4.0.0 <5`.
 EX-0039 (same file) lets generated `.effx/` output use the unstable modules it is made of (24 named modules of `effect/cli`, `effect/http`,
 `effect/http-api`, `effect/net`, `effect/rpc`) through one scoped override; hand-written source does not.
 Every `@effect/tsgo` diagnostic that is on by default is an error, in the editor config and in Oxlint (spec 0033):

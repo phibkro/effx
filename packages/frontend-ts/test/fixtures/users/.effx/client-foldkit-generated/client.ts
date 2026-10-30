@@ -18,7 +18,7 @@ export const operationIndex = [
   readonly path: string;
 }>;
 
-export class TransportFailure extends Schema.TaggedError<TransportFailure>()(
+export class TransportFailure extends Schema.TaggedError<TransportFailure, { readonly brand: unique symbol }>()(
   "TransportFailure",
   { operationId: Schema.String, cause: Schema.Defect() },
 ) {}

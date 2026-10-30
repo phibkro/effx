@@ -96,4 +96,4 @@ To preview a project-site build locally, run `DOCS_BASE_PATH=/<repo> bun run doc
 
 ## Compatibility
 
-Supported releases are stable Effect `>=4.0.0 <5`. Prereleases are not supported. The TypeScript frontend uses TypeScript 6.0; the TypeScript 7 JavaScript API is pending 7.1.
+Supported releases for an analysed project are stable Effect `>=4.0.0 <5`. Prereleases are not supported. The packages `@effx/ir`, `@effx/compiler`, `@effx/domain-model` and `@effx/persistence` need Effect `>=4.1.0 <4.2.0` themselves (they use `effect/crypto`, spec 0034); `@effx/runtime` and `@effx/diagnostics` need `>=4.0.0 <5`. The TypeScript frontend uses TypeScript 6.0; the TypeScript 7 JavaScript API is pending 7.1.

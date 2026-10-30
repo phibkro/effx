@@ -26,7 +26,10 @@ export interface OpenDocument {
   readonly instance: number;
 }
 
-export class DocumentError extends Schema.TaggedError<DocumentError>()("DocumentError", {
+export class DocumentError extends Schema.TaggedError<
+  DocumentError,
+  { readonly brand: unique symbol }
+>()("DocumentError", {
   reason: Schema.Literals([
     "Closed",
     "AlreadyOpen",

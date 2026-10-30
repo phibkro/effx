@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
-import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { BunRuntime } from "@effect/platform-bun";
 import { LspPlatform, main, Services, TransportError } from "@effx/cli";
 import { Cause, Effect, Layer, Logger, Path, Runtime } from "effect";
 import { executableInventoryLayer } from "./executable-cache.ts";
 import { acquireLinuxLspIO } from "./lsp-linux.ts";
 import { liftCheckExecutionLayer, liftToolchainLayer } from "./lift-execution.ts";
 import { alloyExecutionLayer } from "./alloy-execution.ts";
+import { NativePlatform } from "./native-platform.ts";
 
 // EX-0033 / EX-0035 / EX-0034 / EX-0038: native capabilities are selected at the process root.
 // Acquisition stays suspended until a command asks; each child belongs to its calling scope.
@@ -35,7 +36,7 @@ const Platform = Layer.mergeAll(
   ),
 );
 
-const Application = Layer.mergeAll(Services, Platform).pipe(Layer.provideMerge(BunServices.layer));
+const Application = Layer.mergeAll(Services, Platform).pipe(Layer.provideMerge(NativePlatform));
 
 // stdout is the LSP protocol channel. runMain reports failures from outside this effect, where
 // the stderr logger reference is absent, so the root reports once inside it (same rule as

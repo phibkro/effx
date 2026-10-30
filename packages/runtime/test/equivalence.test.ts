@@ -20,9 +20,12 @@ import {
   Rpc,
 } from "@effx/runtime";
 
-class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
-  id: Schema.String,
-}) {}
+class UserNotFound extends Schema.TaggedError<UserNotFound, { readonly brand: unique symbol }>()(
+  "UserNotFound",
+  {
+    id: Schema.String,
+  },
+) {}
 
 class Users extends Context.Service<
   Users,
@@ -30,7 +33,10 @@ class Users extends Context.Service<
 >()("test/Users") {}
 
 @PersistentModel({ table: "users", focus: { email: ["email"] } })
-class User extends Schema.Class<User>("User")({ id: Schema.String, email: Schema.String }) {
+class User extends Schema.Class<User, { readonly brand: unique symbol }>("User")({
+  id: Schema.String,
+  email: Schema.String,
+}) {
   static readonly Public = Schema.Struct({ id: Schema.String });
 }
 

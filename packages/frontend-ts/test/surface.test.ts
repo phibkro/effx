@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Option, Schema } from "effect";
 import {
@@ -27,9 +27,9 @@ const contractConfig = `${fixtures}project/contract/tsconfig.effx.json`;
 
 const handlersConfig = `${fixtures}project/typecheck-handlers/tsconfig.effx.json`;
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 const profile = Effect.fn("profile")(function* (config: string, emit: "contract" | "handlers") {
   const result = yield* compile(

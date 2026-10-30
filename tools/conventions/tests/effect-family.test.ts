@@ -64,6 +64,29 @@ const effectFamilyFindings = (lock: Lock): ReadonlyArray<string> => {
     );
 };
 
+const isTsgo = (name: string): boolean =>
+  name === "@effect/tsgo" || name.startsWith("@effect/tsgo-");
+
+/**
+ * `@effect/tsgo` is a separate release line, but two copies of it are not harmless: the Oxlint
+ * presets, the language-service schema and the `effect-tsgo patch` binary each resolve one of them,
+ * so a nested older copy (the vendored Oxlint plugin pins 0.36.4) makes the lint set and the editor
+ * set disagree without failing another gate. Root `overrides` pins every copy to one version.
+ */
+const tsgoFindings = (lock: Lock): ReadonlyArray<string> => {
+  const versions = [
+    ...new Set(
+      resolved(lock)
+        .filter((pkg) => isTsgo(pkg.name))
+        .map((pkg) => pkg.version),
+    ),
+  ];
+
+  return versions.length === 1
+    ? []
+    : [`expected one resolved @effect/tsgo version, found [${versions.join(", ")}]`];
+};
+
 const readLock = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const text = yield* fs.readFileString(lockPath);
@@ -88,6 +111,16 @@ describe("Effect package family in the workspace lock", () => {
       assert.include(family, "@effect/vitest");
       assert.include(family, "@effect/platform-bun");
       assert.deepStrictEqual(effectFamilyFindings(lock), []);
+    }).pipe(Effect.provide(BunServices.layer)),
+  );
+
+  it.effect("resolves one copy of @effect/tsgo and its platform binaries", () =>
+    Effect.gen(function* () {
+      const lock = yield* readLock;
+
+      // Guard against a vacuous pass if the lock layout or the name filter changes.
+      assert.isTrue(resolved(lock).some((pkg) => pkg.name === "@effect/tsgo"));
+      assert.deepStrictEqual(tsgoFindings(lock), []);
     }).pipe(Effect.provide(BunServices.layer)),
   );
 
@@ -138,6 +171,20 @@ describe("Effect package family in the workspace lock", () => {
       assert.deepStrictEqual(findings, [
         "expected one resolved effect version, found [4.0.6, 4.0.0]",
       ]);
+    });
+
+    it("reports a second copy of @effect/tsgo, such as one nested under a vendored plugin", () => {
+      assert.deepStrictEqual(tsgoFindings(lockOf(aligned)), []);
+
+      assert.deepStrictEqual(
+        tsgoFindings(
+          lockOf({
+            ...aligned,
+            "@phibkro/oxlint-effect-plugin/@effect/tsgo": "@effect/tsgo@0.36.4",
+          }),
+        ),
+        ["expected one resolved @effect/tsgo version, found [0.48.0, 0.36.4]"],
+      );
     });
   });
 });

@@ -57,10 +57,10 @@ export interface WitnessPlan {
 }
 
 /** The child produced no usable document: this is check inability data, never a pass. */
-export class WitnessUnreadable extends Schema.TaggedError<WitnessUnreadable>()(
-  "WitnessUnreadable",
-  { reason: Schema.Literals(["no-frame", "several-frames", "decode"]) },
-) {}
+export class WitnessUnreadable extends Schema.TaggedError<
+  WitnessUnreadable,
+  { readonly brand: unique symbol }
+>()("WitnessUnreadable", { reason: Schema.Literals(["no-frame", "several-frames", "decode"]) }) {}
 
 const decodeDocument = Schema.decodeUnknownEffect(Schema.fromJsonString(WitnessDocument), {
   onExcessProperty: "error",

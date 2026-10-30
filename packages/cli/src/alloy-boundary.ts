@@ -1,14 +1,14 @@
 import { Context, Effect, Schema } from "effect";
 
 /** The native boundary returns failures to the portable command, which emits diagnostics. */
-export class AlloyExecutionError extends Schema.TaggedError<AlloyExecutionError>()(
-  "AlloyExecutionError",
-  {
-    reason: Schema.Literals(["Unavailable", "Execution"]),
-    detail: Schema.String,
-    cause: Schema.optionalKey(Schema.Defect()),
-  },
-) {}
+export class AlloyExecutionError extends Schema.TaggedError<
+  AlloyExecutionError,
+  { readonly brand: unique symbol }
+>()("AlloyExecutionError", {
+  reason: Schema.Literals(["Unavailable", "Execution"]),
+  detail: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 export interface AlloyRunRequest {
   readonly model: string;

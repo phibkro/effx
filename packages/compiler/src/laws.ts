@@ -6,7 +6,10 @@ import type { ArgsCodec } from "./annotation.ts";
 import { decodeSchemaOf } from "./annotation.ts";
 
 /** A law of a definition did not hold; `message` is the formatted falsification (shrunk input, replay token). */
-export class LawViolation extends Schema.TaggedError<LawViolation>()("LawViolation", {
+export class LawViolation extends Schema.TaggedError<
+  LawViolation,
+  { readonly brand: unique symbol }
+>()("LawViolation", {
   definition: Schema.String,
   law: Schema.String,
   message: Schema.String,

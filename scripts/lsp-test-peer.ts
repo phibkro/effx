@@ -20,9 +20,12 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { acquireLspTransport, RpcFailure, TransportError, type LspTransport } from "@effx/cli";
 
-export class PeerError extends Schema.TaggedError<PeerError>()("PeerError", {
-  cause: Schema.Defect(),
-}) {}
+export class PeerError extends Schema.TaggedError<PeerError, { readonly brand: unique symbol }>()(
+  "PeerError",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.Json);
 

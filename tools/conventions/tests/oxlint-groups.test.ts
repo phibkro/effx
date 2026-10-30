@@ -1,9 +1,14 @@
-import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import { correctness, recommended } from "@effect/tsgo/oxlint-presets";
 import { DEFAULT_PLUGIN_NAME, expandGroupRules, RULE_NAMES } from "@phibkro/oxlint-effect-plugin";
 import { describe, expect, it } from "vitest";
 
 import config, { effectConfig } from "../../../oxlint.config.ts";
-import { lintSeverities } from "../effect-diagnostics.ts";
+import {
+  adoptedNativeRules,
+  declinedNativeRules,
+  installedNativeRules,
+  lintSeverities,
+} from "../effect-diagnostics.ts";
 
 const root = new URL("../../..", import.meta.url).pathname;
 
@@ -229,13 +234,25 @@ describe("Effect language-service rules", () => {
     ...new Set([recommended, correctness].flatMap((preset) => Object.keys(preset.rules ?? {}))),
   ];
 
-  const nativeRules = Object.keys(effectNative.rules ?? {}).sort();
+  const nativeRules = [...adoptedNativeRules].sort();
 
   const notErrorsAt = (path: string, rules: readonly string[]) => {
     const settings = settingsFor(path);
 
     return rules.filter((rule) => severity(settings.get(rule)) !== "error").sort();
   };
+
+  it("keeps the declined effectNative rules off in every file (spec 0034)", () => {
+    expect(declinedNativeRules.length).toBeGreaterThan(0);
+    expect(installedNativeRules).toEqual(expect.arrayContaining([...declinedNativeRules]));
+
+    for (const path of ["packages/ir/src/index.ts", "examples/users/src/users-main.ts"]) {
+      expect(
+        declinedNativeRules.filter((rule) => severity(settingsFor(path).get(rule)) === "error"),
+        path,
+      ).toEqual([]);
+    }
+  });
 
   it("are errors in all source, examples, and tooling", () => {
     expect(notErrorsAt("packages/ir/src/index.ts", presetRules)).toEqual([]);

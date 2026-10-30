@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Array as Arr, Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from "effect";
 import {
@@ -62,7 +62,7 @@ const services = Layer.mergeAll(
   LiftTsSourceFrontend.layer,
   liftCheckExecutionLayer,
   liftToolchainLayer,
-).pipe(Layer.provideMerge(BunServices.layer));
+).pipe(Layer.provideMerge(NativePlatform));
 
 const decodeReport = Schema.decodeUnknownEffect(LiftJsonReport);
 

@@ -357,7 +357,7 @@ const body = (imports: Imports, items: ReadonlyArray<HttpItem>): ReadonlyArray<s
 
   return [
     ...index,
-    `export class TransportFailure extends ${schema}.TaggedError<TransportFailure>()(`,
+    `export class TransportFailure extends ${schema}.TaggedError<TransportFailure, { readonly brand: unique symbol }>()(`,
     '  "TransportFailure",',
     `  { operationId: ${schema}.String, cause: ${schema}.Defect() },`,
     ") {}",

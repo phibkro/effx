@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { compile } from "@effx/compiler";
 import type { CompilerFault, SourceFrontend } from "@effx/compiler";
@@ -21,7 +21,8 @@ import {
   Stdio,
   Stream,
 } from "effect";
-import type { Crypto, Path, PlatformError } from "effect";
+import type { Path, PlatformError } from "effect";
+import type { Digest, SecureRandom } from "effect/crypto";
 import { TestClock } from "effect/testing";
 import { expectTypeOf } from "vitest";
 import {
@@ -95,7 +96,7 @@ class ReportReceipts extends Context.Service<
 const printedLines = Effect.flatMap(ReportReceipts, (receipts) => receipts.lines);
 
 const platform = TsSourceFrontend.layer.pipe(
-  Layer.provideMerge(BunServices.layer),
+  Layer.provideMerge(NativePlatform),
   Layer.provideMerge(ReportReceipts.layer),
   Layer.provideMerge(executableInventoryLayer),
 );
@@ -184,7 +185,8 @@ describe("actual scoped effx dev journey", () => {
     expectTypeOf<Effect.Services<typeof value>>().toEqualTypeOf<
       | FileSystem.FileSystem
       | Path.Path
-      | Crypto.Crypto
+      | Digest.Digest
+      | SecureRandom.SecureRandom
       | SourceFrontend
       | ExecutableInventory
       | Stdio.Stdio

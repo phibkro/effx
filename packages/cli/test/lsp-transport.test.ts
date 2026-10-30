@@ -745,10 +745,10 @@ class HandlerDependency extends Context.Service<
   { readonly value: Schema.Json }
 >()("@effx/cli/test/HandlerDependency") {}
 
-class AcquisitionFailure extends Schema.TaggedError<AcquisitionFailure>()(
-  "AcquisitionFailure",
-  {},
-) {}
+class AcquisitionFailure extends Schema.TaggedError<
+  AcquisitionFailure,
+  { readonly brand: unique symbol }
+>()("AcquisitionFailure", {}) {}
 
 class AcquisitionDependency extends Context.Service<
   AcquisitionDependency,

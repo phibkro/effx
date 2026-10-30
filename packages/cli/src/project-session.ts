@@ -28,7 +28,10 @@ export type SessionEvent =
       readonly documents: ReadonlyMap<string, OpenDocument>;
     };
 
-export class SessionClosed extends Schema.TaggedError<SessionClosed>()("SessionClosed", {}) {}
+export class SessionClosed extends Schema.TaggedError<
+  SessionClosed,
+  { readonly brand: unique symbol }
+>()("SessionClosed", {}) {}
 
 export interface ProjectSession {
   readonly open: (

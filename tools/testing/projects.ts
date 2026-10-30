@@ -1,5 +1,5 @@
-import { Crypto, Effect, FileSystem, Option, Path, Schema } from "effect";
-import { Hex } from "effect/encoding";
+import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Digest } from "effect/crypto";
 
 const repoRoot = new URL("../../", import.meta.url).pathname;
 
@@ -23,7 +23,7 @@ export const testDirectory = Effect.fnUntraced(function* (
 export const digestTree = Effect.fnUntraced(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const hasher = yield* Digest.Digest;
   const entries: Array<readonly [string, string]> = [];
 
   for (const name of (yield* fs.readDirectory(directory, { recursive: true })).toSorted()) {
@@ -38,9 +38,7 @@ export const digestTree = Effect.fnUntraced(function* (directory: string) {
 
     if ((yield* fs.stat(file)).type !== "File") continue;
 
-    const digest = yield* crypto.digest("SHA-256", yield* fs.readFile(file));
-
-    entries.push([name, Hex.encode(digest)]);
+    entries.push([name, yield* hasher.digestHex(Digest.sha256, yield* fs.readFile(file))]);
   }
 
   return entries;

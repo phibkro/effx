@@ -7,7 +7,7 @@ import { Email, UserId, UserPublic, UserSelf } from "./schemas.ts";
   views: { Public: UserPublic, Self: UserSelf },
   focus: { email: ["email"] },
 })
-export class User extends Schema.Class<User>("User")({
+export class User extends Schema.Class<User, { readonly brand: unique symbol }>("User")({
   id: UserId,
   email: Email,
   displayName: Schema.String,

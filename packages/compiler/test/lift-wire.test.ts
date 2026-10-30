@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Result, Schema } from "effect";
 import { StableId, canonical } from "@effx/ir";
@@ -362,9 +362,9 @@ describe("pinned cross-file exports follow runtime source dependencies", () => {
   });
 });
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 const repository = new URL("../../../", import.meta.url).pathname.replace(/\/$/u, "");
 

@@ -30,7 +30,10 @@ export const PackedStdoutReceipt = Schema.Struct({
   stderrBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 
-class PackedStdoutFault extends Schema.TaggedError<PackedStdoutFault>()("PackedStdoutFault", {
+class PackedStdoutFault extends Schema.TaggedError<
+  PackedStdoutFault,
+  { readonly brand: unique symbol }
+>()("PackedStdoutFault", {
   reason: Schema.Literals(["Launch", "File", "Spawn", "Exit", "StderrBound"]),
 }) {}
 

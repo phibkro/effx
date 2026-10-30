@@ -27,7 +27,10 @@ const docgenRoot = "apps/docs/docgen";
 
 const apiRoot = "apps/docs/content/docs/api";
 
-export class DocsApiError extends Schema.TaggedError<DocsApiError>()("DocsApiError", {
+export class DocsApiError extends Schema.TaggedError<
+  DocsApiError,
+  { readonly brand: unique symbol }
+>()("DocsApiError", {
   message: Schema.String,
 }) {}
 

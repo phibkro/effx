@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { EffectModel, LiftFrontend } from "@effx/compiler";
 import { LiftTsSourceFrontend } from "@effx/frontend-ts";
@@ -7,7 +7,7 @@ import { testDirectory } from "../../../tools/testing/projects.ts";
 
 const repo = new URL("../../../", import.meta.url).pathname;
 
-const services = LiftTsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
+const services = LiftTsSourceFrontend.layer.pipe(Layer.provideMerge(NativePlatform));
 
 const decodeModel = Schema.decodeUnknownEffect(EffectModel);
 

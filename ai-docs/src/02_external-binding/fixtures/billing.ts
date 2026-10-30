@@ -23,6 +23,9 @@ export const VoidInvoiceParams = Schema.Struct({ id: InvoiceId });
 
 export const VoidInvoiceInput = Schema.Struct({ reason: Schema.String });
 
-export class InvoiceNotFound extends Schema.TaggedError<InvoiceNotFound>()("InvoiceNotFound", {
+export class InvoiceNotFound extends Schema.TaggedError<
+  InvoiceNotFound,
+  { readonly brand: unique symbol }
+>()("InvoiceNotFound", {
   id: InvoiceId,
 }) {}

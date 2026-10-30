@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { LiftFrontend, groupKeysOf } from "@effx/compiler";
 import { LiftTsSourceFrontend } from "@effx/frontend-ts";
@@ -7,7 +7,7 @@ import { testDirectory } from "../../../tools/testing/projects.ts";
 
 const repo = new URL("../../../", import.meta.url).pathname;
 
-const Services = LiftTsSourceFrontend.layer.pipe(Layer.provideMerge(BunServices.layer));
+const Services = LiftTsSourceFrontend.layer.pipe(Layer.provideMerge(NativePlatform));
 
 /** The original group's module: one endpoint, the group id the generated contract reuses. */
 const original = `import { Schema } from "effect";

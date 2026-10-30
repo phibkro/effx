@@ -1,5 +1,4 @@
 import {
-  Crypto,
   Deferred,
   Effect,
   Fiber,
@@ -12,7 +11,7 @@ import {
   Scope,
   Semaphore,
 } from "effect";
-import { Hex } from "effect/encoding";
+import { Digest } from "effect/crypto";
 
 export interface WatchInput {
   readonly path: string;
@@ -32,13 +31,19 @@ export interface WatchFilesOptions {
   readonly maxFileBytes?: number;
 }
 
-export class WatchLimit extends Schema.TaggedError<WatchLimit>()("WatchLimit", {
-  resource: Schema.Literals(["paths", "bytes", "fileBytes", "selection", "cycle"]),
-  path: Schema.String,
-  limit: Schema.Int,
-}) {}
+export class WatchLimit extends Schema.TaggedError<WatchLimit, { readonly brand: unique symbol }>()(
+  "WatchLimit",
+  {
+    resource: Schema.Literals(["paths", "bytes", "fileBytes", "selection", "cycle"]),
+    path: Schema.String,
+    limit: Schema.Int,
+  },
+) {}
 
-export class WatchClosed extends Schema.TaggedError<WatchClosed>()("WatchClosed", {}) {}
+export class WatchClosed extends Schema.TaggedError<
+  WatchClosed,
+  { readonly brand: unique symbol }
+>()("WatchClosed", {}) {}
 
 export type WatchFailure = PlatformError.PlatformError | WatchLimit;
 
@@ -136,11 +141,11 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
 ): Effect.fn.Return<
   WatchFiles,
   WatchLimit,
-  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+  FileSystem.FileSystem | Path.Path | Digest.Digest | Scope.Scope
 > {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const hasher = yield* Digest.Digest;
   const owner = yield* Effect.scope;
   const gate = yield* Semaphore.make(1);
   const dirtySignal = yield* Latch.make();
@@ -320,7 +325,7 @@ export const makeWatchFiles = Effect.fnUntraced(function* (
             offset += chunk.length;
           }
 
-          return Hex.encode(yield* crypto.digest("SHA-256", content));
+          return yield* hasher.digestHex(Digest.sha256, content);
         }),
       );
 

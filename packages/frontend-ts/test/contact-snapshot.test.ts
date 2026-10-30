@@ -1,5 +1,5 @@
 import { copyStableV4Fixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { inspect } from "@effx/cli";
@@ -10,9 +10,9 @@ import { type ApplicationIR, semanticHash } from "@effx/ir";
 const contactConfig = new URL("./fixtures/stable-v4/tsconfig.contact.effx.json", import.meta.url)
   .pathname;
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 const commandName = "contact.submitContactMessage";
 

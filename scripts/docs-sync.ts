@@ -31,7 +31,10 @@ const collections: ReadonlyArray<Collection> = [
 
 const contentRoot = "apps/docs/content/docs";
 
-export class DocsSyncError extends Schema.TaggedError<DocsSyncError>()("DocsSyncError", {
+export class DocsSyncError extends Schema.TaggedError<
+  DocsSyncError,
+  { readonly brand: unique symbol }
+>()("DocsSyncError", {
   message: Schema.String,
 }) {}
 

@@ -1,5 +1,5 @@
 import { testDirectory } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { expectTypeOf } from "vitest";
@@ -18,9 +18,9 @@ const example = new URL("../", import.meta.url).pathname;
 
 const cli = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
-const frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const services = Layer.mergeAll(frontend, BunServices.layer);
+const services = Layer.mergeAll(frontend, NativePlatform);
 
 const extensions = [...Extensions.builtin, deprecatedExtension];
 
@@ -126,7 +126,7 @@ describe("third-party extension authored outside effx packages", () => {
             '/** @deprecated Use Example.Find instead */\nexport const deprecated_0 = "Example.Lookup" as const;\n',
           );
         }),
-      ).pipe(Effect.provide(BunServices.layer)),
+      ).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect("unregistered custom annotations remain EFFX1101 errors", () =>

@@ -1,4 +1,5 @@
-import { Crypto, Effect, Exit, FileSystem, Option, Path, Schema, Scope, Semaphore } from "effect";
+import { Effect, Exit, FileSystem, Option, Path, Schema, Scope, Semaphore } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
 import {
   bundledDiagnosticEntries,
   compile,
@@ -135,7 +136,10 @@ export const observeAnalysis = Effect.fnUntraced(function* (watch: WatchFiles) {
   return { previous, previousChanges };
 });
 
-export class CoverageFault extends Schema.TaggedError<CoverageFault>()("CoverageFault", {
+export class CoverageFault extends Schema.TaggedError<
+  CoverageFault,
+  { readonly brand: unique symbol }
+>()("CoverageFault", {
   stage: Schema.Literals(["Install", "Baseline", "Verify", "Session"]),
 }) {}
 
@@ -615,7 +619,7 @@ export const lsp = Effect.fn("lsp")(function* (options: LspOptions) {
 
     const initializedProject = Effect.gen(function* () {
       const watchContext = yield* Effect.context<
-        FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope
+        FileSystem.FileSystem | Path.Path | Digest.Digest | SecureRandom.SecureRandom | Scope.Scope
       >();
 
       project = yield* resolveProject(

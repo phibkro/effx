@@ -20,13 +20,19 @@ export const UserSelf = Schema.Struct({ id: UserId, email: Email, displayName: S
 
 // Domain failures are Schema-defined tagged errors, so they can be named by
 // `@Errors` and mapped to wire responses.
-export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
+export class UserNotFound extends Schema.TaggedError<
+  UserNotFound,
+  { readonly brand: unique symbol }
+>()("UserNotFound", {
   id: UserId,
 }) {}
 
-export class EmailTaken extends Schema.TaggedError<EmailTaken>()("EmailTaken", {
-  email: Email,
-}) {}
+export class EmailTaken extends Schema.TaggedError<EmailTaken, { readonly brand: unique symbol }>()(
+  "EmailTaken",
+  {
+    email: Email,
+  },
+) {}
 
 export class Users extends Context.Service<
   Users,

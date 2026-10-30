@@ -11,10 +11,10 @@ import { CompilerFault } from "@effx/compiler";
  */
 
 /** The overlay cannot be built for a reason that is data (a file outside the project root), not an IO fault. */
-export class OverlayUnavailable extends Schema.TaggedError<OverlayUnavailable>()(
-  "OverlayUnavailable",
-  { detail: Schema.String },
-) {}
+export class OverlayUnavailable extends Schema.TaggedError<
+  OverlayUnavailable,
+  { readonly brand: unique symbol }
+>()("OverlayUnavailable", { detail: Schema.String }) {}
 
 /** Everything one overlay needs; every path is absolute and refers to the ORIGINAL project. */
 export interface OverlayInput {

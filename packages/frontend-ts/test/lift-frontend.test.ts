@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { expectTypeOf } from "vitest";
 import {
@@ -20,7 +20,6 @@ import {
 import { LiftTsSourceFrontend, TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical } from "@effx/ir";
 import {
-  Crypto,
   Deferred,
   Effect,
   Exit,
@@ -32,13 +31,13 @@ import {
   Result,
   Schema,
 } from "effect";
-import { Hex } from "effect/encoding";
+import { Digest } from "effect/crypto";
 import { testDirectory } from "../../../tools/testing/projects.ts";
 
 const repo = new URL("../../../", import.meta.url).pathname;
 
 const Services = Layer.mergeAll(LiftTsSourceFrontend.layer, TsSourceFrontend.layer).pipe(
-  Layer.provideMerge(BunServices.layer),
+  Layer.provideMerge(NativePlatform),
 );
 
 const decodeModel = Schema.decodeUnknownEffect(EffectModel);
@@ -107,7 +106,7 @@ describe("production LiftTsSourceFrontend", () => {
       Effect.Effect<
         StageResult<EffectModel>,
         CompilerFault,
-        FileSystem.FileSystem | Path.Path | Crypto.Crypto
+        FileSystem.FileSystem | Path.Path | Digest.Digest
       >
     >();
     expectTypeOf(discarded).not.toEqualTypeOf<
@@ -117,11 +116,11 @@ describe("production LiftTsSourceFrontend", () => {
       Effect.Effect<
         StageResult<EffectModel>,
         never,
-        FileSystem.FileSystem | Path.Path | Crypto.Crypto
+        FileSystem.FileSystem | Path.Path | Digest.Digest
       >
     >();
     expectTypeOf(LiftTsSourceFrontend.layer).toEqualTypeOf<
-      Layer.Layer<LiftFrontend, never, FileSystem.FileSystem | Path.Path | Crypto.Crypto>
+      Layer.Layer<LiftFrontend, never, FileSystem.FileSystem | Path.Path | Digest.Digest>
     >();
     expectTypeOf<LiftFrontend["Service"]["analyze"]>().returns.toEqualTypeOf<
       Effect.Effect<StageResult<EffectModel>, CompilerFault>
@@ -176,7 +175,7 @@ describe("production LiftTsSourceFrontend", () => {
         }
 
         const fs = yield* FileSystem.FileSystem;
-        const crypto = yield* Crypto.Crypto;
+        const digest = yield* Digest.Digest;
         const file = model.files.find((file) => file.idPath === "src/api");
         assert.isDefined(file);
 
@@ -184,7 +183,7 @@ describe("production LiftTsSourceFrontend", () => {
           const text = yield* fs.readFileString(file.file);
           assert.strictEqual(
             file.sha256,
-            Hex.encode(yield* crypto.digest("SHA-256", new TextEncoder().encode(text))),
+            yield* digest.digestHex(Digest.sha256, new TextEncoder().encode(text)),
           );
           assert.strictEqual(file.end.offset, text.length);
           const lines = text.split("\n");
@@ -410,18 +409,16 @@ export class R extends HttpApi.make("root").add(G) {}`,
   );
 
   it.effect(
-    "substitutes Crypto without changing domain code and interrupts hashing with exactly one cleanup",
+    "substitutes Digest without changing domain code and interrupts hashing with exactly one cleanup",
     () =>
       Effect.gen(function* () {
         const fixture = yield* project(source, support);
-        const crypto = yield* Crypto.Crypto;
         const entered = yield* Deferred.make<void>();
-        const block = yield* Deferred.make<Uint8Array>();
+        const block = yield* Deferred.make<string>();
         let released = 0;
 
-        const substitute = Layer.succeed(Crypto.Crypto, {
-          ...crypto,
-          digest: Effect.fnUntraced(
+        const substitute = Layer.mock(Digest.Digest)({
+          digestHex: Effect.fnUntraced(
             function* () {
               yield* Deferred.succeed(entered, undefined);
 
@@ -447,9 +444,9 @@ export class R extends HttpApi.make("root").add(G) {}`,
         yield* Fiber.interrupt(fiber);
         assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(fiber)));
         assert.strictEqual(released, 1);
-        yield* Deferred.succeed(block, new Uint8Array(32));
+        yield* Deferred.succeed(block, "0".repeat(64));
         assert.strictEqual(released, 1);
-      }).pipe(Effect.provide(BunServices.layer)),
+      }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect(

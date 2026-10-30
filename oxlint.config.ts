@@ -7,7 +7,7 @@ import {
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 import { defineConfig, type OxlintConfig } from "oxlint";
-import { lintSeverities } from "./tools/conventions/effect-diagnostics.ts";
+import { adoptedNativeRules, lintSeverities } from "./tools/conventions/effect-diagnostics.ts";
 
 const effectTsgoPresets = [recommended, correctness];
 
@@ -163,7 +163,9 @@ const crossPackageSourceImportPatterns = [
 
 const expandedEffectConfig = totalOverrides(effect(effectConfig));
 
-const effectNativeRules = presetRules([effectNative], "error");
+const effectNativeRules = Object.fromEntries(
+  adoptedNativeRules.map((rule) => [rule, "error" as const]),
+);
 
 export default defineConfig({
   ...expandedEffectConfig,

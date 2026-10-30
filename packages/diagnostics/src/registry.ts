@@ -2,7 +2,10 @@ import { Effect, Option, Result, Schema } from "effect";
 import { DiagnosticEntry } from "./model.ts";
 
 /** Expected invalid registry input, not a compiler IO/invariant fault. */
-export class RegistryError extends Schema.TaggedError<RegistryError>()("RegistryError", {
+export class RegistryError extends Schema.TaggedError<
+  RegistryError,
+  { readonly brand: unique symbol }
+>()("RegistryError", {
   message: Schema.String,
 }) {}
 

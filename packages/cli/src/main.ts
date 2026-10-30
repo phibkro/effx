@@ -23,7 +23,10 @@ import { lsp, type LspOptions } from "./lsp.ts";
 import { dev } from "./watch.ts";
 import { modelsCheck } from "./models.ts";
 
-class CommandExit extends Schema.TaggedError<CommandExit>()("CommandExit", { code: Schema.Int }) {
+class CommandExit extends Schema.TaggedError<CommandExit, { readonly brand: unique symbol }>()(
+  "CommandExit",
+  { code: Schema.Int },
+) {
   override readonly [Runtime.errorReported] = false;
   override get [Runtime.errorExitCode]() {
     return this.code;

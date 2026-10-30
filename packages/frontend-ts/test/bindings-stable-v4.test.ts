@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from "effect";
 import { compile, Extensions } from "@effx/compiler";
@@ -11,16 +11,16 @@ import { requireStableV4FixtureDependencies } from "./stable-v4-fixture-dependen
 requireStableV4FixtureDependencies(new URL("./fixtures/stable-v4/", import.meta.url).pathname);
 
 const Services = Layer.mergeAll(
-  BunServices.layer,
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  NativePlatform,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
 );
 
-class BoundBehaviorFailure extends Schema.TaggedError<BoundBehaviorFailure>()(
-  "BoundBehaviorFailure",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+class BoundBehaviorFailure extends Schema.TaggedError<
+  BoundBehaviorFailure,
+  { readonly brand: unique symbol }
+>()("BoundBehaviorFailure", {
+  cause: Schema.Defect(),
+}) {}
 
 const RuntimeModule = Schema.Struct({
   observeBoundBehaviors: Schema.declare(

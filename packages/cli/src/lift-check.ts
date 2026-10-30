@@ -1,4 +1,5 @@
-import { Array as Arr, Crypto, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import { Array as Arr, Effect, FileSystem, Option, Path, Result, Schema } from "effect";
+import { Digest } from "effect/crypto";
 import {
   CheckReason,
   CompilerFault,
@@ -79,7 +80,10 @@ export interface LiftCheckRequest {
 }
 
 /** A form that cannot run: data, converted to `FormOutcome.Impossible` at the form boundary. */
-class FormUnavailable extends Schema.TaggedError<FormUnavailable>()("FormUnavailable", {
+class FormUnavailable extends Schema.TaggedError<
+  FormUnavailable,
+  { readonly brand: unique symbol }
+>()("FormUnavailable", {
   reason: CheckReason,
   detail: Schema.String,
   related: Schema.Array(Diagnostic),
@@ -646,7 +650,7 @@ export const runLiftCheck = Effect.fn("lift.check")(function* (
   CompilerFault,
   | FileSystem.FileSystem
   | Path.Path
-  | Crypto.Crypto
+  | Digest.Digest
   | LiftFrontend
   | LiftCheckExecution
   | LiftToolchain

@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option, Result } from "effect";
 import { StableId, canonical } from "@effx/ir";
@@ -217,7 +217,7 @@ describe("lift repair: shared references and source ownership", () => {
         ).refactors.length,
         0,
       );
-    }).pipe(Effect.provide(BunServices.layer)),
+    }).pipe(Effect.provide(NativePlatform)),
   );
 
   it("preserves distinct static-schema members and their import holding export", () => {
@@ -414,7 +414,7 @@ describe("lift repair: shared references and source ownership", () => {
           patched.find((entry) => entry.path === file.path)?.contents ?? "",
           "RepairReadResponse.pipe(HttpApiSchema.status(201))",
         );
-      }).pipe(Effect.provide(BunServices.layer)),
+      }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.effect(
@@ -444,7 +444,7 @@ describe("lift repair: shared references and source ownership", () => {
           .replace("query: { q: Schema.String }", "query: RepairReadQuery");
 
         assert.strictEqual(patched?.contents, expected);
-      }).pipe(Effect.provide(BunServices.layer)),
+      }).pipe(Effect.provide(NativePlatform)),
   );
 
   it("distinguishes definitely absent errors from unreadable error slots and retains input causes", () => {
@@ -603,7 +603,7 @@ describe("private const problem-union source facts", () => {
         assert.deepStrictEqual(recovered.unsupported, []);
         assert.deepStrictEqual(recovered.refactors, []);
         assert.deepStrictEqual(recovered.collected, result.collected);
-      }).pipe(Effect.provide(BunServices.layer)),
+      }).pipe(Effect.provide(NativePlatform)),
   );
 
   it.each([

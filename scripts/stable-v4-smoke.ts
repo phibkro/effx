@@ -1,6 +1,8 @@
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Path, Schema } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect, FileSystem, Path, Schema } from "effect";
+import { Digest } from "effect/crypto";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
+import { NativePlatform } from "./native-platform.ts";
 import { digestTree } from "../tools/testing/projects.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
 import { publicInstall, workspaceOverrides } from "./install-public.ts";
@@ -8,9 +10,12 @@ import { api, support } from "./test/lift-sources.ts";
 
 // EX-0023: reuse the scoped, bounded native child adapter. No child output is logged.
 // This root owns the disposable consumer, all children, and its socket server until scope close.
-class SmokeFailure extends Schema.TaggedError<SmokeFailure>()("SmokeFailure", {
-  step: Schema.String,
-}) {
+class SmokeFailure extends Schema.TaggedError<SmokeFailure, { readonly brand: unique symbol }>()(
+  "SmokeFailure",
+  {
+    step: Schema.String,
+  },
+) {
   override get message() {
     return this.step;
   }
@@ -85,7 +90,7 @@ test("installed stable HTTP and RPC contracts", () => Effect.runPromise(
 const smoke = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url));
   const artifacts = path.join(root, "dist-artifacts");
 
@@ -102,14 +107,13 @@ const smoke = Effect.gen(function* () {
   );
 
   const dependencies = new Map<string, string>([
-    ["effect", "4.0.0"],
-    ["@effect/platform-bun", "4.0.0"],
+    ["effect", "4.1.0"],
+    ["@effect/platform-bun", "4.1.0"],
   ]);
 
   for (const [filename, expected] of Object.entries(manifest.sha256s)) {
     const bytes = yield* fs.readFile(path.join(artifacts, filename));
-    const digest = yield* crypto.digest("SHA-256", bytes);
-    const hash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const hash = yield* digest.digestHex(Digest.sha256, bytes);
 
     yield* requireThat(hash === expected, "artifact integrity");
 
@@ -133,8 +137,8 @@ const smoke = Effect.gen(function* () {
       private: true,
       type: "module",
       dependencies: Object.fromEntries(dependencies),
-      // platform-bun 4.0.0 permits newer node-shared releases, which require newer Effect APIs.
-      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.0.0" },
+      // platform-bun 4.1.0 permits newer node-shared releases, which require newer Effect APIs.
+      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.1.0" },
       devDependencies: { typescript: "7.0.2", "@types/bun": "1.4.2" },
     }),
   );
@@ -366,6 +370,6 @@ export default defineConfig({ models: { alloy: true }, extensions: [domainModel(
   yield* Effect.log(
     "stable installed consumer: checks, channels, HTTP, RPC, CLI, Alloy models, and RC rejection passed",
   );
-}).pipe(Effect.scoped, Effect.provide(BunServices.layer));
+}).pipe(Effect.scoped, Effect.provide(NativePlatform));
 
 BunRuntime.runMain(smoke);

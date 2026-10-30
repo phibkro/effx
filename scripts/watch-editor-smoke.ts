@@ -1,6 +1,8 @@
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Path, Schema, Stdio, Stream } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect, FileSystem, Path, Schema, Stdio, Stream } from "effect";
+import { Digest } from "effect/crypto";
 import { acquireCommand } from "../packages/cli/test/packed-watch-peer.ts";
+import { NativePlatform } from "./native-platform.ts";
 import { acquirePeer } from "./lsp-test-peer.ts";
 import type { PackedCommand } from "../packages/cli/test/packed-watch-peer.ts";
 import type { PeerError } from "./lsp-test-peer.ts";
@@ -14,9 +16,12 @@ import { publicInstall, workspaceOverrides } from "./install-public.ts";
  * Receipts are completed dev cycles, versioned diagnostic publications, and child exits;
  * deadlines fail the journey, never stand in for successful observation.
  */
-class SmokeFailure extends Schema.TaggedError<SmokeFailure>()("SmokeFailure", {
-  journey: Schema.String,
-}) {
+class SmokeFailure extends Schema.TaggedError<SmokeFailure, { readonly brand: unique symbol }>()(
+  "SmokeFailure",
+  {
+    journey: Schema.String,
+  },
+) {
   override get message() {
     return this.journey;
   }
@@ -104,7 +109,7 @@ const parameters = {
 const smoke = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const hasher = yield* Digest.Digest;
   const stdio = yield* Stdio.Stdio;
   const args = yield* stdio.args;
   const expectedSourceSHA = args[0] ?? "";
@@ -124,15 +129,12 @@ const smoke = Effect.gen(function* () {
     "manifest commit equals expected final SHA",
   );
 
-  const digest = Effect.fnUntraced(function* (file: string) {
-    return Array.from(yield* crypto.digest("SHA-256", yield* fs.readFile(file)), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-  });
+  const digest = (file: string) =>
+    Effect.flatMap(fs.readFile(file), (bytes) => hasher.digestHex(Digest.sha256, bytes));
 
   const dependencies = new Map<string, string>([
-    ["effect", "4.0.0"],
-    ["@effect/platform-bun", "4.0.0"],
+    ["effect", "4.1.0"],
+    ["@effect/platform-bun", "4.1.0"],
     ["@typescript/typescript6", "6.0.2"],
     ["vscode-jsonrpc", "9.0.3"],
   ]);
@@ -185,8 +187,8 @@ const smoke = Effect.gen(function* () {
       version: "1.0.0",
       type: "module",
       dependencies: Object.fromEntries(dependencies),
-      // Keep the transitive platform adapter aligned with the Effect 4.0.0 consumer.
-      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.0.0" },
+      // Keep the transitive platform adapter aligned with the Effect 4.1.0 consumer.
+      overrides: { ...workspaceOverrides(dependencies), "@effect/platform-node-shared": "4.1.0" },
     }),
   );
 
@@ -204,9 +206,7 @@ const smoke = Effect.gen(function* () {
   yield* publicInstall(consumer, false, true);
   const lock = yield* fs.readFile(path.join(consumer, "bun.lock"));
 
-  const lockHash = Array.from(yield* crypto.digest("SHA-256", lock), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const lockHash = yield* hasher.digestHex(Digest.sha256, lock);
 
   yield* publicInstall(consumer, true, true);
   yield* requireThat(
@@ -757,4 +757,4 @@ export default defineConfig({ strictAccess: !enabled || !computed.enabled,
   ).pipe(Stream.run(stdio.stdout()));
 });
 
-BunRuntime.runMain(smoke.pipe(Effect.scoped, Effect.provide(BunServices.layer)));
+BunRuntime.runMain(smoke.pipe(Effect.scoped, Effect.provide(NativePlatform)));

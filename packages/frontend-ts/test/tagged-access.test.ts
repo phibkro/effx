@@ -1,14 +1,14 @@
 import { copyUsersFixture } from "../../../tools/testing/projects.ts";
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, SourceFrontend, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
 import { canonical, semanticHash } from "@effx/ir";
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 
-const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer));
+const Frontend = TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform));
 
-const Services = Layer.mergeAll(Frontend, BunServices.layer);
+const Services = Layer.mergeAll(Frontend, NativePlatform);
 
 const cases = [
   {

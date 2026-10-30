@@ -60,16 +60,22 @@ const decodeCancel = Schema.decodeUnknownEffect(
   Schema.Struct({ id: Schema.Union([Schema.String, Schema.Int]) }),
 );
 
-export class TransportError extends Schema.TaggedError<TransportError>()("TransportError", {
+export class TransportError extends Schema.TaggedError<
+  TransportError,
+  { readonly brand: unique symbol }
+>()("TransportError", {
   reason: Schema.Literals(["Closed", "Framing", "Decode", "Capacity", "IO", "Handler"]),
   cause: Schema.Defect(),
 }) {}
 
-export class RpcFailure extends Schema.TaggedError<RpcFailure>()("RpcFailure", {
-  code: Schema.Int,
-  message: Schema.String,
-  data: Schema.optionalKey(Schema.Json),
-}) {}
+export class RpcFailure extends Schema.TaggedError<RpcFailure, { readonly brand: unique symbol }>()(
+  "RpcFailure",
+  {
+    code: Schema.Int,
+    message: Schema.String,
+    data: Schema.optionalKey(Schema.Json),
+  },
+) {}
 
 const fault = (reason: TransportError["reason"], cause: unknown = reason) =>
   new TransportError({ reason, cause });
@@ -78,7 +84,10 @@ const BODY = 8 * 1024 * 1024;
 
 const HEADER = 8 * 1024;
 
-export class ClientProbeError extends Schema.TaggedError<ClientProbeError>()("ClientProbeError", {
+export class ClientProbeError extends Schema.TaggedError<
+  ClientProbeError,
+  { readonly brand: unique symbol }
+>()("ClientProbeError", {
   reason: Schema.Literals(["Gone", "Denied", "IO"]),
   cause: Schema.Defect(),
 }) {}

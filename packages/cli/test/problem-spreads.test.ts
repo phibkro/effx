@@ -1,4 +1,4 @@
-import { BunServices } from "@effect/platform-bun";
+import { NativePlatform } from "../../../scripts/native-platform.ts";
 import { assert, describe, it } from "@effect/vitest";
 import { Extensions, compile } from "@effx/compiler";
 import { TsSourceFrontend } from "@effx/frontend-ts";
@@ -13,8 +13,8 @@ const runtime = new URL("../../runtime/src/index.ts", import.meta.url).pathname;
 const main = new URL("../../../scripts/effx.ts", import.meta.url).pathname;
 
 const Services = Layer.mergeAll(
-  BunServices.layer,
-  TsSourceFrontend.layer.pipe(Layer.provide(BunServices.layer)),
+  NativePlatform,
+  TsSourceFrontend.layer.pipe(Layer.provide(NativePlatform)),
 );
 
 const withProject = Effect.fnUntraced(function* <A, E, R>(
